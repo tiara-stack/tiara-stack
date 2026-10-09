@@ -2081,7 +2081,7 @@ describe("staged source snapshots", () => {
       }),
   );
 
-  it.effect("starts affected dependencies before the ordinary runner", () =>
+  it.effect("starts the API and ordinary runner before the isolated browser runner", () =>
     Effect.gen(function* () {
       const restarted: string[] = [];
       const readinessRoles: ReadonlyArray<string>[] = [];
@@ -2110,6 +2110,57 @@ describe("staged source snapshots", () => {
       expect(readinessRoles).toEqual([["workflow-api", "ordinary-runner", "browser-runner"]]);
     }),
   );
+
+  it.effect(
+    "restarts the selected browser runner in dependency order and scopes its image rebuild",
+    () =>
+      Effect.gen(function* () {
+        const restarted: string[] = [];
+        const rebuilt: Array<{ revision: string; roles: ReadonlyArray<string> }> = [];
+        const before = snapshot("r1", [
+          [
+            "packages/sheet-workflows/package.json",
+            '{"name":"sheet-workflows","dependencies":{"playwright":"1.58.2"}}',
+          ],
+        ]);
+        const after = snapshot("r2", [
+          [
+            "packages/sheet-workflows/package.json",
+            '{"name":"sheet-workflows","dependencies":{"playwright":"1.58.3"}}',
+          ],
+        ]);
+        const result = yield* activateWithRuntime({
+          snapshot: after,
+          previous: before,
+          owner: "browser-owner",
+          nextOwner: "browser-next-owner",
+          roles: ["ordinary-runner", "browser-runner"],
+          runtime: runtimeLayer({
+            rebuildArtifacts: (revision, roles) =>
+              Effect.sync(() => rebuilt.push({ revision, roles })).pipe(Effect.asVoid),
+            restartRole: (role, revision, kind) =>
+              Effect.sync(() => restarted.push(`${role}:${revision}:${kind}`)).pipe(Effect.asVoid),
+          }),
+        });
+
+        expect(result.failure).toBeNull();
+        expect(rebuilt).toEqual([{ revision: "r2", roles: ["browser-runner"] }]);
+        expect(restarted).toEqual(["browser-runner:r2:artifact"]);
+      }),
+  );
+
+  it("routes screenshot renderer source edits only to the browser runner", () => {
+    const before = snapshot("r1", [
+      ["packages/sheet-workflows/src/workflows/screenshots/browser.ts", "export const browser = 1"],
+    ]);
+    const after = snapshot("r2", [
+      ["packages/sheet-workflows/src/workflows/screenshots/browser.ts", "export const browser = 2"],
+    ]);
+
+    expect(affectedRunnerRoles(before, after, ["ordinary-runner", "browser-runner"])).toEqual([
+      "browser-runner",
+    ]);
+  });
 
   it.effect("coalesces a rapid save burst to one activation of the newest complete revision", () =>
     Effect.gen(function* () {

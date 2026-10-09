@@ -36,7 +36,7 @@ const sealSnapshot = (
 });
 
 describe("staged source snapshot structural contract", () => {
-  it("represents browser runner identities while rejecting non-runner roles", () => {
+  it("validates browser runner identities while rejecting non-runner roles", () => {
     expect(Schema.is(RunnerRoleSchema)("browser-runner")).toBe(true);
     expect(
       Schema.is(StagedRunnerSnapshotIdentitySchema)({
@@ -53,6 +53,13 @@ describe("staged source snapshot structural contract", () => {
       }),
     ).toBe(false);
     expect(Schema.is(RunnerRoleSchema)("unsupported-runner")).toBe(false);
+    expect(
+      Schema.is(StagedRunnerSnapshotIdentitySchema)({
+        sessionId: "session-a",
+        generation: 1,
+        role: "ordinary-runner",
+      }),
+    ).toBe(true);
   });
 
   it("validates the shared UTF-8 and base64 file structure", () => {

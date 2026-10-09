@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Cause, Context, Effect, Layer, Match, Option, Schema } from "effect";
+import { Cause, Clock, Context, Effect, Layer, Match, Option, Schema } from "effect";
 import {
   RunnerRevisionStatusSchema,
   RunnerRoleSchema,
@@ -186,6 +186,34 @@ const workspacePackageNames = (manifests: WorkspacePackageManifests) => {
   return names;
 };
 
+const playwrightOnlyDependencyChange = (
+  previous: StagedSourceSnapshot,
+  next: StagedSourceSnapshot,
+  changedPaths: ReadonlyArray<string>,
+) => {
+  const packagePath = "packages/sheet-workflows/package.json";
+  if (
+    !changedPaths.includes(packagePath) ||
+    changedPaths.some((path) => path !== packagePath && path !== "pnpm-lock.yaml")
+  )
+    return false;
+  const before = workspacePackageManifests(previous).get("sheet-workflows")?.manifest;
+  const after = workspacePackageManifests(next).get("sheet-workflows")?.manifest;
+  if (
+    before === undefined ||
+    after === undefined ||
+    before.dependencies?.playwright === after.dependencies?.playwright
+  )
+    return false;
+  const withoutPlaywright = (manifest: WorkspacePackageManifest) => ({
+    ...manifest,
+    dependencies: Object.fromEntries(
+      Object.entries(manifest.dependencies ?? {}).filter(([name]) => name !== "playwright"),
+    ),
+  });
+  return JSON.stringify(withoutPlaywright(before)) === JSON.stringify(withoutPlaywright(after));
+};
+
 /** Propagate changed workspace packages to selected workflow consumers through workspace dependencies. */
 export const affectedRunnerRoles = (
   previous: StagedSourceSnapshot,
@@ -194,6 +222,14 @@ export const affectedRunnerRoles = (
 ): ReadonlyArray<RunnerRole> => {
   const changedPaths = changedSnapshotPaths(previous, next);
   if (changedPaths.length === 0) return selectedRoles;
+  if (playwrightOnlyDependencyChange(previous, next, changedPaths))
+    return selectedRoles.filter((role) => role === "browser-runner");
+  if (
+    changedPaths.every(
+      (path) => path === "packages/sheet-workflows/src/workflows/screenshots/browser.ts",
+    )
+  )
+    return selectedRoles.filter((role) => role === "browser-runner");
   const changedDirectories = changedPackageDirectories(changedPaths);
   if (changedDirectories === undefined) return selectedRoles;
   const previousManifests = workspacePackageManifests(previous);
@@ -314,7 +350,10 @@ export interface StagedRunnerRuntimeApi {
   ) => Effect.Effect<void, SnapshotRuntimeError>;
   readonly activateComplete: (revision: string) => Effect.Effect<void, SnapshotRuntimeError>;
   readonly retainImmutableRevision: (revision: string) => Effect.Effect<void, SnapshotRuntimeError>;
-  readonly rebuildArtifacts: (revision: string) => Effect.Effect<void, SnapshotRuntimeError>;
+  readonly rebuildArtifacts: (
+    revision: string,
+    roles: ReadonlyArray<RunnerRole>,
+  ) => Effect.Effect<void, SnapshotRuntimeError>;
   readonly restartRole: (
     role: RunnerRole,
     revision: string,
@@ -369,6 +408,12 @@ type RunnerActivationState = {
   workflowRecreation: WorkflowRecreationDiagnostic | undefined;
   workflowRecreationAuthorityAuthorized: boolean;
   workflowTransitionPhases: WorkflowTransitionPhaseFacts | undefined;
+  startedAt: number;
+  change: SnapshotChange | null;
+  stagingMillis: number;
+  artifactRebuildMillis: number;
+  restartMillis: number;
+  readinessMillis: number;
 };
 
 const statusForRevision = (
@@ -425,14 +470,26 @@ const prepareRunnerRevision = (
   input: RunnerActivationInput,
   snapshot: StagedSourceSnapshot,
   runtime: StagedRunnerRuntimeApi,
+  roles: ReadonlyArray<RunnerRole>,
+  state: RunnerActivationState,
 ): Effect.Effect<SnapshotChange, SnapshotRuntimeError> =>
   Effect.timeoutOrElse(
     Effect.gen(function* () {
+      const stagingStartedAt = yield* Clock.currentTimeMillis;
       yield* runtime.stageComplete(snapshot);
       yield* runtime.fenceOldOwner(input.owner, input.nextOwner);
       if (input.previous) yield* runtime.retainImmutableRevision(input.previous.revision);
       const change = input.previous ? classifySnapshotChange(input.previous, snapshot) : "artifact";
-      if (change === "artifact") yield* runtime.rebuildArtifacts(snapshot.revision);
+      state.change = change;
+      state.stagingMillis += Math.max(0, (yield* Clock.currentTimeMillis) - stagingStartedAt);
+      if (change === "artifact" && roles.length > 0) {
+        const rebuildStartedAt = yield* Clock.currentTimeMillis;
+        yield* runtime.rebuildArtifacts(snapshot.revision, roles);
+        state.artifactRebuildMillis += Math.max(
+          0,
+          (yield* Clock.currentTimeMillis) - rebuildStartedAt,
+        );
+      }
       return change;
     }),
     {
@@ -491,27 +548,25 @@ const authorizeRunnerActivation = (
     }),
   );
 };
-
 const requireRunnerReadiness = (
   runtime: StagedRunnerRuntimeApi,
   revision: string,
   roles: ReadonlyArray<RunnerRole>,
+  state: RunnerActivationState,
 ): Effect.Effect<void, SnapshotError | SnapshotRuntimeError> =>
-  runtime
-    .verifyActualReadiness(revision, roles)
-    .pipe(
+  Effect.gen(function* () {
+    const startedAt = yield* Clock.currentTimeMillis;
+    const ready = yield* runtime.verifyActualReadiness(revision, roles).pipe(
       Effect.timeout(stagedSourceActivationTimeouts.readiness),
       Effect.mapError((error) =>
         Cause.isTimeoutError(error)
           ? new SnapshotRuntimeError({ reason: "runner-readiness-timeout" })
           : error,
       ),
-    )
-    .pipe(
-      Effect.flatMap((ready) =>
-        ready ? Effect.void : Effect.fail(new SnapshotError({ reason: "readiness-check-failed" })),
-      ),
     );
+    state.readinessMillis += Math.max(0, (yield* Clock.currentTimeMillis) - startedAt);
+    if (!ready) return yield* Effect.fail(new SnapshotError({ reason: "readiness-check-failed" }));
+  });
 
 const sameRevisionSnapshot = (
   previous: StagedSourceSnapshot | null,
@@ -818,9 +873,11 @@ const restartRunnerRoles = (
   revision: string,
   change: SnapshotChange,
   roles: ReadonlyArray<RunnerRole>,
+  state: RunnerActivationState,
 ): Effect.Effect<void, SnapshotRuntimeError> =>
   Effect.gen(function* () {
-    for (const role of roles)
+    for (const role of roles) {
+      const startedAt = yield* Clock.currentTimeMillis;
       yield* runtime.restartRole(role, revision, change).pipe(
         Effect.timeout(stagedSourceActivationTimeouts.restart),
         Effect.mapError((error) =>
@@ -829,6 +886,8 @@ const restartRunnerRoles = (
             : error,
         ),
       );
+      state.restartMillis += Math.max(0, (yield* Clock.currentTimeMillis) - startedAt);
+    }
   });
 
 const prepareWorkflowActivation = (
@@ -862,6 +921,7 @@ const executeRunnerActivation = (
 ): Effect.Effect<RunnerRevisionStatus, RunnerActivationError, StagedRunnerRuntime> =>
   Effect.gen(function* () {
     const runtime = yield* StagedRunnerRuntime;
+    state.startedAt = yield* Clock.currentTimeMillis;
     const { snapshot, isSameRevision, workflowRecreation, workflowRecreationAuthorityAuthorized } =
       yield* prepareWorkflowActivation(input, runtime);
     state.workflowRecreation = workflowRecreation;
@@ -873,12 +933,12 @@ const executeRunnerActivation = (
       roles = affectedRunnerRoles(input.previous, snapshot, selectedRoles);
     state.roles = roles;
     if (isSameRevision && state.workflowRecreation === undefined) {
-      yield* requireRunnerReadiness(runtime, snapshot.revision, roles);
+      yield* requireRunnerReadiness(runtime, snapshot.revision, roles, state);
       return statusForRevision(snapshot.revision, state.workflowRecreation);
     }
     if (!state.workflowRecreationAuthorityAuthorized)
       yield* authorizeRunnerActivation(input, snapshot, roles, runtime);
-    const change = yield* prepareRunnerRevision(input, snapshot, runtime);
+    const change = yield* prepareRunnerRevision(input, snapshot, runtime, roles, state);
     if (state.workflowRecreation !== undefined)
       yield* withWorkflowRecreationTimeout(
         runtime.persistWorkflowRecreationDiagnostic(state.workflowRecreation),
@@ -925,8 +985,8 @@ const executeRunnerActivation = (
       ),
     );
     state.activated = true;
-    yield* restartRunnerRoles(runtime, snapshot.revision, change, roles);
-    yield* requireRunnerReadiness(runtime, snapshot.revision, roles);
+    yield* restartRunnerRoles(runtime, snapshot.revision, change, roles, state);
+    yield* requireRunnerReadiness(runtime, snapshot.revision, roles, state);
     return statusForRevision(snapshot.revision, state.workflowRecreation);
   });
 
@@ -940,9 +1000,35 @@ export const activateRunnerSnapshot = (
     workflowRecreation: undefined,
     workflowRecreationAuthorityAuthorized: false,
     workflowTransitionPhases: undefined,
+    startedAt: 0,
+    change: null,
+    stagingMillis: 0,
+    artifactRebuildMillis: 0,
+    restartMillis: 0,
+    readinessMillis: 0,
   };
   return executeRunnerActivation(input, state).pipe(
     Effect.catch((reason) => Effect.succeed(failureStatus(input, state, reason))),
+    Effect.tap((status) =>
+      Clock.currentTimeMillis.pipe(
+        Effect.flatMap((completedAt) =>
+          Effect.logInfo("Workflow runner source activation completed").pipe(
+            Effect.annotateLogs({
+              requestedRevision: status.requestedRevision,
+              activeRevision: status.activeRevision,
+              roles: state.roles.join(","),
+              outcome: status.failure === null ? "ready" : "unavailable",
+              changeKind: state.change ?? "readiness-only",
+              stagingMillis: state.stagingMillis,
+              artifactRebuildMillis: state.artifactRebuildMillis,
+              restartMillis: state.restartMillis,
+              readinessMillis: state.readinessMillis,
+              totalMillis: Math.max(0, completedAt - state.startedAt),
+            }),
+          ),
+        ),
+      ),
+    ),
   );
 };
 

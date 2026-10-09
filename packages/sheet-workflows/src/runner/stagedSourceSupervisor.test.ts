@@ -69,6 +69,11 @@ const sourceIdentityReordered: StagedRunnerSnapshotIdentity = {
   generation: 1,
   sessionId: "session-1",
 };
+const browserIdentity: StagedRunnerSnapshotIdentity = {
+  sessionId: "session-1",
+  generation: 1,
+  role: "browser-runner",
+};
 const identityKey = runnerSourceIdentityKey(sourceIdentity);
 const runtimeStorageDefaults = {
   estimatePreparedSnapshotBytes: () => Effect.succeed(1_000),
@@ -119,6 +124,50 @@ const activateInEnvironment = (
 const testFileSystemLayer = Layer.mergeAll(NodeFileSystem.layer, NodePath.layer);
 
 describe("runner staged-source supervisor", () => {
+  it.effect("isolates browser source state and readiness from the ordinary runner", () =>
+    Effect.gen(function* () {
+      expect(runnerSourceIdentityKey(browserIdentity)).not.toBe(
+        runnerSourceIdentityKey(sourceIdentity),
+      );
+      expect(runnerSourceRevisionKey(browserIdentity, "r1", "d".repeat(64))).not.toBe(
+        runnerSourceRevisionKey(sourceIdentity, "r1", "d".repeat(64)),
+      );
+
+      const workspaceRoot = join("/tmp", `browser-runner-source-${randomUUID()}`);
+      let ready = false;
+      const environment = supervisorEnvironment(workspaceRoot, {
+        estimatePreparedSnapshotBytes: () => Effect.succeed(1),
+        prepareSnapshot: () => Effect.void,
+        restart: ({ identity }) =>
+          Effect.sync(() => {
+            expect(identity.role).toBe("browser-runner");
+          }),
+        verifyReadiness: ({ identity }) =>
+          Effect.sync(() => identity.role === "browser-runner" && ready),
+      });
+      const fileSystem = yield* FileSystem.FileSystem;
+      const candidate = snapshot("browser-r1");
+      const failed = yield* activateInEnvironment(environment, candidate, browserIdentity);
+      expect(failed.unavailableRoles).toEqual(["browser-runner"]);
+      expect(failed.activeRevision).toBe("browser-r1");
+
+      ready = true;
+      const recovered = yield* activateInEnvironment(environment, candidate, browserIdentity);
+      expect(recovered).toMatchObject({
+        requestedRevision: "browser-r1",
+        activeRevision: "browser-r1",
+        unavailableRoles: [],
+        failure: null,
+      });
+      expect(yield* fileSystem.exists(join(workspaceRoot, "staged", identityKey))).toBe(false);
+      expect(
+        yield* fileSystem.exists(
+          join(workspaceRoot, "staged", runnerSourceIdentityKey(browserIdentity)),
+        ),
+      ).toBe(true);
+    }).pipe(Effect.provide(testFileSystemLayer)),
+  );
+
   it.effect("skips the snapshot root prepare sentinel and runs pending dependency setup", () => {
     const sourceRoot = join("/tmp", `runner-source-install-${randomUUID()}`);
     return Effect.gen(function* () {
