@@ -13,6 +13,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { SqlClient } from "effect/unstable/sql";
 import {
   defaultWorkflowRunListLimit,
   InvocationId,
@@ -29,9 +30,13 @@ import {
 } from "effect-zero-workflow/contract/http/server";
 import {
   WorkflowObservationInvalidData,
+  WorkflowEnqueueRequest,
   workflowContractRoutes,
 } from "effect-zero-workflow/contract/transport";
-import { SheetWorkflowContractCatalog } from "sheet-workflow-contracts";
+import {
+  ScreenshotsCaptureAndDeliver,
+  SheetWorkflowContractCatalog,
+} from "sheet-workflow-contracts";
 import { getSheetDbMigrationArtifactDigest } from "sheet-zero-server/state-plane-admission";
 import type { SheetWorkflowZeroContext } from "sheet-zero-server";
 import { vi } from "vitest";
@@ -50,6 +55,8 @@ import { ReadOnlyWorkflowAuthorization } from "@/workflows/readOnly/authorizatio
 const sheetDbMigrationArtifactDigest = getSheetDbMigrationArtifactDigest();
 
 const routeManifest = workflowHttpRouteManifest(SheetWorkflowContractCatalog);
+const browserReadinessSqlClient = ((..._parameters: ReadonlyArray<unknown>) =>
+  Effect.succeed([{ ready: true }])) as unknown as SqlClient.SqlClient;
 
 const requestPath = (path: string) => path.replace(":invocationId", "not-an-invocation-id");
 
@@ -134,6 +141,10 @@ describe("sheet workflow HTTP contract boundary", () => {
             workflowHttpRoutesLayer.pipe(
               Layer.provide(Layer.mock(WorkflowStore)({})),
               Layer.provide(
+                Layer.succeed(SqlClient.SqlClient, ((..._parameters: ReadonlyArray<unknown>) =>
+                  Effect.succeed([{ ready: true }])) as unknown as SqlClient.SqlClient),
+              ),
+              Layer.provide(
                 ConfigProvider.layer(
                   ConfigProvider.fromUnknown({
                     SHEET_AUTH_ISSUER: "https://issuer.example.com",
@@ -143,13 +154,14 @@ describe("sheet workflow HTTP contract boundary", () => {
               ),
               Layer.provide(HttpRouter.layer),
             ),
-          );
+          ).pipe(Effect.provideService(SqlClient.SqlClient, browserReadinessSqlClient));
           const responses = yield* Effect.forEach(routeManifest, ({ method, path }) =>
             handler.pipe(
               Effect.provideService(
                 HttpServerRequest.HttpServerRequest,
                 HttpServerRequest.fromWeb(routeRequest(method, path)),
               ),
+              Effect.provideService(SqlClient.SqlClient, browserReadinessSqlClient),
               Effect.provide(Layer.mock(ReadOnlyWorkflowAuthorization)({})),
             ),
           );
@@ -270,6 +282,57 @@ describe("sheet workflow HTTP contract boundary", () => {
         expect(responses.map(({ status }) => status)).toEqual(routeManifest.map(() => 400));
       }),
     ),
+  );
+
+  it.effect(
+    "rejects browser workflows before durable acceptance when the browser group is unavailable",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          let enqueueCalls = 0;
+          const executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, never> = {
+            enqueue: () =>
+              Effect.sync(() => {
+                enqueueCalls += 1;
+              }).pipe(Effect.andThen(Effect.die("browser readiness must reject before enqueue"))),
+            get: () => Stream.die("unused"),
+            list: () => Stream.die("unused"),
+          };
+          const handler = yield* HttpRouter.toHttpEffect(
+            makeWorkflowHttpRoutesLayer(
+              authorized,
+              authorized,
+              executor,
+              undefined,
+              undefined,
+              undefined,
+              () => Effect.succeed(false),
+            ).pipe(Layer.provide(HttpRouter.layer)),
+          );
+          const requestSchema = WorkflowEnqueueRequest(ScreenshotsCaptureAndDeliver);
+          const body = Schema.encodeSync(requestSchema)(
+            Schema.decodeUnknownSync(requestSchema)({
+              invocationId: "123e4567-e89b-42d3-a456-426614174000",
+              input: {
+                workspaceId: "workspace-1",
+                responseReference: "response-1",
+                conversationName: "fixture",
+                day: 1,
+              },
+            }),
+          );
+          const routes = workflowContractRoutes(ScreenshotsCaptureAndDeliver);
+          const response = yield* handler.pipe(
+            Effect.provideService(
+              HttpServerRequest.HttpServerRequest,
+              HttpServerRequest.fromWeb(routeRequest("POST", routes.enqueue, JSON.stringify(body))),
+            ),
+          );
+
+          expect(response.status).toBe(503);
+          expect(enqueueCalls).toBe(0);
+        }),
+      ),
   );
 
   it.effect("keeps service-only workflow routes on the service authorizer", () =>

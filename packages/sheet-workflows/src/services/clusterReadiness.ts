@@ -113,6 +113,33 @@ export const isClusterRunnerFleetReady = Effect.gen(function* () {
   Effect.withSpan("sheet-workflows.runner.fleetReady"),
 );
 
+/** Browser workflows remain unaccepted until a healthy runner owns browser shards. */
+export const isBrowserRunnerFleetReady = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const [row] = yield* sql<ClusterReadinessRow>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM "sheet_workflows_runners" AS runner
+      WHERE runner.healthy = TRUE
+        AND runner.last_heartbeat > NOW() - (${HEARTBEAT_WINDOW_SECONDS} * INTERVAL '1 second')
+        AND (
+          SELECT COUNT(*)
+          FROM "sheet_workflows_locks"
+          WHERE "sheet_workflows_locks".address = runner.address
+            AND "sheet_workflows_locks".acquired_at > NOW() - (${SHARD_LOCK_WINDOW_SECONDS} * INTERVAL '1 second')
+        ) = ${BROWSER_SHARD_LOCK_COUNT}
+    ) AS ready
+  `;
+  return row?.ready === true;
+}).pipe(
+  Effect.catchCause((cause) =>
+    Effect.logWarning("Failed to verify browser workflow runner capability", cause).pipe(
+      Effect.as(false),
+    ),
+  ),
+  Effect.withSpan("sheet-workflows.browserRunner.ready"),
+);
+
 const isWorkflowProducerReady = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const [row] = yield* sql<ClusterReadinessRow>`SELECT TRUE AS ready`;

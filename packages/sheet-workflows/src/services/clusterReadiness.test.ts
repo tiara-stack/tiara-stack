@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { ConfigProvider, Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import {
+  isBrowserRunnerFleetReady,
   isClusterRunnerFleetReady,
   isCurrentClusterRunnerReady,
   isWorkflowApiReady,
@@ -45,6 +46,23 @@ const runReadiness = (
   );
 
 describe("cluster readiness", () => {
+  it.effect("requires a healthy runner holding the browser shard group", () =>
+    Effect.gen(function* () {
+      const queries: string[] = [];
+      const parameterSets: unknown[][] = [];
+      const ready = yield* runReadiness(isBrowserRunnerFleetReady, [{ ready: true }], {
+        parameterSets,
+        queries,
+      });
+
+      expect(ready).toBe(true);
+      expect(queries.join("\n")).toContain('FROM "sheet_workflows_runners" AS runner');
+      expect(queries.join("\n")).toContain('"sheet_workflows_locks".address = runner.address');
+      expect(parameterSets.flat()).toContain(300);
+      expect(parameterSets.flat()).not.toContain(600);
+    }),
+  );
+
   it.effect("marks the current runner ready when its healthy heartbeat is recent", () =>
     Effect.gen(function* () {
       const queries: string[] = [];

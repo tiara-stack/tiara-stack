@@ -2009,12 +2009,13 @@ liveTest("requires explicit workflow callers for an owned group", () =>
     expect(output.connectedPreview.missingRoles).toEqual([
       "sheet-workflows-api",
       "sheet-workflows-runner",
+      "sheet-workflows-browser-runner",
     ]);
     expect(output.connectedPreview.requiredGroups).toContainEqual({
       id: "workflow-execution",
       ownership: "owned",
     });
-    expect(output.errors.filter(({ code }) => code === "required-role-missing")).toHaveLength(2);
+    expect(output.errors.filter(({ code }) => code === "required-role-missing")).toHaveLength(3);
   }),
 );
 
@@ -2733,7 +2734,13 @@ liveTest("reports unreadable capacity baseline as not imported", () =>
 liveTest("keeps sheet-web allocation unavailable until its host runtime is wired", () =>
   withConnectedPreviewConfig(
     createConnectedPreviewConfig({
-      roles: ["sheet-web", "sheet-db-server", "sheet-workflows-api", "sheet-workflows-runner"],
+      roles: [
+        "sheet-web",
+        "sheet-db-server",
+        "sheet-workflows-api",
+        "sheet-workflows-runner",
+        "sheet-workflows-browser-runner",
+      ],
       configOverrides: { seed: "synthetic-development-v1" },
     }),
     (configPath, cwd) =>
