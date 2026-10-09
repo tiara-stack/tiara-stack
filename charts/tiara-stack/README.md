@@ -50,8 +50,10 @@ different UID.
 
 The development overlay provisions an isolated preview in the shared cluster.
 It uses the Infisical `dev` environment, dedicated development databases, and
-the current production node (`pool-tiara-stack-37ndzl`). The release name must
-remain `tiara-stack-dev` because the chart includes cluster-scoped RBAC.
+the dedicated DOKS node pool (`pool-tiara-stack`). The overlay selects the pool
+by its stable label so node replacement does not require a values-file update.
+The release name must remain `tiara-stack-dev` because the chart includes
+cluster-scoped RBAC.
 
 Before installing, provision the namespace-local registry pull secret and CA
 ConfigMap expected by the development overlay:

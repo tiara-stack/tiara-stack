@@ -6,10 +6,9 @@
 global:
   imagePullSecrets:
     - name: theerapakg-registry
-  # Keep the preview co-located with production's current node.
+  # Keep previews on the dedicated TiaraStack node pool.
   nodeSelector:
-    deployment: tiara-stack
-    kubernetes.io/hostname: pool-tiara-stack-37ndzl
+    doks.digitalocean.com/node-pool: pool-tiara-stack
   tolerations:
     - key: deployment
       operator: Equal

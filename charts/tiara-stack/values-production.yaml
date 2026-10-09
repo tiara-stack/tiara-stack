@@ -40,7 +40,7 @@ ingress:
 
 global:
   nodeSelector:
-    deployment: tiara-stack
+    doks.digitalocean.com/node-pool: pool-tiara-stack
   tolerations:
     - key: deployment
       operator: Equal
