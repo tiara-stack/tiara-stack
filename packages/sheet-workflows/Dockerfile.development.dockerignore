@@ -11,3 +11,6 @@ packages/*/**
 !packages/*/package.json
 !packages/sheet-workflows/dist.tar.zst
 !packages/sheet-workflows/start-development-runner.sh
+!packages/sheet-workflows/package.json
+!packages/sheet-workflows/browser-runner-smoke.html
+!packages/sheet-workflows/browser-runner-smoke.mjs

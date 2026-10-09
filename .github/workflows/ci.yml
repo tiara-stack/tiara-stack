@@ -323,6 +323,12 @@ jobs:
             context: .
             dockerfile: ./packages/sheet-workflows/Dockerfile.development
             cache_mode: max
+          - package: sheet-workflows
+            image: sheet-workflows-browser-runner-development
+            target: browser-runner-development
+            context: .
+            dockerfile: ./packages/sheet-workflows/Dockerfile.development
+            cache_mode: max
           - package: sheet-bot
             cache_mode: max
           - package: sheet-auth

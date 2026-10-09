@@ -416,7 +416,27 @@
           ]
         },
         "sheetWorkflowsBrowserRunner": {
-          "$ref": "#/definitions/appService"
+          "allOf": [
+            {
+              "$ref": "#/definitions/appService"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "env": {
+                  "type": "object",
+                  "properties": {
+                    "TIA_RUNNER_STAGED_SOURCE_ROOT": {
+                      "$ref": "#/definitions/runnerDevelopmentSourceRoot"
+                    },
+                    "TIA_RUNNER_ACTIVE_SOURCE_ROOT": {
+                      "$ref": "#/definitions/runnerDevelopmentSourceRoot"
+                    }
+                  }
+                }
+              }
+            }
+          ]
         },
         "sheetDbServer": {
           "$ref": "#/definitions/appService"

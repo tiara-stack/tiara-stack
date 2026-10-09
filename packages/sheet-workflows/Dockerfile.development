@@ -12,7 +12,9 @@ const allowedFile = (file) => { \
   const parts = file.split("/"); \
   return (parts.length === 3 && parts[0] === "packages" && parts[2] === "package.json") || \
     file === "packages/sheet-workflows/dist.tar.zst" || \
-    file === "packages/sheet-workflows/start-development-runner.sh"; \
+    file === "packages/sheet-workflows/start-development-runner.sh" || \
+    file === "packages/sheet-workflows/browser-runner-smoke.html" || \
+    file === "packages/sheet-workflows/browser-runner-smoke.mjs"; \
 }; \
 const visit = (directory) => { \
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) { \
@@ -95,3 +97,29 @@ RUN corepack enable \
 USER node
 
 CMD ["/usr/local/bin/start-development-runner.sh"]
+
+# Browser source snapshots use the same pnpm workspace store and runtime pin as
+# the ordinary runner, plus the Playwright version declared by sheet-workflows.
+FROM ordinary-runner-development AS browser-runner-development
+
+USER root
+
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+COPY packages/sheet-workflows/package.json /tmp/sheet-workflows-package.json
+COPY packages/sheet-workflows/browser-runner-smoke.html /workspace-build/packages/sheet-workflows/browser-runner-smoke.html
+COPY packages/sheet-workflows/browser-runner-smoke.mjs /workspace-build/packages/sheet-workflows/browser-runner-smoke.mjs
+
+RUN mkdir -p /tmp/browser-runtime \
+  && cd /tmp/browser-runtime \
+  && npm init -y \
+  && playwright_version="$(node -p "require('/tmp/sheet-workflows-package.json').dependencies.playwright")" \
+  && npm install --no-save "playwright@${playwright_version}" \
+  && npx playwright install --with-deps chromium \
+  && cd /workspace-build \
+  && TIA_BROWSER_SMOKE_PLAYWRIGHT_MODULE=/tmp/browser-runtime/node_modules/playwright/index.mjs node packages/sheet-workflows/browser-runner-smoke.mjs \
+  && npm cache clean --force \
+  && rm -rf /tmp/browser-runtime /tmp/sheet-workflows-package.json /var/lib/apt/lists/* \
+  && chown -R node:node /ms-playwright /workspace
+
+USER node

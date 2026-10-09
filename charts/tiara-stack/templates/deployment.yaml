@@ -3,10 +3,14 @@
 {{- $serviceValues := (index ($root.Values.services | default dict) $svc.key) | default dict -}}
 {{- $secretRef := $serviceValues.secretRef | default dict -}}
 {{- $developmentSource := $serviceValues.developmentSource | default dict -}}
-{{- $developmentSourceEnabled := and (eq $svc.key "sheetWorkflowsRunner") ($developmentSource.enabled | default false) -}}
+{{- $developmentSourceEnabled := and (or (eq $svc.key "sheetWorkflowsRunner") (eq $svc.key "sheetWorkflowsBrowserRunner")) ($developmentSource.enabled | default false) -}}
 {{- $workloadImageName := default $svc.name $svc.imageName -}}
 {{- if $developmentSourceEnabled -}}
+{{- if eq $svc.key "sheetWorkflowsBrowserRunner" -}}
+{{- $workloadImageName = "sheet-workflows-browser-runner-development" -}}
+{{- else -}}
 {{- $workloadImageName = "sheet-workflows-runner-development" -}}
+{{- end -}}
 {{- end -}}
 {{- if $serviceValues.enabled }}
 {{- if $developmentSourceEnabled }}

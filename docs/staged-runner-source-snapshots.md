@@ -1,4 +1,4 @@
-# Staged runner source snapshots
+# Staged workflow runner source snapshots
 
 `developer-launcher/src/staged-source.ts` defines the local contract for
 replacing ordinary or browser runner source from a complete staged snapshot. The snapshot
@@ -31,7 +31,7 @@ roles, and checks readiness against that revision. Ordinary source changes
 restart only selected affected runner roles, including the browser runner when
 the workflow uses browser actions. Package manifests, lockfiles, native
 artifacts, TypeScript/build configuration, and tool configuration request an
-artifact rebuild. `activateCoalescedRunnerSnapshots` selects the newest
+artifact rebuild scoped to the selected affected runner roles. `activateCoalescedRunnerSnapshots` selects the newest
 complete revision in a save batch. `affectedRunnerRoles` follows `workspace:*`
 dependencies to selected workflow consumers. Repeating the already active
 revision only rechecks readiness and does not issue a second activation or
@@ -72,6 +72,14 @@ ordinary-allocation fence.
 The CLI loads a checkout-local configured workflow provider module and composes
 it with its session controller. It fails closed without that module, so the
 live workflow profile stays disabled in this checkout.
+
+Each launcher activation emits one structured completion log with the change
+kind (`source`, `artifact`, or `readiness-only`), affected roles, and separate
+staging, artifact rebuild, role restart, readiness, and total elapsed
+milliseconds. These fields distinguish a source reload from a browser image
+rebuild and startup. They are local timing observations when a provider invokes
+the activation contract; they do not establish the 180-second startup or
+30-second edit target.
 
 The supervisor writes sidecar metadata for each prepared revision and scans it
 under the activation permit. It removes abandoned `.staging-*` trees only while
@@ -171,8 +179,17 @@ filesystem. Environment paths identify staged and active directories on that
 volume. The values schema requires each path to be a canonical descendant of
 `/workspace` and rejects dot or dot-dot segments. The deployment template
 requires the roots to be distinct, non-overlapping directories and rejects
-equal or nested paths. The runtime adapter that transfers and activates
-snapshots is not implemented here. Before running selected source, the adapter
+equal or nested paths. The browser image is `browser-runner-development`; it
+installs the Playwright version declared by `sheet-workflows` and its matching
+Chromium executable. Its build runs a local HTML fixture through Chromium and
+captures the fixture table in a fresh anonymous context without external
+requests. The chart also exposes
+`services.sheetWorkflowsBrowserRunner.developmentSource.enabled`, disabled by
+default. When enabled, it selects the browser image and mounts a pod-owned
+source volume. The runtime adapter that transfers snapshots, supervises the
+runner child, registers its identity and verifies session/group readiness is
+not connected to these chart switches. Keep both switches off until that
+provider exists. Before running selected source, the adapter
 must relink each complete snapshot with
 `pnpm install --offline --frozen-lockfile --frozen-store --filter 'sheet-workflows...' --prod --ignore-scripts`,
 then run `pnpm rebuild --pending --filter 'sheet-workflows...'` to prepare
@@ -190,8 +207,7 @@ and pnpm keep using that image version instead of switching to the snapshot's
 `packageManager` pin of 11.1.1. An offline cache miss fails closed because the
 store is read-only; rebuild and preload the store before activating a snapshot
 that needs missing packages or build outputs. The adapter must then run the
-selected source and check actual readiness. The chart switch is a manifest
-boundary only and must stay off until that adapter exists. The image provides
+selected source and check actual readiness. The image provides
 tools and dependency packages, but it does not contain links to the staged
 source tree.
 
@@ -202,6 +218,29 @@ missing, stale, rejected, or timed-out authority leaves the runner unavailable
 without those runtime effects. This does not prove duplicate-effect safety for
 accepted workflow invocations.
 
-Record group startup target (120 seconds) and edit target (20 seconds)
-separately from the 120-second session lease and 30-second supervisor lease.
-Those operational leases are not latency targets.
+Record ordinary runner group startup (120 seconds) and edit (20 seconds), and
+browser-containing group startup (180 seconds) and edit (30 seconds), separately
+from the 120-second session lease and 30-second supervisor lease. These are
+targets, not measurements. Report source reload timing separately from
+dependency rebuild and startup timing when a live provider reports those events.
+
+## TIA-250 acceptance evidence
+
+Focused tests cover browser-role identity isolation, role-scoped artifact
+rebuild, screenshot workflow admission before enqueue, and compatible
+supervisor recovery. The browser development image build script exercises a
+deterministic local fixture through the package-pinned Playwright/Chromium pair,
+captures a table, and asserts that the Chromium child exits with its owner. The
+fixture uses a fresh context, local files only, and no credentials.
+
+This checkout has no Docker daemon, so the browser development image and its
+build-time Chromium smoke could not be executed here. A local smoke attempt
+installed the exact Playwright Chromium build, but Chromium could not start
+because this host lacks `libatk-1.0.so.0`; installing its OS dependencies was
+unavailable because `sudo` requires an interactive password. Helm rendering
+selects the browser development image and `/workspace` source volume when the
+browser switch is explicitly enabled. Keep the switch disabled until the
+session controller, authorized snapshot transport, child-process owner, and
+actual session/group registration are wired. No Kubernetes or public target
+acceptance, operator permission check, external account test, or startup/edit
+measurement was performed.
