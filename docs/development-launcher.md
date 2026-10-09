@@ -100,6 +100,25 @@ scanning file diffs. Incompatible contracts add their required callers and
 owned groups to the report. The configuration must select those callers and
 groups explicitly.
 
+Workflow definition, Action Version, durable deployment-format, or newly
+required workflow-group changes are incompatible transitions. Automatic source
+watch may propose the change, but cannot activate it. The controlled recreation
+contract presents the proposal and pauses admission first, asks the immutable
+old workflow artifacts to drain, cancel, or reconcile accepted work, and then
+requires complete provider cessation evidence before ending the old session.
+Only after that proof can cleanup finish and a fresh workflow group be
+provisioned. The fresh group must have new session, owner, and database
+identities, carry the exact old cleanup-record ID, and report zero pending
+commands, browser queue entries, and Response References. No accepted work is
+copied.
+
+Unresolved settlement, Ambiguous Outcome, stale execution, unknown ownership,
+or incomplete cleanup keeps the old group inaccessible in quarantine and blocks
+fresh allocation. These are locally testable lifecycle contracts; no deployed
+provider currently supplies this whole transition, so the owned workflow live
+profile remains unavailable. Local tests do not establish live cessation,
+external ownership, or operator acceptance.
+
 Every selected role names its environment input file relative to the preview
 config. The file must exist under the same config directory. The planner reads
 only `NODE_ENV=development` and an optional `LOG_LEVEL` of `debug`, `info`,

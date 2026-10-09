@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { Effect, Schema } from "effect";
+import { Context, Effect, Layer, Schema } from "effect";
 
 const Digest = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 const Identifier = Schema.String.check(Schema.isPattern(/^[a-z][a-z0-9_]{0,62}$/));
@@ -259,6 +259,300 @@ export const workflowExecutionCleanupDisposition = (input: unknown) => {
     ? ("deletable" as const)
     : ("quarantined" as const);
 };
+
+export const WorkflowPreviewDefinition = Schema.Struct({
+  artifacts: WorkflowExecutionArtifacts,
+  requiredGroups: Schema.Array(Schema.NonEmptyString),
+});
+export type WorkflowPreviewDefinition = typeof WorkflowPreviewDefinition.Type;
+
+export const WorkflowPreviewTransition = Schema.Struct({
+  classification: Schema.Literals(["compatible", "incompatible"]),
+  reasons: Schema.Array(
+    Schema.Literals([
+      "workflow-contracts-changed",
+      "durable-deployment-changed",
+      "action-version-changed",
+      "workflow-group-added",
+    ]),
+  ),
+  previousDefinition: WorkflowPreviewDefinition,
+  proposedDefinition: WorkflowPreviewDefinition,
+});
+export type WorkflowPreviewTransition = typeof WorkflowPreviewTransition.Type;
+
+/** Only contract, durable-format, action-version and group changes require recreation. */
+export const classifyWorkflowPreviewTransition = (
+  previous: WorkflowPreviewDefinition,
+  proposed: WorkflowPreviewDefinition,
+): WorkflowPreviewTransition => {
+  const reasons: Array<WorkflowPreviewTransition["reasons"][number]> = [];
+  if (previous.artifacts.contracts !== proposed.artifacts.contracts)
+    reasons.push("workflow-contracts-changed");
+  if (previous.artifacts.deployment !== proposed.artifacts.deployment)
+    reasons.push("durable-deployment-changed");
+  if (previous.artifacts.workflowVersion !== proposed.artifacts.workflowVersion)
+    reasons.push("action-version-changed");
+  if (proposed.requiredGroups.some((group) => !previous.requiredGroups.includes(group)))
+    reasons.push("workflow-group-added");
+  return {
+    classification: reasons.length === 0 ? "compatible" : "incompatible",
+    reasons,
+    previousDefinition: previous,
+    proposedDefinition: proposed,
+  };
+};
+
+export const WorkflowFreshGroupEvidence = Schema.Struct({
+  group: WorkflowExecutionGroup,
+  priorCleanupRecordId: Schema.NonEmptyString,
+  pendingCommands: Schema.Literal(0),
+  browserQueueEntries: Schema.Literal(0),
+  responseReferences: Schema.Literal(0),
+});
+export type WorkflowFreshGroupEvidence = typeof WorkflowFreshGroupEvidence.Type;
+
+export type WorkflowRecreationResult =
+  | {
+      readonly _tag: "Recreated";
+      readonly transition: WorkflowPreviewTransition;
+      readonly oldCleanupRecordId: string;
+      readonly fresh: WorkflowFreshGroupEvidence;
+    }
+  | {
+      readonly _tag: "Rejected";
+      readonly transition: WorkflowPreviewTransition;
+      readonly reason: string;
+    }
+  | {
+      readonly _tag: "Quarantined";
+      readonly transition: WorkflowPreviewTransition;
+      readonly reason: string;
+    };
+
+export interface IncompatibleWorkflowRecreationRuntimeApi {
+  readonly presentProposal: (
+    transition: WorkflowPreviewTransition,
+  ) => Effect.Effect<void, WorkflowExecutionError>;
+  readonly pauseAdmission: (
+    oldGroup: WorkflowExecutionGroup,
+  ) => Effect.Effect<void, WorkflowExecutionError>;
+  /** The executor and dependency identities come from the immutable old group. */
+  readonly settleWithOldCode: (input: {
+    readonly oldGroup: WorkflowExecutionGroup;
+    readonly oldArtifacts: WorkflowExecutionArtifacts;
+    readonly strategy: "drain-cancel-reconcile";
+  }) => Effect.Effect<"settled" | "ambiguous", WorkflowExecutionError>;
+  readonly proveOldCessation: (
+    oldGroup: WorkflowExecutionGroup,
+  ) => Effect.Effect<unknown, WorkflowExecutionError>;
+  /** This ends the old session and returns its exact durable cleanup record. */
+  readonly endOldSessionAndCleanup: (
+    oldGroup: WorkflowExecutionGroup,
+  ) => Effect.Effect<string, WorkflowExecutionError>;
+  /** Provider must provision an empty group and retain the cleanup record link. */
+  readonly provisionFreshGroup: (input: {
+    readonly oldGroup: WorkflowExecutionGroup;
+    readonly artifacts: WorkflowExecutionArtifacts;
+    readonly requiredGroups: ReadonlyArray<string>;
+    readonly priorCleanupRecordId: string;
+    readonly transferPendingWork: false;
+  }) => Effect.Effect<unknown, WorkflowExecutionError>;
+  readonly quarantine: (
+    oldGroup: WorkflowExecutionGroup,
+    reason: string,
+  ) => Effect.Effect<void, WorkflowExecutionError>;
+}
+
+export class IncompatibleWorkflowRecreationRuntime extends Context.Service<
+  IncompatibleWorkflowRecreationRuntime,
+  IncompatibleWorkflowRecreationRuntimeApi
+>()("developer-launcher/IncompatibleWorkflowRecreationRuntime") {}
+
+export const IncompatibleWorkflowRecreationRuntimeLayer = (
+  runtime: IncompatibleWorkflowRecreationRuntimeApi,
+) => Layer.succeed(IncompatibleWorkflowRecreationRuntime, runtime);
+
+const quarantineWorkflowRecreation = (
+  runtime: IncompatibleWorkflowRecreationRuntimeApi,
+  oldGroup: WorkflowExecutionGroup,
+  transition: WorkflowPreviewTransition,
+  reason: string,
+): Effect.Effect<WorkflowRecreationResult> =>
+  runtime
+    .quarantine(oldGroup, reason)
+    .pipe(Effect.ignore, Effect.as({ _tag: "Quarantined" as const, transition, reason }));
+
+/** Automatic watch may report a proposal but cannot activate an incompatible definition. */
+export const requireAutomaticWorkflowCompatibility = (transition: WorkflowPreviewTransition) =>
+  transition.classification === "compatible"
+    ? Effect.void
+    : reject("incompatible-workflow-transition-requires-explicit-recreation");
+
+const recreationFailure = (reason: string) => new WorkflowExecutionError({ reason });
+const recreationStep = <A>(
+  step: Effect.Effect<A, WorkflowExecutionError>,
+  reason: string,
+): Effect.Effect<A, WorkflowExecutionError> =>
+  step.pipe(Effect.mapError(() => recreationFailure(reason)));
+
+const settleAndEndOldWorkflowGroup = (
+  runtime: IncompatibleWorkflowRecreationRuntimeApi,
+  oldGroup: WorkflowExecutionGroup,
+  transition: WorkflowPreviewTransition,
+): Effect.Effect<string, WorkflowExecutionError> =>
+  Effect.gen(function* () {
+    yield* recreationStep(runtime.presentProposal(transition), "proposal-not-presented");
+    yield* recreationStep(runtime.pauseAdmission(oldGroup), "admission-pause-unconfirmed");
+    const settled = yield* recreationStep(
+      runtime.settleWithOldCode({
+        oldGroup,
+        oldArtifacts: oldGroup.artifacts,
+        strategy: "drain-cancel-reconcile",
+      }),
+      "old-work-settlement-ambiguous",
+    );
+    if (settled !== "settled") return yield* reject("old-work-settlement-ambiguous");
+
+    const cessation = yield* recreationStep(
+      runtime.proveOldCessation(oldGroup),
+      "old-execution-cessation-unproven",
+    );
+    if (workflowExecutionCleanupDisposition(cessation) !== "deletable")
+      return yield* reject("old-execution-cessation-unproven");
+
+    const cleanupRecordId = yield* recreationStep(
+      runtime.endOldSessionAndCleanup(oldGroup),
+      "old-cleanup-record-unavailable",
+    );
+    if (cleanupRecordId.trim().length === 0) return yield* reject("old-cleanup-record-unavailable");
+    return cleanupRecordId;
+  });
+
+const freshWorkflowGroupHasNewIdentities = (
+  oldGroup: WorkflowExecutionGroup,
+  freshGroup: WorkflowExecutionGroup,
+) =>
+  freshGroup.sessionId !== oldGroup.sessionId &&
+  freshGroup.ownerToken !== oldGroup.ownerToken &&
+  freshGroup.database !== oldGroup.database &&
+  freshGroup.applicationStore !== oldGroup.applicationStore &&
+  freshGroup.commandStore !== oldGroup.commandStore &&
+  freshGroup.runStore !== oldGroup.runStore &&
+  freshGroup.clusterStore !== oldGroup.clusterStore;
+
+const isExpectedFreshWorkflowGroup = (
+  oldGroup: WorkflowExecutionGroup,
+  proposed: WorkflowPreviewDefinition,
+  cleanupRecordId: string,
+  evidence: WorkflowFreshGroupEvidence,
+) =>
+  evidence.priorCleanupRecordId === cleanupRecordId &&
+  freshWorkflowGroupHasNewIdentities(oldGroup, evidence.group) &&
+  evidence.group.artifacts.contracts === proposed.artifacts.contracts &&
+  evidence.group.artifacts.deployment === proposed.artifacts.deployment &&
+  evidence.group.artifacts.workflowVersion === proposed.artifacts.workflowVersion;
+
+const provisionFreshWorkflowGroup = (
+  runtime: IncompatibleWorkflowRecreationRuntimeApi,
+  oldGroup: WorkflowExecutionGroup,
+  proposed: WorkflowPreviewDefinition,
+  cleanupRecordId: string,
+): Effect.Effect<WorkflowFreshGroupEvidence, WorkflowExecutionError> =>
+  runtime
+    .provisionFreshGroup({
+      oldGroup,
+      artifacts: proposed.artifacts,
+      requiredGroups: proposed.requiredGroups,
+      priorCleanupRecordId: cleanupRecordId,
+      transferPendingWork: false,
+    })
+    .pipe(
+      Effect.mapError(() => recreationFailure("fresh-group-provisioning-unverified")),
+      Effect.flatMap((input) =>
+        Schema.decodeUnknownEffect(WorkflowFreshGroupEvidence)(input).pipe(
+          Effect.mapError(() => recreationFailure("fresh-group-evidence-invalid")),
+        ),
+      ),
+      Effect.flatMap((evidence) =>
+        isExpectedFreshWorkflowGroup(oldGroup, proposed, cleanupRecordId, evidence)
+          ? Effect.succeed(evidence)
+          : Effect.fail(recreationFailure("fresh-group-evidence-invalid")),
+      ),
+    );
+
+/**
+ * Recreate only after old-code settlement and provider cessation proof. Every uncertain
+ * result retains quarantine and prevents cleanup or allocation of a replacement group.
+ */
+export const recreateIncompatibleWorkflowPreview = (input: {
+  readonly oldGroup: WorkflowExecutionGroup;
+  readonly previous: WorkflowPreviewDefinition;
+  readonly proposed: WorkflowPreviewDefinition;
+  readonly explicitlyRequested: boolean;
+}): Effect.Effect<WorkflowRecreationResult, never, IncompatibleWorkflowRecreationRuntime> =>
+  Effect.gen(function* () {
+    const runtime = yield* IncompatibleWorkflowRecreationRuntime;
+    const transition = classifyWorkflowPreviewTransition(input.previous, input.proposed);
+    if (transition.classification === "compatible")
+      return { _tag: "Rejected" as const, transition, reason: "transition-is-compatible" };
+    if (!input.explicitlyRequested)
+      return { _tag: "Rejected" as const, transition, reason: "explicit-recreation-required" };
+
+    const priorGroup = yield* Effect.match(
+      settleAndEndOldWorkflowGroup(runtime, input.oldGroup, transition),
+      {
+        onFailure: (error) => ({ _tag: "Failed" as const, reason: error.reason }),
+        onSuccess: (cleanupRecordId) => ({ _tag: "Settled" as const, cleanupRecordId }),
+      },
+    );
+    if (priorGroup._tag === "Failed")
+      return yield* quarantineWorkflowRecreation(
+        runtime,
+        input.oldGroup,
+        transition,
+        priorGroup.reason,
+      );
+
+    const freshGroup = yield* Effect.match(
+      provisionFreshWorkflowGroup(
+        runtime,
+        input.oldGroup,
+        input.proposed,
+        priorGroup.cleanupRecordId,
+      ),
+      {
+        onFailure: (error) => ({ _tag: "Failed" as const, reason: error.reason }),
+        onSuccess: (evidence) => ({ _tag: "Provisioned" as const, evidence }),
+      },
+    );
+    if (freshGroup._tag === "Failed")
+      return yield* quarantineWorkflowRecreation(
+        runtime,
+        input.oldGroup,
+        transition,
+        freshGroup.reason,
+      );
+    return {
+      _tag: "Recreated" as const,
+      transition,
+      oldCleanupRecordId: priorGroup.cleanupRecordId,
+      fresh: freshGroup.evidence,
+    };
+  }).pipe(
+    Effect.catchCause(() =>
+      Effect.gen(function* () {
+        const runtime = yield* IncompatibleWorkflowRecreationRuntime;
+        const reason = "recreation-failed";
+        yield* runtime.quarantine(input.oldGroup, reason).pipe(Effect.ignore);
+        return {
+          _tag: "Quarantined" as const,
+          transition: classifyWorkflowPreviewTransition(input.previous, input.proposed),
+          reason,
+        };
+      }),
+    ),
+  );
 
 /** Live profile activation is deliberately unavailable until a provider owns provisioning and proof. */
 export const ownedWorkflowExecutionLiveProfileEnabled = false;

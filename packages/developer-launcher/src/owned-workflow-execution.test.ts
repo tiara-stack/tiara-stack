@@ -1,7 +1,11 @@
 import { expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import {
+  classifyWorkflowPreviewTransition,
+  IncompatibleWorkflowRecreationRuntimeLayer,
   ownedWorkflowExecutionLiveProfileEnabled,
+  recreateIncompatibleWorkflowPreview,
+  requireAutomaticWorkflowCompatibility,
   verifyCompatibleWorkflowReplacement,
   verifyWorkflowEnqueue,
   verifyWorkflowRunnerEvidence,
@@ -9,6 +13,7 @@ import {
   workflowExecutionCleanupDisposition,
   workflowExecutionGroupIdentity,
   type WorkflowExecutionArtifacts,
+  type WorkflowExecutionGroup,
 } from "./owned-workflow-execution";
 
 const artifacts: WorkflowExecutionArtifacts = {
@@ -389,3 +394,220 @@ it("quarantines deletion without complete cessation and accepted-work proof", ()
 it("keeps the owned workflow execution live profile unavailable", () => {
   expect(ownedWorkflowExecutionLiveProfileEnabled).toBe(false);
 });
+
+it.effect(
+  "requires an explicit proposal and settles incompatible work with immutable old artifacts before fresh identities",
+  () =>
+    Effect.gen(function* () {
+      const old = group("preview-old");
+      const proposedArtifacts = {
+        ...artifacts,
+        contracts: "e".repeat(64),
+        workflowVersion: "2.0.0",
+      };
+      const previous = { artifacts, requiredGroups: ["workflow-execution"] };
+      const proposed = {
+        artifacts: proposedArtifacts,
+        requiredGroups: ["workflow-execution", "browser"],
+      };
+      const transition = classifyWorkflowPreviewTransition(previous, proposed);
+      expect(transition.classification).toBe("incompatible");
+      expect(transition.reasons).toEqual([
+        "workflow-contracts-changed",
+        "action-version-changed",
+        "workflow-group-added",
+      ]);
+      expect(yield* Effect.exit(requireAutomaticWorkflowCompatibility(transition))).toMatchObject({
+        _tag: "Failure",
+      });
+
+      const calls: string[] = [];
+      const cleanupRecordId = "cleanup-record-42";
+      const freshGroup = group("preview-fresh", "fresh-owner", proposedArtifacts);
+      const runtime = {
+        presentProposal: () => Effect.sync(() => void calls.push("proposal")).pipe(Effect.asVoid),
+        pauseAdmission: () => Effect.sync(() => void calls.push("pause")).pipe(Effect.asVoid),
+        settleWithOldCode: ({ oldArtifacts }: { oldArtifacts: WorkflowExecutionArtifacts }) =>
+          Effect.sync(() => {
+            expect(oldArtifacts).toBe(old.artifacts);
+            calls.push("settle-old-code");
+            return "settled" as const;
+          }),
+        proveOldCessation: () =>
+          Effect.sync(() => {
+            calls.push("prove-cessation");
+            return {
+              providerOperationsTerminal: true,
+              apiFenced: true,
+              runnerPodsTerminated: true,
+              staleRunnersTerminated: true,
+              reclaimedCommandLeasesReconciled: true,
+              hostDependenciesAccountedFor: true,
+              activeExternalCallsTerminated: true,
+              acceptedWorkSettled: true,
+              unknownOwnership: false,
+            };
+          }),
+        endOldSessionAndCleanup: () =>
+          Effect.sync(() => {
+            calls.push("end-and-cleanup");
+            return cleanupRecordId;
+          }),
+        provisionFreshGroup: (input: {
+          readonly priorCleanupRecordId: string;
+          readonly transferPendingWork: false;
+        }) =>
+          Effect.sync(() => {
+            expect(input.priorCleanupRecordId).toBe(cleanupRecordId);
+            expect(input.transferPendingWork).toBe(false);
+            calls.push("provision-fresh");
+            return {
+              group: freshGroup,
+              priorCleanupRecordId: cleanupRecordId,
+              pendingCommands: 0,
+              browserQueueEntries: 0,
+              responseReferences: 0,
+            };
+          }),
+        quarantine: () => Effect.sync(() => void calls.push("quarantine")).pipe(Effect.asVoid),
+      };
+      const result = yield* recreateIncompatibleWorkflowPreview({
+        oldGroup: old,
+        previous,
+        proposed,
+        explicitlyRequested: true,
+      }).pipe(Effect.provide(IncompatibleWorkflowRecreationRuntimeLayer(runtime)));
+      expect(result._tag).toBe("Recreated");
+      if (result._tag === "Recreated") expect(result.oldCleanupRecordId).toBe(cleanupRecordId);
+      expect(calls).toEqual([
+        "proposal",
+        "pause",
+        "settle-old-code",
+        "prove-cessation",
+        "end-and-cleanup",
+        "provision-fresh",
+      ]);
+    }),
+);
+
+it.effect(
+  "keeps an unresolved Ambiguous Outcome quarantined and never cleans up or allocates a replacement",
+  () =>
+    Effect.gen(function* () {
+      const old = group("preview-ambiguous");
+      const previous = { artifacts, requiredGroups: ["workflow-execution"] };
+      const proposed = {
+        artifacts: { ...artifacts, workflowVersion: "2.0.0" },
+        requiredGroups: ["workflow-execution"],
+      };
+      const calls: string[] = [];
+      const runtime = {
+        presentProposal: () => Effect.sync(() => void calls.push("proposal")).pipe(Effect.asVoid),
+        pauseAdmission: () => Effect.sync(() => void calls.push("pause")).pipe(Effect.asVoid),
+        settleWithOldCode: () =>
+          Effect.sync(() => {
+            calls.push("settle-old-code");
+            return "ambiguous" as const;
+          }),
+        proveOldCessation: () =>
+          Effect.sync(() => void calls.push("unexpected-proof")).pipe(Effect.as({})),
+        endOldSessionAndCleanup: () =>
+          Effect.sync(() => void calls.push("unexpected-cleanup")).pipe(Effect.as("cleanup")),
+        provisionFreshGroup: () => Effect.sync(() => void calls.push("unexpected-provision")),
+        quarantine: (_old: WorkflowExecutionGroup, reason: string) =>
+          Effect.sync(() => calls.push(`quarantine:${reason}`)),
+      };
+      const result = yield* recreateIncompatibleWorkflowPreview({
+        oldGroup: old,
+        previous,
+        proposed,
+        explicitlyRequested: true,
+      }).pipe(Effect.provide(IncompatibleWorkflowRecreationRuntimeLayer(runtime)));
+      expect(result).toMatchObject({
+        _tag: "Quarantined",
+        reason: "old-work-settlement-ambiguous",
+      });
+      expect(calls).toEqual([
+        "proposal",
+        "pause",
+        "settle-old-code",
+        "quarantine:old-work-settlement-ambiguous",
+      ]);
+    }),
+);
+
+it.effect("does not activate an incompatible transition without explicit developer intent", () =>
+  Effect.gen(function* () {
+    const old = group("preview-unrequested");
+    const previous = { artifacts, requiredGroups: ["workflow-execution"] };
+    const proposed = {
+      artifacts: { ...artifacts, deployment: "f".repeat(64) },
+      requiredGroups: ["workflow-execution"],
+    };
+    const calls: string[] = [];
+    const runtime = {
+      presentProposal: () => Effect.sync(() => void calls.push("proposal")).pipe(Effect.asVoid),
+      pauseAdmission: () => Effect.sync(() => void calls.push("pause")).pipe(Effect.asVoid),
+      settleWithOldCode: () =>
+        Effect.sync(() => void calls.push("settle")).pipe(Effect.as("settled" as const)),
+      proveOldCessation: () => Effect.sync(() => void calls.push("prove")).pipe(Effect.as({})),
+      endOldSessionAndCleanup: () =>
+        Effect.sync(() => void calls.push("cleanup")).pipe(Effect.as("cleanup")),
+      provisionFreshGroup: () => Effect.sync(() => void calls.push("provision")),
+      quarantine: () => Effect.sync(() => void calls.push("quarantine")).pipe(Effect.asVoid),
+    };
+    const result = yield* recreateIncompatibleWorkflowPreview({
+      oldGroup: old,
+      previous,
+      proposed,
+      explicitlyRequested: false,
+    }).pipe(Effect.provide(IncompatibleWorkflowRecreationRuntimeLayer(runtime)));
+    expect(result).toMatchObject({ _tag: "Rejected", reason: "explicit-recreation-required" });
+    expect(calls).toEqual([]);
+  }),
+);
+
+it.effect("quarantines when cessation proof is incomplete and never ends the old group", () =>
+  Effect.gen(function* () {
+    const old = group("preview-stale-runner");
+    const previous = { artifacts, requiredGroups: ["workflow-execution"] };
+    const proposed = {
+      artifacts: { ...artifacts, workflowVersion: "2.0.0" },
+      requiredGroups: ["workflow-execution"],
+    };
+    const calls: string[] = [];
+    const runtime = {
+      presentProposal: () => Effect.void,
+      pauseAdmission: () => Effect.void,
+      settleWithOldCode: () => Effect.succeed("settled" as const),
+      proveOldCessation: () =>
+        Effect.succeed({
+          providerOperationsTerminal: true,
+          apiFenced: true,
+          runnerPodsTerminated: false,
+          staleRunnersTerminated: true,
+          reclaimedCommandLeasesReconciled: true,
+          hostDependenciesAccountedFor: true,
+          activeExternalCallsTerminated: true,
+          acceptedWorkSettled: true,
+          unknownOwnership: false,
+        }),
+      endOldSessionAndCleanup: () =>
+        Effect.sync(() => void calls.push("unexpected-cleanup")).pipe(Effect.as("cleanup")),
+      provisionFreshGroup: () => Effect.sync(() => void calls.push("unexpected-provision")),
+      quarantine: (_group: WorkflowExecutionGroup, reason: string) =>
+        Effect.sync(() => calls.push(reason)),
+    };
+    const result = yield* recreateIncompatibleWorkflowPreview({
+      oldGroup: old,
+      previous,
+      proposed,
+      explicitlyRequested: true,
+    }).pipe(Effect.provide(IncompatibleWorkflowRecreationRuntimeLayer(runtime)));
+    expect(result).toMatchObject({
+      _tag: "Quarantined",
+      reason: "old-execution-cessation-unproven",
+    });
+    expect(calls).toEqual(["old-execution-cessation-unproven"]);
+  }),
+);
