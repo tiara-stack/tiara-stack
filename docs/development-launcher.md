@@ -301,6 +301,31 @@ The connected preview implementation remains unavailable until its separate
 admission, ownership, and lifecycle gates are implemented and verified. This
 role does not establish that enqueueing against shared execution is safe.
 
+The stock CLI `sheet-web` profile also remains unavailable because its public
+gateway and mediated browser identity adapters are not configured. The CLI
+provides the host process supervisor; with an injected
+gateway and compatible dependency endpoints it starts the selected checkout's
+Vite watch process on a reserved listener, and
+the application gateway requires the actual route's `/ready` response before
+activating its revision. It maps the public WSS HMR path to Vite and filters
+application HTTP headers and bodies. Local adapter tests do not prove operator
+DNS/certificates, public identity, live endpoint reachability, resume after
+supervisor loss, or performance targets. A live profile remains unsupported
+until two concurrent sessions, shared-control preservation, owner/user access,
+crash/expiry cleanup, compatible resume, and unchanged Fast defaults pass.
+
+The CLI stores a mode 0600 supervisor control record under the configured
+session credential directory. It contains only the loopback control endpoint
+and a random token; a separate `preview stop` process uses it to stop the exact
+owned Vite process and remove the record. Vite source-revision notifications
+use a separate per-process loopback token and are serialized before route
+revision activation. Neither token is included in plans or output.
+For host-native `sheet-web`, `preview start` and `preview resume` print their
+result and then stay in the foreground as the session supervisor. This keeps
+the controller and its services alive for heartbeat, revision, and cleanup
+work. Use another terminal for `preview status` and `preview stop`; the
+foreground supervisor exits after the session ends and owned cleanup finishes.
+
 Credential fields contain development secret references only. The launcher does
 not resolve or print referenced secret values. Additional user grants default to
 none. Triggers and external targets default to none. `seed` is optional and
@@ -352,7 +377,12 @@ provider observations and grants, reserves every dimension, records ownership,
 then calls the configured infrastructure adapter. Missing evidence fails
 before allocation. `status` reads session and allocation ledgers without
 renewing; `heartbeat` requires the current generation; `resume` requires the
-local owner identity and fences the previous generation; `stop` closes normal
+local owner identity and an expired supervisor lease. Compatible sheet-web
+resume also verifies the current supervisor credential and live host process,
+then reuses the browser/state generation and existing user grants. Other resumed
+roles rotate their generation to fence prior writes. A resumed sheet-web
+supervisor renews the same durable lease and checks process/dependency health;
+three consecutive shared-dependency probe failures stop that session. `stop` closes normal
 admission idempotently. `cleanup` refuses live sessions and waits up to ten
 minutes from session end for the durable outstanding-work count to reach zero:
 the approved five-minute drain window plus five minutes reserved for recovery
@@ -362,8 +392,9 @@ remains unsettled after the bound, it quarantines the session, preserves its
 allocation, and reports the recovery boundary. Once settlement is proved,
 cleanup waits five minutes after adapter proof, then has a separate five-minute
 exact-resource deletion phase. Failed or over-budget deletion retains
-reservations for explicit safe retry. Connected application
-runtime profiles remain unavailable and are never launched by these commands.
+reservations for explicit safe retry. The stock CLI keeps connected application
+runtime profiles unavailable because it does not configure the public gateway
+and browser authenticator; an injected gateway allows `start` to launch sheet-web.
 If an allocation has no recorded provider resource ID, `resolve` invokes an
 explicit owner-authorized adapter lookup for that one ledger row. The adapter
 must return fresh evidence tied to the recorded session, resource, owner token,
@@ -383,13 +414,14 @@ phase, generation, renewal time, and terminal state. A session identity is
 generated at creation; the authority database stores only the digests. The CLI
 never prints either identity. It stores the owner credential and rotating
 supervisor credential in an owner-only sidecar alongside the configured
-database. Resume rotates the
-supervisor credential and generation; the owner credential cannot renew a
-lease. The lease lasts 120
+database. The owner credential cannot renew a lease. Every resume rotates the
+supervisor credential. Non-web resume also increments the generation; compatible
+sheet-web resume keeps the generation to preserve browser and state identity. The lease lasts 120
 seconds from the last successful heartbeat, with a 15-second renewal interval.
 Every authority check compares the deadline directly, so delayed sweeps cannot
 extend admission. Resume requires the same identity, claims an expiring
-supervisor lease, and increments the generation; stale-generation writes are
+supervisor lease, and increments the generation for non-web roles. Compatible sheet-web resume
+retains its generation and existing grants while fencing old connections. Stale-generation writes are
 rejected. Stop is idempotent and terminal. Status does not renew the lease.
 
 The allocation controller stores provider-identified capacity measurements,

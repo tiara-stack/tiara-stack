@@ -526,9 +526,28 @@ const makeOAuthSubjectTokenError = (
  * ```
  */
 export function createSheetAuthClient(baseURL: string): SheetAuthClient {
+  let url: URL;
+  try {
+    url = new URL(baseURL);
+  } catch {
+    throw new Error(
+      "SHEET_AUTH_ISSUER must be an absolute HTTP(S) URL without query or fragment components",
+    );
+  }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.origin === "null" ||
+    url.search !== "" ||
+    url.hash !== "" ||
+    /[?#]/.test(baseURL)
+  )
+    throw new Error(
+      "SHEET_AUTH_ISSUER must be an absolute HTTP(S) URL without query or fragment components",
+    );
+  const path = url.pathname.replace(/\/+$/, "") || "/";
   return createAuthClient({
-    baseURL,
-    basePath: "/",
+    baseURL: url.origin,
+    basePath: path,
     fetchOptions: {
       credentials: "include" as const,
     },

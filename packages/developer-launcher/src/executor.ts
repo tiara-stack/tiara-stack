@@ -18,6 +18,16 @@ const executionEnvironmentKeys = new Set([
   "NPM_CONFIG_REGISTRY",
   "NPM_CONFIG_USER_AGENT",
 ]);
+const webPreviewEnvironmentKeys = new Set([
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "SYSTEMROOT",
+  "COMSPEC",
+  "TEMP",
+  "TMP",
+  "TMPDIR",
+]);
 
 const isSecretEnvironmentKey = (key: string) => sensitiveEnvironmentKeys.has(key);
 
@@ -27,15 +37,13 @@ const collect = (chunks: string[], chunk: Buffer | string) => {
   chunks.push(chunk.toString().slice(0, outputLimit - current.length));
 };
 
-const inheritedEnvironment = () => {
+const inheritedEnvironment = (policy: "standard" | "web-preview" = "standard") => {
   const environment: Record<string, string> = {};
+  const allowedKeys =
+    policy === "web-preview" ? webPreviewEnvironmentKeys : executionEnvironmentKeys;
   for (const [key, value] of Object.entries(process.env)) {
     const normalizedKey = key.toUpperCase();
-    if (
-      value !== undefined &&
-      executionEnvironmentKeys.has(normalizedKey) &&
-      !isSecretEnvironmentKey(key)
-    ) {
+    if (value !== undefined && allowedKeys.has(normalizedKey) && !isSecretEnvironmentKey(key)) {
       environment[key] = value;
     }
   }
@@ -69,11 +77,21 @@ const spawnCommand = (request: ProcessRequest) => {
   return { command, args: [...request.args], verbatim: false };
 };
 
+const shouldSkipExitedLeaderSignal = (
+  child: ReturnType<typeof spawn>,
+  allowExitedLeaderWhileGroupExists: boolean,
+) =>
+  (child.exitCode !== null || child.signalCode !== null) &&
+  (!allowExitedLeaderWhileGroupExists || process.platform === "win32" || !processGroupAlive(child));
+
 const terminateProcessTree = (
   child: ReturnType<typeof spawn>,
   signal: NodeJS.Signals,
+  allowExitedLeaderWhileGroupExists = false,
 ): Promise<boolean> => {
   if (child.pid === undefined) return Promise.resolve(true);
+  if (shouldSkipExitedLeaderSignal(child, allowExitedLeaderWhileGroupExists))
+    return Promise.resolve(false);
   if (process.platform === "win32") {
     return new Promise((resolve) => {
       let settled = false;
@@ -113,7 +131,7 @@ const scheduleProcessTreeKill = (
   child: ReturnType<typeof spawn>,
   signal: NodeJS.Signals,
   onComplete: () => void,
-) => void terminateProcessTree(child, signal).then(onComplete);
+) => void terminateProcessTree(child, signal, true).then(onComplete);
 
 const processGroupAlive = (child: ReturnType<typeof spawn>) => {
   if (process.platform === "win32" || child.pid === undefined) return false;
@@ -123,6 +141,70 @@ const processGroupAlive = (child: ReturnType<typeof spawn>) => {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code !== "ESRCH";
   }
+};
+
+const processTreeNeedsEscalation = (
+  child: ReturnType<typeof spawn>,
+  firstTerminationSucceeded: boolean,
+) =>
+  process.platform === "win32"
+    ? child.exitCode === null && child.signalCode === null && !firstTerminationSucceeded
+    : processGroupAlive(child);
+
+const processLeaderHasExited = (child: ReturnType<typeof spawn>) =>
+  child.exitCode !== null || child.signalCode !== null;
+
+const canSignalProcessTree = (child: ReturnType<typeof spawn>) => {
+  if (child.pid === undefined) return false;
+  if (!processLeaderHasExited(child)) return true;
+  if (process.platform === "win32")
+    throw new Error("Fast Windows process-tree cleanup could not be confirmed after leader exit");
+  if (!processGroupAlive(child)) return false;
+  throw new Error(
+    "Fast process leader exited while process-group ownership could not be confirmed",
+  );
+};
+
+const finishProcessTreeTermination = async (
+  child: ReturnType<typeof spawn>,
+  exited: Promise<ProcessResult>,
+  firstTerminationSucceeded: boolean,
+) => {
+  let processTreeTerminated = firstTerminationSucceeded;
+  if (processTreeNeedsEscalation(child, firstTerminationSucceeded)) {
+    if (processLeaderHasExited(child)) {
+      if (process.platform === "win32")
+        throw new Error(
+          "Fast Windows process-tree cleanup could not be confirmed after leader exit",
+        );
+      if (!(await waitForProcessTreeExit(child, 1_000)))
+        throw new Error(
+          "Fast process leader exited before process-group ownership could be revalidated",
+        );
+    } else {
+      processTreeTerminated = await terminateProcessTree(child, "SIGKILL");
+    }
+  }
+  const terminated = await Promise.race([
+    exited.then(() => true),
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1_000)),
+  ]);
+  if (process.platform !== "win32")
+    processTreeTerminated = await waitForProcessTreeExit(child, 1_000);
+  if (!terminated || !processTreeTerminated)
+    throw new Error("Fast process did not terminate within the shutdown deadline");
+};
+
+const processTreeHasExited = (child: ReturnType<typeof spawn>) =>
+  process.platform === "win32"
+    ? child.exitCode !== null || child.signalCode !== null
+    : !processGroupAlive(child);
+
+const waitForProcessTreeExit = async (child: ReturnType<typeof spawn>, timeoutMs: number) => {
+  const deadline = Date.now() + timeoutMs;
+  while (process.platform !== "win32" && !processTreeHasExited(child) && Date.now() < deadline)
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  return processTreeHasExited(child);
 };
 
 const withReceivedSignal = (result: ProcessResult, signal: NodeJS.Signals | undefined) =>
@@ -136,12 +218,25 @@ const registerAbort = (signal: AbortSignal | undefined, onAbort: () => void) => 
   return remove;
 };
 
+/** Coalesces in-flight work and retries only after a failed attempt. */
+export const makeRetryablePromise = <A>(operation: () => Promise<A>) => {
+  let pending: Promise<A> | undefined;
+  return () => {
+    if (pending !== undefined) return pending;
+    pending = operation().catch((error: unknown) => {
+      pending = undefined;
+      throw error;
+    });
+    return pending;
+  };
+};
+
 export const spawnProcess: ProcessExecutor = (request: ProcessRequest, signal?: AbortSignal) =>
   new Promise((resolve) => {
     const invocation = spawnCommand(request);
     const child = spawn(invocation.command, invocation.args, {
       cwd: request.cwd,
-      env: { ...inheritedEnvironment(), ...request.env },
+      env: { ...inheritedEnvironment(request.environmentInheritance), ...request.env },
       stdio: ["ignore", request.output === "inherit" ? "inherit" : "pipe", "pipe"],
       detached: process.platform !== "win32",
       shell: false,
@@ -246,7 +341,7 @@ export const startLongLivedProcess: ProcessStarter = async (request, signal) => 
   const invocation = spawnCommand(request);
   const child = spawn(invocation.command, invocation.args, {
     cwd: request.cwd,
-    env: { ...inheritedEnvironment(), ...request.env },
+    env: { ...inheritedEnvironment(request.environmentInheritance), ...request.env },
     stdio: [
       "ignore",
       request.output === "stderr" || request.output === "capture" ? "pipe" : "inherit",
@@ -275,28 +370,13 @@ export const startLongLivedProcess: ProcessStarter = async (request, signal) => 
   child.stderr?.on("data", (chunk: Buffer | string) => collect(stderr, chunk));
   if (request.output !== "capture") child.stderr?.pipe(process.stderr);
   let removeAbortListener: () => void = () => undefined;
-  let killPromise: Promise<void> | undefined;
-  const killProcess = async () => {
-    if (killPromise !== undefined) return killPromise;
-    killPromise = (async () => {
-      removeAbortListener();
-      if (child.pid === undefined && child.exitCode === null) return;
-      const firstTerminationSucceeded = await terminateProcessTree(child, "SIGTERM");
-      await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 500))]);
-      const processIsAlive =
-        child.exitCode === null &&
-        child.signalCode === null &&
-        (process.platform === "win32" ? !firstTerminationSucceeded : processGroupAlive(child));
-      if (processIsAlive) await terminateProcessTree(child, "SIGKILL");
-      const terminated = await Promise.race([
-        exited.then(() => true),
-        new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 1_000)),
-      ]);
-      if (!terminated)
-        throw new Error("Fast process did not terminate within the shutdown deadline");
-    })();
-    return killPromise;
-  };
+  const killProcess = makeRetryablePromise(async () => {
+    removeAbortListener();
+    if (!canSignalProcessTree(child)) return;
+    const firstTerminationSucceeded = await terminateProcessTree(child, "SIGTERM");
+    await Promise.race([exited, new Promise<void>((resolve) => setTimeout(resolve, 500))]);
+    await finishProcessTreeTermination(child, exited, firstTerminationSucceeded);
+  });
   await new Promise<void>((resolve, reject) => {
     let settled = false;
     let startupAborted = false;
@@ -335,6 +415,9 @@ export const startLongLivedProcess: ProcessStarter = async (request, signal) => 
   });
   return {
     pid: child.pid,
+    ...(process.platform === "win32" || child.pid === undefined
+      ? {}
+      : { processGroupId: child.pid }),
     exited,
     kill: killProcess,
   };

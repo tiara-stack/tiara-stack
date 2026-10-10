@@ -2,9 +2,10 @@ import { createHash } from "node:crypto";
 import { it, expect } from "@effect/vitest";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { Deferred, Effect, Fiber, Layer, Queue, Schema } from "effect";
+import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 import { SqlClient } from "effect/unstable/sql";
-import { HttpRouter, HttpServerRequest } from "effect/unstable/http";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { Socket } from "effect/unstable/socket";
 import { makePreviewSessionController, previewSessionLeaseMs } from "./preview-sessions";
 import { relayNameFor } from "./preview-relay-provider";
@@ -13,12 +14,27 @@ import {
   PreviewGatewayError,
   PreviewGatewayTargetSchema,
   type PreviewGatewayAdapters,
+  type PreviewGatewayDependencyIdentity,
+  type PreviewGatewayDependencyTarget,
   type PreviewGatewayTarget,
   type PreviewGatewayPrincipal,
 } from "./preview-gateway";
 import { dispatchPreviewGatewayProtocol, PreviewGatewayHttpRoutes } from "./preview-gateway-http";
 
 const bad = () => new PreviewGatewayError({ reason: "unavailable" });
+const streamText = (body: Stream.Stream<Uint8Array, PreviewGatewayError>) =>
+  Effect.gen(function* () {
+    const chunks: Uint8Array[] = [];
+    yield* body.pipe(Stream.runForEach((chunk) => Effect.sync(() => chunks.push(chunk))));
+    const length = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
+    const bytes = new Uint8Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return new TextDecoder().decode(bytes);
+  });
 const fixture = Effect.gen(function* () {
   const clock = yield* TestClock.testClockWith((value) => Effect.succeed(value));
   const now = () => clock.currentTimeMillisUnsafe();
@@ -26,24 +42,36 @@ const fixture = Effect.gen(function* () {
   const controller = yield* makePreviewSessionController(now);
   // Recorded provider receipts stand in for TIA-236's allocator, not live Kubernetes evidence.
   yield* sql`CREATE TABLE preview_allocation_ledger (session_id TEXT, resource TEXT, owner_token TEXT, provider_resource_id TEXT, state TEXT)`;
-  const makeSession = (owner: string) =>
+  const makeSession = (
+    owner: string,
+    kind: PreviewGatewayTarget["kind"] = "disposable-probe",
+    role: PreviewGatewayTarget["role"] = "sheet-web",
+  ) =>
     Effect.gen(function* () {
       const created = yield* controller.create({
         owner,
         checkout: `/test/${owner}`,
         requestedRevision: "rev-a",
-        manifests: { "sheet-web": "manifest" },
-        groups: ["application-zero"],
+        manifests: { [role]: "manifest" },
+        groups: ["application-zero", "workflow-execution", "auth", "search"],
+        endpoints: [
+          "https://zero.dev.theerapakg.moe",
+          "https://workflows.dev.theerapakg.moe",
+          "https://auth.dev.theerapakg.moe",
+          "https://search.dev.theerapakg.moe",
+        ],
       });
       const target: PreviewGatewayTarget = {
         sessionId: created.session.id,
         generation: 1,
-        role: "sheet-web",
+        role,
         processId: `probe-${owner}`,
         revision: "rev-a",
+        artifactDigest: `sha256:${"a".repeat(64)}`,
+        catalogDigest: `sha256:${"b".repeat(64)}`,
         stateGroup: "application-zero",
-        kind: "disposable-probe",
-        serviceFqdn: `${relayNameFor(created.session.id, "sheet-web")}.preview-relays.svc.cluster.local`,
+        kind,
+        serviceFqdn: `${relayNameFor(created.session.id, role)}.preview-relays.svc.cluster.local`,
         port: 3000,
         serviceResourceId: `service-${owner}`,
         attachmentResourceId: `attachment-${owner}`,
@@ -60,13 +88,15 @@ const fixture = Effect.gen(function* () {
           providerResourceId:
             kind === "service" ? target.serviceResourceId : target.attachmentResourceId,
         });
-        yield* sql`INSERT INTO preview_allocation_ledger VALUES (${target.sessionId}, ${`preview-relay-${kind}-sheet-web`}, ${token}, ${reference}, 'owned')`;
+        yield* sql`INSERT INTO preview_allocation_ledger VALUES (${target.sessionId}, ${`preview-relay-${kind}-${role}`}, ${token}, ${reference}, 'owned')`;
       }
       yield* controller.activate(created.session.id, 1, created.supervisorIdentity, "rev-a");
       return { ...created, target };
     });
   const a = yield* makeSession("alice");
   const b = yield* makeSession("bob");
+  const c = yield* makeSession("carol", "application");
+  const d = yield* makeSession("dave", "application");
   const tokens = new Map<string, PreviewGatewayPrincipal>();
   const token = (value: string, target: PreviewGatewayTarget, userId: string) => {
     tokens.set(value, {
@@ -75,11 +105,19 @@ const fixture = Effect.gen(function* () {
       generation: target.generation,
       role: target.role,
       expiresAt: now() + 3 * previewSessionLeaseMs,
+      effectivePrincipal: {
+        subject: userId,
+        issuer: "https://auth.dev.example.test",
+        audiences: [target.role],
+        scopes: ["application:read", "application:write"],
+      },
     });
     return { authorization: `Bearer ${value}` };
   };
   const alice = token("alice-a", a.target, "alice");
   const bob = token("bob-b", b.target, "bob");
+  const carol = token("carol-c", c.target, "carol");
+  const dave = token("dave-d", d.target, "dave");
   const guestA = token("guest-a", a.target, "guest");
   const guestB = token("guest-b", b.target, "guest");
   yield* sql`CREATE TABLE shared_control (revision TEXT, login TEXT, writes INTEGER)`;
@@ -88,6 +126,43 @@ const fixture = Effect.gen(function* () {
     Effect.map((rows) => rows[0]),
   );
   const observations: { sessionId: string; headers: Readonly<Record<string, string>> }[] = [];
+  const applicationObservations: {
+    sessionId: string;
+    method: string;
+    path: string;
+    headers: Readonly<Record<string, string>>;
+    principal?: PreviewGatewayPrincipal;
+    body?: Uint8Array;
+    maxResponseBytes?: number;
+  }[] = [];
+  const applicationSocketObservations: {
+    readonly sessionId: string;
+    readonly path: string;
+    readonly headers: Readonly<Record<string, string>>;
+  }[] = [];
+  const dependencyTargetChecks: PreviewGatewayDependencyIdentity[] = [];
+  const dependencySocketObservations: {
+    readonly target: PreviewGatewayDependencyTarget;
+    readonly path: string;
+    readonly headers: Readonly<Record<string, string>>;
+    readonly principal: PreviewGatewayPrincipal;
+  }[] = [];
+  const dependencyObservations: {
+    readonly target: PreviewGatewayDependencyTarget;
+    readonly method: string;
+    readonly path: string;
+    readonly headers: Readonly<Record<string, string>>;
+    readonly principal: PreviewGatewayPrincipal;
+  }[] = [];
+  let applicationResponseBody: (
+    sessionId: string,
+    path: string,
+  ) => Stream.Stream<Uint8Array, PreviewGatewayError> = (_sessionId, path) =>
+    Stream.make(new TextEncoder().encode(`app:${_sessionId}:${path}`));
+  let applicationResponseHeaders: Readonly<Record<string, string>> = {
+    "content-type": "application/octet-stream",
+    "set-cookie": "bad=1",
+  };
   const closed: string[] = [];
   const disconnected = new Set<string>();
   const upstreamSockets = new Map<string, Socket.Socket>();
@@ -99,6 +174,8 @@ const fixture = Effect.gen(function* () {
       wildcardDns: true,
       wildcardCertificate: true,
       independentGatewayAuthentication: true,
+      applicationIdentityMediation: true,
+      browserDependencyMediation: true,
       singleControllerFenceDelivery: true,
     })),
     authenticate: ({ headers }) =>
@@ -118,6 +195,51 @@ const fixture = Effect.gen(function* () {
               observations.push({ sessionId: target.sessionId, headers });
               return `probe:${target.sessionId}`;
             }),
+          applicationRequest: (input: {
+            readonly method: string;
+            readonly path: string;
+            readonly headers: Readonly<Record<string, string>>;
+            readonly principal?: PreviewGatewayPrincipal;
+            readonly body?: Stream.Stream<Uint8Array, PreviewGatewayError>;
+            readonly maxResponseBytes: number;
+          }) =>
+            Effect.gen(function* () {
+              const chunks: Uint8Array[] = [];
+              if (input.body !== undefined)
+                yield* input.body.pipe(
+                  Stream.runForEach((chunk) => Effect.sync(() => chunks.push(chunk))),
+                );
+              const bodyLength = chunks.reduce((total, chunk) => total + chunk.byteLength, 0);
+              const body = new Uint8Array(bodyLength);
+              let offset = 0;
+              for (const chunk of chunks) {
+                body.set(chunk, offset);
+                offset += chunk.byteLength;
+              }
+              applicationObservations.push({
+                sessionId: target.sessionId,
+                method: input.method,
+                path: input.path,
+                headers: input.headers,
+                ...(input.principal === undefined ? {} : { principal: input.principal }),
+                ...(input.body === undefined ? {} : { body }),
+                maxResponseBytes: input.maxResponseBytes,
+              });
+              return {
+                status: input.path === "/ready" ? 200 : 201,
+                headers: applicationResponseHeaders,
+                body: applicationResponseBody(target.sessionId, input.path),
+              };
+            }),
+          applicationSocket: (input: {
+            readonly path: string;
+            readonly headers: Readonly<Record<string, string>>;
+            readonly principal: PreviewGatewayPrincipal;
+          }) => {
+            applicationSocketObservations.push({ sessionId: target.sessionId, ...input });
+            const socket = upstreamSockets.get(target.sessionId);
+            return socket === undefined ? Effect.fail(bad()) : Effect.succeed(socket);
+          },
           socket: Effect.suspend(() => {
             const socket = upstreamSockets.get(target.sessionId);
             return socket === undefined ? Effect.fail(bad()) : Effect.succeed(socket);
@@ -128,6 +250,34 @@ const fixture = Effect.gen(function* () {
         };
         return yield* Effect.acquireRelease(Effect.succeed(connection), (value) => value.close);
       }),
+    applicationDependency: {
+      checkTarget: (target) => Effect.sync(() => dependencyTargetChecks.push(target)),
+      request: (target, input) =>
+        Effect.gen(function* () {
+          if (input.body !== undefined) yield* input.body.pipe(Stream.runDrain);
+          dependencyObservations.push({
+            target,
+            method: input.method,
+            path: input.path,
+            headers: input.headers,
+            principal: input.principal,
+          });
+          return {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            body: Stream.make(
+              new TextEncoder().encode(
+                `dependency:${target.group}:${target.sessionId}:${input.path}`,
+              ),
+            ),
+          };
+        }),
+      socket: ({ target, path, headers, principal }) => {
+        dependencySocketObservations.push({ target, path, headers, principal });
+        const socket = upstreamSockets.get(target.sessionId);
+        return socket === undefined ? Effect.fail(bad()) : Effect.succeed(socket);
+      },
+    },
   };
   const gateway = yield* makePreviewGateway({
     domain: "dev.example.test",
@@ -137,9 +287,14 @@ const fixture = Effect.gen(function* () {
   });
   const routeA = yield* gateway.register(a.target, a.ownerIdentity);
   const routeB = yield* gateway.register(b.target, b.ownerIdentity);
+  const routeC = yield* gateway.register(c.target, c.ownerIdentity);
+  const routeD = yield* gateway.register(d.target, d.ownerIdentity);
   return {
     a,
     b,
+    c,
+    d,
+    createSession: makeSession,
     gateway,
     controller,
     adapters,
@@ -147,13 +302,28 @@ const fixture = Effect.gen(function* () {
     sql,
     routeA,
     routeB,
+    routeC,
+    routeD,
     alice,
     bob,
+    carol,
+    dave,
     guestA,
     guestB,
     token,
     control,
     observations,
+    applicationObservations,
+    applicationSocketObservations,
+    dependencyObservations,
+    dependencySocketObservations,
+    dependencyTargetChecks,
+    setApplicationResponseBody: (body: Stream.Stream<Uint8Array, PreviewGatewayError>) => {
+      applicationResponseBody = () => body;
+    },
+    setApplicationResponseHeaders: (headers: Readonly<Record<string, string>>) => {
+      applicationResponseHeaders = headers;
+    },
     closed,
     disconnected,
     upstreamSockets,
@@ -249,7 +419,7 @@ it.effect(
           (yield* f.sql`SELECT hostname FROM preview_gateway_routes WHERE removed=0`).map(
             (r) => r.hostname,
           ),
-        ).toEqual([f.routeB.hostname]);
+        ).toEqual([f.routeB.hostname, f.routeC.hostname, f.routeD.hostname]);
         expect(yield* f.control).toEqual({
           revision: "shared-original",
           login: "shared-login",
@@ -348,7 +518,7 @@ it.effect(
 );
 
 it.effect(
-  "persists grants across gateway restart and refuses route retargeting or application registration",
+  "persists grants across gateway restart and refuses route retargeting or application routes without HTTP and socket adapters",
   () =>
     withFixture((f) =>
       Effect.gen(function* () {
@@ -362,19 +532,26 @@ it.effect(
         const guest = yield* restarted.open({ hostname: f.routeA.hostname, headers: f.guestA });
         expect(guest.route).toEqual(f.routeA);
         yield* denied(restarted.register({ ...f.a.target, port: 4000 }, f.a.ownerIdentity));
-        expect(Schema.is(PreviewGatewayTargetSchema)({ ...f.a.target, kind: "application" })).toBe(
-          false,
-        );
+        const applicationTarget = { ...f.a.target, kind: "application" as const };
+        expect(Schema.is(PreviewGatewayTargetSchema)(applicationTarget)).toBe(true);
         yield* denied(
           dispatchPreviewGatewayProtocol(restarted, {
             _tag: "RegisterProbe",
             version: 1,
-            target: { ...f.a.target, kind: "application" },
+            target: applicationTarget,
             ownerIdentity: f.a.ownerIdentity,
           }),
         );
+        expect(
+          yield* dispatchPreviewGatewayProtocol(restarted, {
+            _tag: "RegisterApplication",
+            version: 1,
+            target: f.c.target,
+            ownerIdentity: f.c.ownerIdentity,
+          }),
+        ).toEqual(f.routeC);
         yield* TestClock.adjust(30_000);
-        yield* f.controller.resume(f.a.target.sessionId, f.a.ownerIdentity);
+        yield* f.controller.resume(f.a.target.sessionId, f.a.ownerIdentity, f.a.supervisorIdentity);
         yield* guest.fenced;
         yield* denied(guest.guard(Effect.succeed("stale generation")));
       }),
@@ -424,9 +601,696 @@ it.effect(
           (yield* request(f.routeA.hostname, "/_preview/probe?target=shared", f.alice)).status,
         ).toBe(400);
         expect((yield* request(f.routeA.hostname, "/_preview/probe", f.guestA)).status).toBe(503);
-        yield* denied(request(f.routeA.hostname, "/application", f.alice));
+        expect((yield* request(f.routeA.hostname, "/application", f.alice)).status).toBe(503);
         expect(f.observations).toHaveLength(1);
         expect(f.observations[0]?.headers).toEqual({});
+      }),
+    ),
+);
+
+it.effect("forwards bounded application HTTP only to the selected session target", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      f.setApplicationResponseHeaders({
+        "Content-Type": "application/octet-stream",
+        ETag: "revision-a",
+        "Set-Cookie": "bad=1",
+      });
+      const handler = yield* HttpRouter.toHttpEffect(
+        PreviewGatewayHttpRoutes(f.gateway).pipe(Layer.provide(HttpRouter.layer)),
+      );
+      const response = yield* handler.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request(`https://${f.routeC.hostname}/_preview/app/settings?tab=one`, {
+              method: "POST",
+              headers: {
+                ...f.carol,
+                host: f.routeC.hostname,
+                origin: `https://${f.routeC.hostname}`,
+                cookie: "shared=must-not-forward",
+                "x-forwarded-host": f.routeA.hostname,
+                "content-type": "application/json",
+                accept: "application/json",
+              },
+              body: '{"enabled":true}',
+            }),
+          ),
+        ),
+      );
+      expect(response.status).toBe(201);
+      expect(response.headers["content-type"]).toBe("application/octet-stream");
+      expect(response.headers.etag).toBe("revision-a");
+      expect(f.applicationObservations.map(({ path }) => path)).toContain("/settings?tab=one");
+      expect(response.headers["set-cookie"]).toBeUndefined();
+      expect(response.headers["cache-control"]).toBe("no-store");
+      expect(yield* Effect.promise(() => HttpServerResponse.toWeb(response).text())).toContain(
+        `app:${f.c.target.sessionId}:/settings?tab=one`,
+      );
+      expect(f.applicationObservations.at(-1)).toMatchObject({
+        sessionId: f.c.target.sessionId,
+        method: "POST",
+        path: "/settings?tab=one",
+        headers: { "content-type": "application/json", accept: "application/json" },
+        principal: expect.objectContaining({
+          userId: "carol",
+          sessionId: f.c.target.sessionId,
+          generation: f.c.target.generation,
+          role: f.c.target.role,
+          effectivePrincipal: {
+            subject: "carol",
+            issuer: "https://auth.dev.example.test",
+            audiences: ["sheet-web"],
+            scopes: ["application:read", "application:write"],
+          },
+        }),
+        body: new TextEncoder().encode('{"enabled":true}'),
+        maxResponseBytes: 16 * 1024 * 1024,
+      });
+      const deniedResponse = yield* handler.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request(`https://${f.routeC.hostname}/_preview/app/settings`, {
+              headers: {
+                ...f.carol,
+                host: f.routeC.hostname,
+                origin: `https://${f.routeA.hostname}`,
+              },
+            }),
+          ),
+        ),
+      );
+      expect(deniedResponse.status).toBe(403);
+      const tooLarge = yield* handler.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request(`https://${f.routeC.hostname}/_preview/app/settings`, {
+              method: "POST",
+              headers: { ...f.carol, host: f.routeC.hostname },
+              body: "x".repeat(1024 * 1024 + 1),
+            }),
+          ),
+        ),
+      );
+      expect(tooLarge.status).toBe(413);
+      f.setApplicationResponseHeaders({
+        "Content-Length": String(16 * 1024 * 1024 + 1),
+      });
+      const oversizedResponse = yield* handler.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request(`https://${f.routeC.hostname}/_preview/app/settings`, {
+              headers: {
+                ...f.carol,
+                host: f.routeC.hostname,
+                origin: `https://${f.routeC.hostname}`,
+              },
+            }),
+          ),
+        ),
+      );
+      expect(oversizedResponse.status).toBe(502);
+    }),
+  ),
+);
+
+it.effect("serves the emitted session hostname root through the selected application target", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const handler = yield* HttpRouter.toHttpEffect(
+        PreviewGatewayHttpRoutes(f.gateway).pipe(Layer.provide(HttpRouter.layer)),
+      );
+      const response = yield* handler.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request(`https://${f.routeC.hostname}/`, {
+              headers: {
+                ...f.carol,
+                host: f.routeC.hostname,
+                origin: `https://${f.routeC.hostname}`,
+              },
+            }),
+          ),
+        ),
+      );
+      expect(response.status).toBe(201);
+      expect(f.applicationObservations.at(-1)).toMatchObject({
+        sessionId: f.c.target.sessionId,
+        method: "GET",
+        path: "/",
+        principal: {
+          userId: "carol",
+          effectivePrincipal: {
+            subject: "carol",
+            scopes: ["application:read", "application:write"],
+          },
+        },
+      });
+      const requestsBeforeSameSite = f.applicationObservations.length;
+      const sameSite = yield* handler.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request(`https://${f.routeC.hostname}/settings`, {
+              headers: { ...f.carol, host: f.routeC.hostname, "sec-fetch-site": "same-site" },
+            }),
+          ),
+        ),
+      );
+      expect(sameSite.status).toBe(403);
+      expect(f.applicationObservations).toHaveLength(requestsBeforeSameSite);
+      const crossSiteNavigation = yield* handler.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request(`https://${f.routeC.hostname}/`, {
+              headers: {
+                ...f.carol,
+                host: f.routeC.hostname,
+                origin: "https://external.example",
+                "sec-fetch-site": "cross-site",
+                "sec-fetch-mode": "navigate",
+                "sec-fetch-dest": "document",
+              },
+            }),
+          ),
+        ),
+      );
+      expect(crossSiteNavigation.status).toBe(201);
+      const requestsBeforeCrossSiteDocument = f.applicationObservations.length;
+      const crossSiteDocument = yield* handler.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request(`https://${f.routeC.hostname}/_preview/app/settings`, {
+              headers: {
+                ...f.carol,
+                host: f.routeC.hostname,
+                origin: "https://external.example",
+                "sec-fetch-site": "cross-site",
+                "sec-fetch-mode": "navigate",
+                "sec-fetch-dest": "document",
+              },
+            }),
+          ),
+        ),
+      );
+      expect(crossSiteDocument.status).toBe(403);
+      expect(f.applicationObservations).toHaveLength(requestsBeforeCrossSiteDocument);
+      const crossSiteMutation = yield* handler.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request(`https://${f.routeC.hostname}/settings`, {
+              method: "POST",
+              headers: {
+                ...f.carol,
+                host: f.routeC.hostname,
+                origin: "https://external.example",
+                "sec-fetch-site": "cross-site",
+                "sec-fetch-mode": "navigate",
+                "sec-fetch-dest": "document",
+              },
+              body: '{"setting":true}',
+            }),
+          ),
+        ),
+      );
+      expect(crossSiteMutation.status).toBe(403);
+      const sameOrigin = yield* handler.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request(`https://${f.routeC.hostname}/settings`, {
+              headers: {
+                ...f.carol,
+                host: f.routeC.hostname,
+                origin: `https://${f.routeC.hostname}`,
+                "sec-fetch-site": "same-origin",
+              },
+            }),
+          ),
+        ),
+      );
+      expect(sameOrigin.status).toBe(201);
+    }),
+  ),
+);
+
+it.effect(
+  "routes shared browser APIs through the registered session dependency and principal",
+  () =>
+    withFixture((f) =>
+      Effect.gen(function* () {
+        const dependency: PreviewGatewayDependencyTarget = {
+          sessionId: f.c.target.sessionId,
+          generation: f.c.target.generation,
+          role: "sheet-web",
+          revision: f.c.target.revision,
+          group: "application-zero",
+          endpoint: "https://zero.dev.theerapakg.moe",
+          stateIdentity: "zero-state-v1",
+          deployedManifestDigest: `sha256:${"a".repeat(64)}`,
+          catalogDigest: `sha256:${"b".repeat(64)}`,
+          credentialReference: "secret://tiara-stack-dev/sheet-web/application-integration",
+        };
+        yield* f.gateway.checkApplicationDependencies([
+          {
+            role: dependency.role,
+            group: dependency.group,
+            endpoint: dependency.endpoint,
+            stateIdentity: dependency.stateIdentity,
+            deployedManifestDigest: dependency.deployedManifestDigest,
+            catalogDigest: dependency.catalogDigest,
+            credentialReference: dependency.credentialReference,
+          },
+        ]);
+        yield* f.gateway.registerApplicationDependencies(
+          f.c.target,
+          [dependency],
+          f.c.ownerIdentity,
+        );
+        const checksBeforeResumeHealth = f.dependencyTargetChecks.length;
+        yield* f.gateway.checkRegisteredApplicationDependencies(
+          f.c.target.sessionId,
+          "sheet-web",
+          f.c.ownerIdentity,
+        );
+        expect(f.dependencyTargetChecks).toHaveLength(checksBeforeResumeHealth + 1);
+        const applicationRequestsBeforeUnknownGroup = f.applicationObservations.length;
+        const origin = f.gateway.applicationDependencyOrigin(
+          f.c.target.sessionId,
+          "sheet-web",
+          "application-zero",
+        );
+        expect(origin).toBe(`https://${f.routeC.hostname}/_preview/dependencies/application-zero/`);
+        const handler = yield* HttpRouter.toHttpEffect(
+          PreviewGatewayHttpRoutes(f.gateway).pipe(Layer.provide(HttpRouter.layer)),
+        );
+        const response = yield* handler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              new Request(`${origin}sync/v50/connect`, {
+                headers: {
+                  ...f.carol,
+                  host: f.routeC.hostname,
+                  origin: `https://${f.routeC.hostname}`,
+                  cookie: "shared-token=must-not-forward",
+                  accept: "application/json",
+                },
+              }),
+            ),
+          ),
+        );
+        expect(response.status).toBe(200);
+        expect(yield* Effect.promise(() => HttpServerResponse.toWeb(response).text())).toBe(
+          `dependency:application-zero:${f.c.target.sessionId}:/sync/v50/connect`,
+        );
+        expect(f.dependencyObservations.at(-1)).toMatchObject({
+          target: dependency,
+          method: "GET",
+          path: "/sync/v50/connect",
+          headers: { accept: "application/json" },
+          principal: {
+            userId: "carol",
+            effectivePrincipal: {
+              subject: "carol",
+              scopes: ["application:read", "application:write"],
+            },
+          },
+        });
+        const dependencyRequestsBeforeCrossSiteNavigation = f.dependencyObservations.length;
+        const crossSiteDependencyNavigation = yield* handler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              new Request(`${origin}sync/v50/connect`, {
+                headers: {
+                  ...f.carol,
+                  host: f.routeC.hostname,
+                  origin: "https://external.example",
+                  "sec-fetch-site": "cross-site",
+                  "sec-fetch-mode": "navigate",
+                  "sec-fetch-dest": "document",
+                },
+              }),
+            ),
+          ),
+        );
+        expect(crossSiteDependencyNavigation.status).toBe(403);
+        expect(f.dependencyObservations).toHaveLength(dependencyRequestsBeforeCrossSiteNavigation);
+        const workflowOrigin = f.gateway.applicationDependencyOrigin(
+          f.c.target.sessionId,
+          "sheet-web",
+          "workflow-execution",
+        );
+        const unavailable = yield* handler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              new Request(`${workflowOrigin}workflows/unknown`, {
+                headers: {
+                  ...f.carol,
+                  host: f.routeC.hostname,
+                  origin: `https://${f.routeC.hostname}`,
+                },
+              }),
+            ),
+          ),
+        );
+        expect(unavailable.status).toBe(503);
+        const unknownGroup = yield* handler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              new Request(`https://${f.routeC.hostname}/_preview/dependencies/unknown/endpoint`, {
+                headers: {
+                  ...f.carol,
+                  host: f.routeC.hostname,
+                  origin: `https://${f.routeC.hostname}`,
+                },
+              }),
+            ),
+          ),
+        );
+        expect(unknownGroup.status).toBe(503);
+        const encodedUnknownGroup = yield* handler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              new Request(`https://${f.routeC.hostname}/_preview/dependencies%2funknown/endpoint`, {
+                headers: {
+                  ...f.carol,
+                  host: f.routeC.hostname,
+                  origin: `https://${f.routeC.hostname}`,
+                },
+              }),
+            ),
+          ),
+        );
+        expect(encodedUnknownGroup.status).toBe(503);
+        expect(f.applicationObservations).toHaveLength(applicationRequestsBeforeUnknownGroup);
+      }),
+    ),
+);
+
+it.effect("fences Zero dependency WSS through its exact registered group", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const dependency: PreviewGatewayDependencyTarget = {
+        sessionId: f.c.target.sessionId,
+        generation: f.c.target.generation,
+        role: "sheet-web",
+        revision: f.c.target.revision,
+        group: "application-zero",
+        endpoint: "https://zero.dev.theerapakg.moe",
+        stateIdentity: "zero-state-v1",
+        deployedManifestDigest: `sha256:${"a".repeat(64)}`,
+        catalogDigest: `sha256:${"b".repeat(64)}`,
+        credentialReference: "secret://tiara-stack-dev/sheet-web/application-integration",
+      };
+      yield* f.gateway.registerApplicationDependencies(f.c.target, [dependency], f.c.ownerIdentity);
+      const upstream = yield* testSocket;
+      const browser = yield* testSocket;
+      f.upstreamSockets.set(f.c.target.sessionId, upstream.socket);
+      const origin = f.gateway.applicationDependencyOrigin(
+        f.c.target.sessionId,
+        "sheet-web",
+        "application-zero",
+      );
+      if (origin === undefined) return yield* Effect.fail(bad());
+      const handler = yield* HttpRouter.toHttpEffect(
+        PreviewGatewayHttpRoutes(f.gateway).pipe(Layer.provide(HttpRouter.layer)),
+      );
+      const upgraded = yield* Deferred.make<void>();
+      const request = HttpServerRequest.fromWeb(
+        new Request(`${origin}sync/v50/connect`, {
+          headers: {
+            ...f.carol,
+            host: f.routeC.hostname,
+            origin: `https://${f.routeC.hostname}`,
+            upgrade: "websocket",
+          },
+        }),
+      );
+      const wrapped = new Proxy(request, {
+        get: (target, key, receiver) =>
+          key === "upgrade"
+            ? Deferred.succeed(upgraded, undefined).pipe(Effect.as(browser.socket))
+            : Reflect.get(target, key, receiver),
+      });
+      const fiber = yield* handler.pipe(
+        Effect.provideService(HttpServerRequest.HttpServerRequest, wrapped),
+        Effect.forkChild,
+      );
+      yield* Deferred.await(upgraded);
+      expect(f.dependencySocketObservations.at(-1)).toMatchObject({
+        target: dependency,
+        path: "/sync/v50/connect",
+        principal: {
+          userId: "carol",
+          effectivePrincipal: { subject: "carol" },
+        },
+      });
+      yield* browser.receive("zero-mutation");
+      expect(yield* upstream.sent).toBe("zero-mutation");
+      yield* f.controller.stop(f.c.target.sessionId, f.c.ownerIdentity);
+      expect(Socket.isCloseEvent(yield* browser.sent)).toBe(true);
+      yield* Fiber.join(fiber);
+    }),
+  ),
+);
+
+it.effect("fences shared Zero WSS frames through the session dependency adapter", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const dependency: PreviewGatewayDependencyTarget = {
+        sessionId: f.c.target.sessionId,
+        generation: f.c.target.generation,
+        role: "sheet-web",
+        revision: f.c.target.revision,
+        group: "application-zero",
+        endpoint: "https://zero.dev.theerapakg.moe",
+        stateIdentity: "zero-state-v1",
+        deployedManifestDigest: `sha256:${"a".repeat(64)}`,
+        catalogDigest: `sha256:${"b".repeat(64)}`,
+        credentialReference: "secret://tiara-stack-dev/sheet-web/application-integration",
+      };
+      yield* f.gateway.registerApplicationDependencies(f.c.target, [dependency], f.c.ownerIdentity);
+      const upstream = yield* testSocket;
+      const browser = yield* testSocket;
+      f.upstreamSockets.set(f.c.target.sessionId, upstream.socket);
+      const origin = f.gateway.applicationDependencyOrigin(
+        f.c.target.sessionId,
+        "sheet-web",
+        "application-zero",
+      );
+      if (origin === undefined) return yield* Effect.fail(bad());
+      const handler = yield* HttpRouter.toHttpEffect(
+        PreviewGatewayHttpRoutes(f.gateway).pipe(Layer.provide(HttpRouter.layer)),
+      );
+      const upgraded = yield* Deferred.make<void>();
+      const request = HttpServerRequest.fromWeb(
+        new Request(`${origin}sync/v50/connect`, {
+          headers: {
+            ...f.carol,
+            host: f.routeC.hostname,
+            origin: `https://${f.routeC.hostname}`,
+            upgrade: "websocket",
+          },
+        }),
+      );
+      const wrapped = new Proxy(request, {
+        get: (target, key, receiver) =>
+          key === "upgrade"
+            ? Deferred.succeed(upgraded, undefined).pipe(Effect.as(browser.socket))
+            : Reflect.get(target, key, receiver),
+      });
+      const fiber = yield* handler.pipe(
+        Effect.provideService(HttpServerRequest.HttpServerRequest, wrapped),
+        Effect.forkChild,
+      );
+      yield* Deferred.await(upgraded);
+      expect(f.dependencySocketObservations.at(-1)).toMatchObject({
+        target: dependency,
+        path: "/sync/v50/connect",
+        principal: {
+          userId: "carol",
+          effectivePrincipal: { subject: "carol" },
+        },
+      });
+      yield* browser.receive("zero-update");
+      expect(yield* upstream.sent).toBe("zero-update");
+      yield* f.controller.stop(f.c.target.sessionId, f.c.ownerIdentity);
+      expect(Socket.isCloseEvent(yield* browser.sent)).toBe(true);
+      yield* Fiber.join(fiber);
+    }),
+  ),
+);
+
+it.effect("streams application responses with downstream backpressure", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const handler = yield* HttpRouter.toHttpEffect(
+        PreviewGatewayHttpRoutes(f.gateway).pipe(Layer.provide(HttpRouter.layer)),
+      );
+      const release = yield* Deferred.make<void>();
+      let secondChunkStarted = false;
+      let responseFinished = false;
+      f.setApplicationResponseBody(
+        Stream.concat(
+          Stream.make(new TextEncoder().encode("first-")),
+          Stream.fromEffect(
+            Effect.sync(() => {
+              secondChunkStarted = true;
+            }).pipe(
+              Effect.andThen(
+                Deferred.await(release).pipe(Effect.as(new TextEncoder().encode("second"))),
+              ),
+            ),
+          ),
+        ),
+      );
+      const response = yield* handler.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request(`https://${f.routeC.hostname}/_preview/app/stream`, {
+              headers: {
+                ...f.carol,
+                host: f.routeC.hostname,
+                origin: `https://${f.routeC.hostname}`,
+              },
+            }),
+          ),
+        ),
+      );
+      const consumer = yield* Effect.tryPromise({
+        try: () => HttpServerResponse.toWeb(response).text(),
+        catch: (cause) => cause,
+      }).pipe(
+        Effect.tap(() => Effect.sync(() => (responseFinished = true))),
+        Effect.forkChild,
+      );
+      for (let attempt = 0; attempt < 10 && !secondChunkStarted; attempt += 1)
+        yield* Effect.yieldNow;
+      expect(secondChunkStarted).toBe(true);
+      expect(responseFinished).toBe(false);
+      yield* Deferred.succeed(release, undefined);
+      expect(yield* Fiber.join(consumer)).toBe("first-second");
+      expect(responseFinished).toBe(true);
+    }),
+  ),
+);
+
+it.effect("keeps two simultaneous application destinations separate from shared control", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const [a, b] = yield* Effect.all(
+        [
+          f.gateway.open({ hostname: f.routeC.hostname, headers: f.carol }),
+          f.gateway.open({ hostname: f.routeD.hostname, headers: f.dave }),
+        ],
+        { concurrency: "unbounded" },
+      );
+      const [aResponse, bResponse] = yield* Effect.all(
+        [
+          a.applicationRequest({ method: "GET", path: "/changed", headers: {} }),
+          b.applicationRequest({ method: "GET", path: "/changed", headers: {} }),
+        ],
+        { concurrency: "unbounded" },
+      );
+      expect(yield* streamText(aResponse.body)).toContain(f.c.target.sessionId);
+      expect(yield* streamText(bResponse.body)).toContain(f.d.target.sessionId);
+      expect(a.route.target.sessionId).not.toBe(b.route.target.sessionId);
+      expect(yield* f.control).toEqual({
+        revision: "shared-original",
+        login: "shared-login",
+        writes: 7,
+      });
+    }),
+  ),
+);
+
+it.effect(
+  "forwards application WSS frames on the session HMR path and closes on session stop",
+  () =>
+    withFixture((f) =>
+      Effect.gen(function* () {
+        const upstream = yield* testSocket;
+        f.upstreamSockets.set(f.c.target.sessionId, upstream.socket);
+        const handler = yield* HttpRouter.toHttpEffect(
+          PreviewGatewayHttpRoutes(f.gateway).pipe(Layer.provide(HttpRouter.layer)),
+        );
+        const browser = yield* testSocket;
+        const upgraded = yield* Deferred.make<void>();
+        const request = HttpServerRequest.fromWeb(
+          new Request(`https://${f.routeC.hostname}/_preview/app/__vite_hmr?token=path-only`, {
+            headers: {
+              ...f.carol,
+              host: f.routeC.hostname,
+              origin: `https://${f.routeC.hostname}`,
+              upgrade: "websocket",
+              "sec-websocket-protocol": "vite-hmr",
+              cookie: "shared=must-not-forward",
+            },
+          }),
+        );
+        const wrapped = new Proxy(request, {
+          get: (target, key, receiver) =>
+            key === "upgrade"
+              ? Deferred.succeed(upgraded, undefined).pipe(Effect.as(browser.socket))
+              : Reflect.get(target, key, receiver),
+        });
+        const fiber = yield* handler.pipe(
+          Effect.provideService(HttpServerRequest.HttpServerRequest, wrapped),
+          Effect.forkChild,
+        );
+        yield* Deferred.await(upgraded);
+        yield* f.controller.requestRevision(
+          f.c.target.sessionId,
+          f.c.target.generation,
+          f.c.supervisorIdentity,
+          "revision-b",
+        );
+        yield* f.gateway.register({ ...f.c.target, revision: "revision-b" }, f.c.ownerIdentity);
+        yield* f.controller.activate(
+          f.c.target.sessionId,
+          f.c.target.generation,
+          f.c.supervisorIdentity,
+          "revision-b",
+        );
+        expect(f.applicationSocketObservations).toContainEqual({
+          sessionId: f.c.target.sessionId,
+          path: "/_preview/app/__vite_hmr?token=path-only",
+          headers: { "sec-websocket-protocol": "vite-hmr" },
+          principal: {
+            userId: "carol",
+            sessionId: f.c.target.sessionId,
+            generation: f.c.target.generation,
+            role: f.c.target.role,
+            expiresAt: expect.any(Number),
+            effectivePrincipal: {
+              subject: "carol",
+              issuer: "https://auth.dev.example.test",
+              audiences: ["sheet-web"],
+              scopes: ["application:read", "application:write"],
+            },
+          },
+        });
+        yield* browser.receive("hmr-update");
+        expect(yield* upstream.sent).toBe("hmr-update");
+        yield* upstream.receive("hmr-ack");
+        expect(yield* browser.sent).toBe("hmr-ack");
+        yield* f.controller.stop(f.c.target.sessionId, f.c.ownerIdentity);
+        expect(Socket.isCloseEvent(yield* browser.sent)).toBe(true);
+        yield* Fiber.join(fiber);
       }),
     ),
 );
@@ -453,6 +1317,119 @@ const testSocket = Effect.gen(function* () {
     sent: Queue.take(outgoing),
   };
 });
+
+it.effect("revalidates an application route without changing the browser state generation", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      yield* TestClock.adjust(30_000);
+      const resumed = yield* f.controller.resume(
+        f.c.target.sessionId,
+        f.c.ownerIdentity,
+        f.c.supervisorIdentity,
+      );
+      const route = yield* f.gateway.resumeApplication(
+        f.c.target.sessionId,
+        "sheet-web",
+        f.c.ownerIdentity,
+      );
+      expect(route.target.generation).toBe(resumed.session.generation);
+      yield* f.controller.activate(
+        f.c.target.sessionId,
+        resumed.session.generation,
+        resumed.supervisorIdentity,
+        resumed.session.requestedRevision,
+      );
+      const nextProof = f.token(
+        "carol-next",
+        { ...f.c.target, generation: resumed.session.generation },
+        "carol",
+      );
+      const admission = yield* f.gateway.open({ hostname: route.hostname, headers: nextProof });
+      expect(admission.route.target.generation).toBe(resumed.session.generation);
+      expect(
+        Schema.is(PreviewGatewayTargetSchema)({
+          ...f.c.target,
+          role: "sheet-workflows-api",
+          stateGroup: "workflow-execution",
+          kind: "application",
+        }),
+      ).toBe(true);
+    }),
+  ),
+);
+
+it.effect("keeps application routes unavailable without operator-verified identity mediation", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const noMediation = yield* makePreviewGateway({
+        domain: "dev.example.test",
+        controller: f.controller,
+        now: f.now,
+        adapters: {
+          ...f.adapters,
+          checkSetup: Effect.sync(() => ({
+            domain: "dev.example.test",
+            observedAt: f.now(),
+            wildcardDns: true as const,
+            wildcardCertificate: true as const,
+            independentGatewayAuthentication: true as const,
+            singleControllerFenceDelivery: true as const,
+          })),
+        },
+      });
+      yield* denied(noMediation.register(f.c.target, f.c.ownerIdentity));
+
+      const missingPrincipal = yield* makePreviewGateway({
+        domain: "dev.example.test",
+        controller: f.controller,
+        now: f.now,
+        adapters: {
+          ...f.adapters,
+          authenticate: () =>
+            Effect.succeed({
+              userId: "carol",
+              sessionId: f.c.target.sessionId,
+              generation: f.c.target.generation,
+              role: f.c.target.role,
+              expiresAt: f.now() + 3 * previewSessionLeaseMs,
+            }),
+        },
+      });
+      yield* denied(missingPrincipal.open({ hostname: f.routeC.hostname, headers: f.carol }));
+    }),
+  ),
+);
+
+it.effect("fences the prior source revision until the changed application route is ready", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const requested = yield* f.controller.requestRevision(
+        f.c.target.sessionId,
+        f.c.target.generation,
+        f.c.supervisorIdentity,
+        "revision-b",
+      );
+      expect(requested.activeRevision).toBe("rev-a");
+      expect(requested.requestedRevision).toBe("revision-b");
+      yield* denied(f.gateway.open({ hostname: f.routeC.hostname, headers: f.carol }));
+      const updated = yield* f.gateway.register(
+        { ...f.c.target, revision: "revision-b" },
+        f.c.ownerIdentity,
+      );
+      const activated = yield* f.controller.activate(
+        f.c.target.sessionId,
+        f.c.target.generation,
+        f.c.supervisorIdentity,
+        "revision-b",
+      );
+      expect(activated.activeRevision).toBe(updated.target.revision);
+      expect(
+        (yield* f.gateway.open({ hostname: f.routeC.hostname, headers: f.carol })).route.target
+          .revision,
+      ).toBe("revision-b");
+    }),
+  ),
+);
 
 it.effect(
   "upgrades WebSockets, carries both directions, fences open sockets and keeps reconnects on the original session",
@@ -617,30 +1594,77 @@ it.effect("expired user credentials cannot borrow a renewed session lease", () =
   ),
 );
 
+it.effect("explicit resume preserves the target generation and configured user grants", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      yield* f.gateway.grant(f.routeA.hostname, f.a.ownerIdentity, "guest", true);
+      yield* TestClock.adjust(30_000);
+      const resumed = yield* f.controller.resume(
+        f.a.target.sessionId,
+        f.a.ownerIdentity,
+        f.a.supervisorIdentity,
+      );
+      const target = { ...f.a.target, generation: resumed.session.generation };
+      yield* f.gateway.register(target, f.a.ownerIdentity);
+      yield* f.controller.activate(
+        target.sessionId,
+        target.generation,
+        resumed.supervisorIdentity,
+        target.revision,
+      );
+      expect(resumed.session.generation).toBe(f.a.target.generation);
+      expect(
+        (yield* f.gateway.open({ hostname: f.routeA.hostname, headers: f.alice })).route.target
+          .generation,
+      ).toBe(f.a.target.generation);
+      const guestProof = f.token("guest-resumed", target, "guest");
+      expect(
+        (yield* f.gateway.open({ hostname: f.routeA.hostname, headers: guestProof })).route.target
+          .generation,
+      ).toBe(f.a.target.generation);
+    }),
+  ),
+);
+
 it.effect(
-  "explicit resume revalidates the target, resets grants and rejects the old generation",
+  "rotates a non-web route generation and clears its configured user grants on resume",
   () =>
     withFixture((f) =>
       Effect.gen(function* () {
-        yield* f.gateway.grant(f.routeA.hostname, f.a.ownerIdentity, "guest", true);
+        const created = yield* f.createSession("erin", "application", "sheet-workflows-api");
+        const route = yield* f.gateway.register(created.target, created.ownerIdentity);
+        const guestProof = f.token("erin-guest", created.target, "guest");
+        yield* f.gateway.grant(route.hostname, created.ownerIdentity, "guest", true);
+        expect(
+          (yield* f.gateway.open({ hostname: route.hostname, headers: guestProof })).principal
+            .userId,
+        ).toBe("guest");
+
         yield* TestClock.adjust(30_000);
-        const resumed = yield* f.controller.resume(f.a.target.sessionId, f.a.ownerIdentity);
-        const target = { ...f.a.target, generation: resumed.session.generation };
-        yield* f.gateway.register(target, f.a.ownerIdentity);
+        const resumed = yield* f.controller.resume(
+          created.session.id,
+          created.ownerIdentity,
+          created.supervisorIdentity,
+        );
+        const target = { ...created.target, generation: resumed.session.generation };
+        yield* f.gateway.register(target, created.ownerIdentity);
         yield* f.controller.activate(
           target.sessionId,
           target.generation,
           resumed.supervisorIdentity,
           target.revision,
         );
-        yield* denied(f.gateway.open({ hostname: f.routeA.hostname, headers: f.alice }));
-        const newProof = f.token("alice-resumed", target, "alice");
+
+        expect(resumed.session.generation).toBe(created.session.generation + 1);
+        const grants =
+          yield* f.sql`SELECT user_id FROM preview_gateway_grants WHERE hostname=${route.hostname}`;
+        expect(grants).toHaveLength(0);
+        yield* denied(f.gateway.open({ hostname: route.hostname, headers: guestProof }));
+        const ownerProof = f.token("erin-resumed", target, "erin");
         expect(
-          (yield* f.gateway.open({ hostname: f.routeA.hostname, headers: newProof })).route.target
-            .generation,
-        ).toBe(2);
-        const guestProof = f.token("guest-resumed", target, "guest");
-        yield* denied(f.gateway.open({ hostname: f.routeA.hostname, headers: guestProof }));
+          (yield* f.gateway.open({ hostname: route.hostname, headers: ownerProof })).principal
+            .userId,
+        ).toBe("erin");
       }),
     ),
 );

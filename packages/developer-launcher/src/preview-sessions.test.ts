@@ -33,7 +33,7 @@ it.live("persists pending sessions and fences writes after restart and resume", 
       const created = yield* firstController.create({
         owner: "developer@example.test",
         checkout: "/worktrees/change",
-        manifests: { "sheet-web": "sha256:manifest" },
+        manifests: { "sheet-auth": "sha256:manifest" },
         requestedRevision: "rev-a",
       });
       expect(created.session.phase).toBe("pending");
@@ -87,6 +87,100 @@ it.live("persists pending sessions and fences writes after restart and resume", 
       expect((yield* restartedController.status(created.session.id)).unsettled).toBe(0);
       const staleSettlement = yield* Effect.exit(restartedController.settle(created.session.id, 2));
       expect(staleSettlement._tag).toBe("Failure");
+    }),
+  ),
+);
+
+it.live("preserves a compatible sheet-web session generation on resume", () =>
+  withController(({ value }) =>
+    Effect.gen(function* () {
+      const controller = yield* makePreviewSessionController(() => value);
+      const created = yield* controller.create({
+        owner: "developer@example.test",
+        checkout: "/worktrees/web",
+        manifests: { "sheet-web": "sha256:manifest" },
+        requestedRevision: "rev-a",
+      });
+      yield* controller.activate(
+        created.session.id,
+        created.session.generation,
+        created.supervisorIdentity,
+        "rev-a",
+      );
+      const staleNoOp = yield* Effect.exit(
+        controller.requestRevision(
+          created.session.id,
+          created.session.generation,
+          created.ownerIdentity,
+          "rev-a",
+        ),
+      );
+      expect(staleNoOp._tag).toBe("Failure");
+      value += previewSupervisorLeaseMs;
+      const resumed = yield* controller.resume(
+        created.session.id,
+        created.ownerIdentity,
+        created.supervisorIdentity,
+      );
+      expect(resumed.session.phase).toBe("pending");
+      expect(resumed.session.generation).toBe(created.session.generation);
+      expect(resumed.supervisorIdentity).not.toBe(created.supervisorIdentity);
+      const oldHeartbeat = yield* Effect.exit(
+        controller.heartbeat(
+          created.session.id,
+          created.supervisorIdentity,
+          created.session.generation,
+        ),
+      );
+      expect(oldHeartbeat._tag).toBe("Failure");
+      const oldRevision = yield* Effect.exit(
+        controller.requestRevision(
+          created.session.id,
+          created.session.generation,
+          created.supervisorIdentity,
+          "rev-b",
+        ),
+      );
+      expect(oldRevision._tag).toBe("Failure");
+      const staleStop = yield* Effect.exit(
+        controller.stopSupervised(
+          created.session.id,
+          created.supervisorIdentity,
+          created.session.generation,
+        ),
+      );
+      expect(staleStop._tag).toBe("Failure");
+      expect((yield* controller.status(created.session.id)).phase).toBe("pending");
+      const activated = yield* controller.activate(
+        created.session.id,
+        resumed.session.generation,
+        resumed.supervisorIdentity,
+        resumed.session.requestedRevision,
+      );
+      expect(activated.generation).toBe(created.session.generation);
+      const noOpRevision = yield* controller.requestRevision(
+        created.session.id,
+        resumed.session.generation,
+        resumed.supervisorIdentity,
+        "rev-a",
+      );
+      expect(noOpRevision.phase).toBe("active");
+      expect(noOpRevision.activeRevision).toBe("rev-a");
+      const staleNoOpAfterResume = yield* Effect.exit(
+        controller.requestRevision(
+          created.session.id,
+          resumed.session.generation,
+          created.supervisorIdentity,
+          "rev-a",
+        ),
+      );
+      expect(staleNoOpAfterResume._tag).toBe("Failure");
+      const currentStop = yield* controller.stopSupervised(
+        created.session.id,
+        resumed.supervisorIdentity,
+        resumed.session.generation,
+      );
+      expect(currentStop.phase).toBe("ended");
     }),
   ),
 );

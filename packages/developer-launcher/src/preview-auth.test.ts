@@ -556,7 +556,7 @@ it.effect(
         });
         expect(nonJsonResponse.body).toBe(nonJsonResponseBody);
         const echoedToken = requests[1]!.accessToken;
-        protectedResponseBody = `{"large":9007199254740993,"access_token":"${echoedToken}","access_token":"benign","echo":"${echoedToken}"}`;
+        protectedResponseBody = `{"large":9007199254740993,"access_token":"${echoedToken}","access_token":"benign","id_token":"identity-secret","session_token":"session-secret","sessionToken":"camel-session-secret","session":{"token":"shared-session-token"},"echo":"${echoedToken}"}`;
         const redactedResponse = yield* auth.request({
           binding: bindings[1]!,
           credential: signedIn[1]!.credential,
@@ -566,6 +566,10 @@ it.effect(
           headers: {},
         });
         expect(redactedResponse.body).not.toContain(echoedToken);
+        expect(redactedResponse.body).not.toContain("shared-session-token");
+        expect(redactedResponse.body).not.toContain("identity-secret");
+        expect(redactedResponse.body).not.toContain("session-secret");
+        expect(redactedResponse.body).not.toContain("camel-session-secret");
         expect(redactedResponse.body).not.toContain("access_token");
         expect(redactedResponse.body).not.toContain("benign");
         expect(redactedResponse.body).toContain("9007199254740993");

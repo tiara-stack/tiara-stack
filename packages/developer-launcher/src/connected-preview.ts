@@ -1,13 +1,15 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import * as Console from "effect/Console";
-import { Effect, FileSystem, Match, Option, Predicate, Result, Schema } from "effect";
+import { Duration, Effect, FileSystem, Match, Option, Predicate, Result, Schema } from "effect";
+import type { HttpClient } from "effect/unstable/http";
 import { sensitiveEnvironmentKeys } from "./config";
 import { ownedApplicationResource } from "./owned-application-plane";
 import { syntheticDevelopmentSeedId } from "./synthetic-development-seed";
 import {
   dispatchPreviewSessionProtocol,
   PreviewSessionController,
+  previewSessionHeartbeatMs,
   SessionCredentialsSchema,
 } from "./preview-sessions";
 import { PreviewAllocationController } from "./preview-allocations";
@@ -17,6 +19,7 @@ import {
   PreviewRelayHostListenerSchema,
   PreviewRelayProviderUnavailable,
   previewRelayDoctorCheckIds,
+  relayNameFor,
   type PreviewRelayDoctorCheck,
   type PreviewRelayResourcePlan,
 } from "./preview-relay-provider";
@@ -38,6 +41,7 @@ import {
 } from "./types";
 
 const catalogVersion = 1;
+const supervisedWebCleanupRetryCount = 10;
 
 interface RuntimeRoleDefinition {
   readonly groups: readonly ConnectedPreviewGroup[];
@@ -1487,7 +1491,9 @@ const addWorkflowGroupRoleRequirements = (context: PreviewValidationContext) => 
     context.requiredRoles.add("sheet-workflows-api");
     context.requiredRoles.add("sheet-workflows-runner");
   } else if (ownership === "reused") {
-    context.requiredRoles.add("sheet-workflows-api");
+    const webOnlyConsumer =
+      context.selectedRoles.size === 1 && context.selectedRoles.has("sheet-web");
+    if (!webOnlyConsumer) context.requiredRoles.add("sheet-workflows-api");
   }
 };
 
@@ -1767,16 +1773,18 @@ const hasSelectedRunner = (context: PreviewValidationContext) =>
 
 const validateProducerOnlySelection = (context: PreviewValidationContext) => {
   const group = context.groupsById.get("workflow-execution");
+  const webOnlyConsumer =
+    context.selectedRoles.size === 1 && context.selectedRoles.has("sheet-web");
   const valid =
     context.requiredGroups.has("workflow-execution") &&
     group?.ownership === "reused" &&
     !hasSelectedRunner(context) &&
-    context.selectedRoles.has("sheet-workflows-api");
+    (webOnlyConsumer || context.selectedRoles.has("sheet-workflows-api"));
   if (!valid) {
     context.add(
       "invalid-preview-intent",
-      "Shared execution requires an explicitly compatible producer-only workflow API and a reused execution group",
-      "Select sheet-workflows-api, reuse workflow-execution, and omit preview runner roles.",
+      "Shared execution requires a reused workflow-execution group and either a sole sheet-web selection or an explicitly compatible producer-only sheet-workflows-api selection",
+      "Reuse workflow-execution, omit preview runner roles, and either select only sheet-web or select sheet-workflows-api with compatible workflow contracts.",
       "workflow-execution",
     );
   }
@@ -1799,7 +1807,9 @@ const validateProducerOnlyCompatibility = (context: PreviewValidationContext) =>
 const validateSharedExecutionIntent = (context: PreviewValidationContext) => {
   if (context.config.sharedExecution === "producer-only") {
     validateProducerOnlySelection(context);
-    validateProducerOnlyCompatibility(context);
+    const webOnlyConsumer =
+      context.selectedRoles.size === 1 && context.selectedRoles.has("sheet-web");
+    if (!webOnlyConsumer) validateProducerOnlyCompatibility(context);
     return;
   }
   if (
@@ -2178,13 +2188,21 @@ const sessionOutput = (
   plannedProcesses: [],
   urls: [],
   readiness:
-    session.phase === "ended" ? "stopped" : session.phase === "expired" ? "blocked" : "planned",
+    session.phase === "ended"
+      ? "stopped"
+      : session.phase === "expired"
+        ? "blocked"
+        : session.phase === "active"
+          ? "ready"
+          : "planned",
   warnings: [],
   errors: [],
   changedSurfaces: [],
   parityGates: [],
   previewSession: {
     id: session.id,
+    requestedRevision: session.requestedRevision,
+    activeRevision: session.activeRevision,
     phase: session.phase,
     generation: session.generation,
     leaseDeadline: session.leaseDeadline,
@@ -2476,6 +2494,84 @@ const validatePreviewRelayStartReadiness = (
   });
 };
 
+const sheetWebDependencyGroups = [
+  "application-zero",
+  "auth",
+  "workflow-execution",
+  "search",
+] as const;
+const sheetWebDependencyGroupSet: ReadonlySet<string> = new Set(sheetWebDependencyGroups);
+const sheetWebCredentialReferences = (config: ConnectedPreviewConfig) => {
+  const credentials = config.credentialReferences["sheet-web"] ?? {};
+  return {
+    "application-zero": credentials["application-integration"],
+    auth: credentials["preview-admission"],
+    "workflow-execution": credentials["preview-admission"],
+    search: credentials["search-query"],
+  } satisfies Record<(typeof sheetWebDependencyGroups)[number], string | undefined>;
+};
+
+const validateSheetWebDependencies = (
+  config: ConnectedPreviewConfig,
+  provider: LauncherOptions["previewRelayProvider"],
+): Effect.Effect<string | undefined> =>
+  Effect.gen(function* () {
+    if (provider === undefined)
+      return "No mediated development endpoint checker is configured for sheet-web.";
+    const required = sheetWebDependencyGroups;
+    const groups = new Map(config.groups.map((group) => [group.id, group]));
+    const endpoints = required.map((id) => groups.get(id)?.endpoint);
+    if (endpoints.some((endpoint) => endpoint === undefined))
+      return "Every sheet-web shared dependency needs an explicitly reused endpoint.";
+    const approvedHostnames = endpoints.flatMap((endpoint) => {
+      try {
+        const url = new URL(endpoint!);
+        return url.protocol === "https:" ? [url.hostname] : [];
+      } catch {
+        return [];
+      }
+    });
+    if (approvedHostnames.length !== required.length)
+      return "A sheet-web shared dependency endpoint is not an approved HTTPS origin.";
+    const listener = config.hostListeners?.find(({ role }) => role === "sheet-web");
+    if (listener === undefined) return "A reserved sheet-web host listener is required.";
+    const credentialByGroup = sheetWebCredentialReferences(config);
+    const checks = yield* Effect.forEach(
+      required,
+      (groupId) =>
+        Effect.gen(function* () {
+          const url = new URL(groups.get(groupId)!.endpoint!);
+          const probe = yield* Effect.result(
+            provider
+              .checkDevelopmentDependency({
+                approvedHostnames,
+                request: {
+                  sessionId: "preview-admission-check",
+                  role: "sheet-web",
+                  processId: listener.processId,
+                  hostname: url.hostname,
+                  ...(url.port === "" ? {} : { port: Number(url.port) }),
+                  protocol: "https",
+                  probePath: "/ready",
+                  tlsServerName: url.hostname,
+                  credentialReference: credentialByGroup[groupId],
+                },
+              })
+              .pipe(Effect.timeoutOption("5 seconds")),
+          );
+          return Result.isFailure(probe) ||
+            Option.isNone(probe.success) ||
+            !probe.success.value.authenticated ||
+            probe.success.value.status < 200 ||
+            probe.success.value.status >= 300
+            ? `The selected sheet-web dependency ${groupId} did not pass its authenticated /ready probe.`
+            : undefined;
+        }),
+      { concurrency: "unbounded" },
+    );
+    return checks.find((failure) => failure !== undefined);
+  });
+
 const preparePreviewStart = (
   command: PreviewStartCommand,
   options: LauncherOptions,
@@ -2489,12 +2585,73 @@ const preparePreviewStart = (
     const cwd = options.cwd ?? process.cwd();
     const setup = yield* readStartConfig(command, cwd);
     if (setup.output !== undefined) return { output: setup.output };
-    const relay = preparePreviewRelayPlan(setup.config);
-    if ("error" in relay)
-      return {
-        output: sessionOperationFailure(command, relay.error),
-      };
-    const demand = yield* prepareConnectedProfileDemand(command, setup.config, allocations);
+    const profile = preparePreviewProfile(command, setup.config, options);
+    if (!profile.ok) return { output: profile.output };
+    const preparedDemand = yield* preparePreviewDemand(command, setup.config, allocations, options);
+    if ("output" in preparedDemand) return preparedDemand;
+    const readinessFailure = yield* validatePreviewStartDependencies(
+      command,
+      setup.config,
+      profile.relayPlan,
+      options,
+    );
+    if (readinessFailure !== undefined) return { output: readinessFailure };
+    return {
+      config: setup.config,
+      cwd,
+      plan: preparedDemand.plan,
+      relayPlan: profile.relayPlan,
+      environment: preparedDemand.environment,
+    };
+  });
+
+const preparePreviewProfile = (
+  command: PreviewStartCommand,
+  config: ConnectedPreviewConfig,
+  options: LauncherOptions,
+):
+  | { readonly ok: true; readonly relayPlan: PreviewRelayResourcePlan }
+  | { readonly ok: false; readonly output: LauncherOutput } => {
+  const webUnavailable =
+    config.roles.includes("sheet-web") &&
+    (config.roles.length !== 1 ||
+      options.previewWebRuntime === undefined ||
+      options.previewGateway?.configured !== true ||
+      options.previewSupervisorScheduler === undefined ||
+      config.groups.some(
+        (group) =>
+          sheetWebDependencyGroupSet.has(group.id) &&
+          (group.ownership !== "reused" || group.endpoint === undefined),
+      ));
+  if (webUnavailable)
+    return {
+      ok: false,
+      output: {
+        ...outputForUnavailableExecution(command),
+        errors: [
+          makeDiagnostic(
+            "dependency-unavailable",
+            "The sheet-web preview runtime is unavailable; no session or resources were created.",
+            "A web start requires only the implemented sheet-web role, a host supervisor with a live controller scope, a configured session application gateway, and explicit HTTPS endpoints for all four compatible reused service groups. Keep the profile unavailable until those adapters and endpoint contracts are supplied.",
+            { mode: "preview", action: "start", dependency: "sheet-web" },
+          ),
+        ],
+      },
+    };
+  const relay = preparePreviewRelayPlan(config);
+  return "error" in relay
+    ? { ok: false, output: sessionOperationFailure(command, relay.error) }
+    : { ok: true, relayPlan: relay.plan };
+};
+
+const preparePreviewDemand = (
+  command: PreviewStartCommand,
+  config: ConnectedPreviewConfig,
+  allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
+  options: LauncherOptions,
+) =>
+  Effect.gen(function* () {
+    const demand = yield* prepareConnectedProfileDemand(command, config, allocations);
     if ("output" in demand) return demand;
     const environment = options.env ?? process.env;
     if (identityDirectory(environment) === undefined)
@@ -2504,25 +2661,79 @@ const preparePreviewStart = (
           "TIARA_PREVIEW_SESSION_DATABASE must name the configured controller store before creating a session.",
         ),
       };
+    return { plan: demand.plan, environment };
+  });
+
+const validateSheetWebGatewayReadiness = (
+  command: PreviewStartCommand,
+  config: ConnectedPreviewConfig,
+  gateway: LauncherOptions["previewGateway"],
+) =>
+  Effect.gen(function* () {
+    if (gateway === undefined || !gateway.configured)
+      return sessionOperationFailure(
+        command,
+        "The session application gateway is unavailable; no session or resources were created.",
+      );
+    const gatewayReady = yield* Effect.result(gateway.checkApplicationSetup());
+    if (Result.isFailure(gatewayReady))
+      return sessionOperationFailure(
+        command,
+        "The session application gateway has not verified DNS, TLS, admission fencing, and per-user application identity mediation; no session or resources were created.",
+      );
+    const dependencyIdentities = sheetWebDependencyIdentities(config);
+    if (dependencyIdentities === undefined)
+      return sessionOperationFailure(
+        command,
+        "The selected sheet-web profile is missing an explicit dependency identity; no session or resources were created.",
+      );
+    const dependencyReadiness = yield* Effect.result(
+      gateway.checkApplicationDependencies(dependencyIdentities),
+    );
+    return Result.isFailure(dependencyReadiness)
+      ? sessionOperationFailure(
+          command,
+          "The gateway could not verify the selected dependency identities and lifecycle mediation; no session or resources were created.",
+        )
+      : undefined;
+  });
+
+const validatePreviewStartDependencies = (
+  command: PreviewStartCommand,
+  config: ConnectedPreviewConfig,
+  relayPlan: PreviewRelayResourcePlan,
+  options: LauncherOptions,
+) =>
+  Effect.gen(function* () {
+    if (config.roles.includes("sheet-web")) {
+      const gatewayFailure = yield* validateSheetWebGatewayReadiness(
+        command,
+        config,
+        options.previewGateway,
+      );
+      if (gatewayFailure !== undefined) return gatewayFailure;
+    }
     const relayReadiness = yield* validatePreviewRelayStartReadiness(
       options.previewRelayProvider,
-      setup.config,
-      relay.plan,
+      config,
+      relayPlan,
     );
     if (relayReadiness !== undefined)
-      return {
-        output: sessionOperationFailure(
+      return sessionOperationFailure(
+        command,
+        `${relayReadiness} No session or resources were created.`,
+      );
+    if (!config.roles.includes("sheet-web")) return undefined;
+    const dependencyFailure = yield* validateSheetWebDependencies(
+      config,
+      options.previewRelayProvider,
+    );
+    return dependencyFailure === undefined
+      ? undefined
+      : sessionOperationFailure(
           command,
-          `${relayReadiness} No session or resources were created.`,
-        ),
-      };
-    return {
-      config: setup.config,
-      cwd,
-      plan: demand.plan,
-      relayPlan: relay.plan,
-      environment,
-    };
+          `${dependencyFailure} No session or resource reservation was created.`,
+        );
   });
 
 const allocationFailureMessage = (failure: unknown) => {
@@ -2539,7 +2750,8 @@ const finishPreviewStart = (
   prepared: PreparedPreviewStart,
   controller: import("./preview-sessions").PreviewSessionControllerApi,
   allocations: import("./preview-allocations").PreviewAllocationApi,
-): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> =>
+  options: LauncherOptions,
+): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
   Effect.uninterruptibleMask((restore) =>
     Effect.gen(function* () {
       const creation = yield* createPendingPreviewSession(
@@ -2605,14 +2817,75 @@ const finishPreviewStart = (
         allocations.inspect(creation.created.session.id),
       );
       const sessionState = yield* Effect.result(controller.status(creation.created.session.id));
-      return Result.isSuccess(allocationState) && Result.isSuccess(sessionState)
-        ? sessionOutput(command, sessionState.success, allocationState.success)
-        : sessionOperationFailure(
+      if (!Result.isSuccess(allocationState) || !Result.isSuccess(sessionState))
+        return yield* failPreviewStartAfterAllocation(
+          command,
+          creation.created,
+          new Error("Resources were allocated but durable status could not be read"),
+          controller,
+          allocations,
+        );
+      if (prepared.config.roles.includes("sheet-web"))
+        return yield* restore(
+          startSheetWebRuntime(
             command,
-            "Resources were allocated but durable status could not be read; admission remains blocked.",
-          );
+            prepared,
+            creation.created,
+            allocationState.success,
+            controller,
+            allocations,
+            options,
+          ),
+        ).pipe(
+          Effect.onInterrupt(() =>
+            Effect.gen(function* () {
+              yield* Effect.result(
+                controller.stop(creation.created.session.id, creation.created.ownerIdentity),
+              );
+              if (options.previewGateway !== undefined)
+                yield* Effect.result(
+                  options.previewGateway.cleanupSession(
+                    creation.created.session.id,
+                    creation.created.ownerIdentity,
+                  ),
+                );
+              if (options.previewWebRuntime !== undefined)
+                yield* Effect.result(options.previewWebRuntime.stop(creation.created.session.id));
+            }),
+          ),
+        );
+      return sessionOutput(command, sessionState.success, allocationState.success);
     }),
   );
+
+const stopAndCleanupFailedPreviewStart = (
+  created: import("./preview-sessions").SessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  webCleanup?: {
+    readonly runtime: NonNullable<LauncherOptions["previewWebRuntime"]>;
+    readonly gateway: NonNullable<LauncherOptions["previewGateway"]>;
+  },
+) =>
+  Effect.gen(function* () {
+    const stopped = yield* Effect.result(
+      controller.stop(created.session.id, created.ownerIdentity),
+    );
+    if (webCleanup === undefined) return { stopped, cleanupConfirmed: Result.isSuccess(stopped) };
+    const routeCleanup = Result.isSuccess(stopped)
+      ? yield* Effect.result(
+          webCleanup.gateway.cleanupSession(created.session.id, created.ownerIdentity),
+        )
+      : undefined;
+    const runtimeCleanup = yield* Effect.result(webCleanup.runtime.stop(created.session.id));
+    return {
+      stopped,
+      cleanupConfirmed:
+        Result.isSuccess(stopped) &&
+        routeCleanup !== undefined &&
+        Result.isSuccess(routeCleanup) &&
+        Result.isSuccess(runtimeCleanup),
+    };
+  });
 
 const failPreviewStartAfterAllocation = (
   command: PreviewStartCommand,
@@ -2620,10 +2893,16 @@ const failPreviewStartAfterAllocation = (
   failure: unknown,
   controller: import("./preview-sessions").PreviewSessionControllerApi,
   allocations: import("./preview-allocations").PreviewAllocationApi,
+  webCleanup?: {
+    readonly runtime: NonNullable<LauncherOptions["previewWebRuntime"]>;
+    readonly gateway: NonNullable<LauncherOptions["previewGateway"]>;
+  },
 ) =>
   Effect.gen(function* () {
-    const stopped = yield* Effect.result(
-      controller.stop(created.session.id, created.ownerIdentity),
+    const { stopped, cleanupConfirmed } = yield* stopAndCleanupFailedPreviewStart(
+      created,
+      controller,
+      webCleanup,
     );
     const session = Result.isSuccess(stopped) ? stopped.success : created.session;
     const allocationState = yield* Effect.result(allocations.inspect(created.session.id));
@@ -2637,12 +2916,719 @@ const failPreviewStartAfterAllocation = (
       readiness: "blocked" as const,
       errors: [
         makeDiagnostic(
-          "prerequisite-unavailable",
-          `Connected preview capacity reservation or allocation failed: ${allocationFailureMessage(failure)}`,
-          "No connected runtime was started. Inspect the durable allocation ledger and retry cleanup if partial resources were recorded.",
+          cleanupConfirmed ? "prerequisite-unavailable" : "cleanup-failed",
+          `Connected preview startup did not become ready: ${allocationFailureMessage(failure)}`,
+          cleanupConfirmed
+            ? "No connected application remains available. Inspect the durable allocation ledger and retry cleanup if partial resources were recorded."
+            : "The session is fenced where the controller confirmed stop, but route or process cleanup could not be confirmed. Keep it unavailable and retry exact session cleanup after its authorities are reachable.",
           { mode: "preview", action: "start" },
         ),
       ],
+    };
+  });
+
+const failApplicationRevision = (
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  gateway: import("./preview-gateway").PreviewGatewayApi,
+  created: import("./preview-sessions").SessionCredentials,
+  authority: SheetWebSupervisorAuthority,
+  error: Error,
+): Effect.Effect<never, Error> =>
+  Effect.gen(function* () {
+    const stopped = yield* Effect.result(
+      controller.stopSupervised(
+        created.session.id,
+        authority.supervisorIdentity,
+        authority.generation,
+      ),
+    );
+    if (Result.isSuccess(stopped))
+      yield* Effect.result(gateway.cleanupSession(created.session.id, created.ownerIdentity));
+    return yield* Effect.fail(error);
+  });
+
+type SheetWebSupervisorAuthority = {
+  supervisorIdentity: string;
+  generation: number;
+  retired?: boolean;
+};
+
+type SheetWebRuntimeStartContext = {
+  readonly runtime: NonNullable<LauncherOptions["previewWebRuntime"]>;
+  readonly gateway: NonNullable<LauncherOptions["previewGateway"]>;
+  readonly listener: NonNullable<PreparedPreviewStart["config"]["hostListeners"]>[number];
+  readonly origin: string;
+  readonly environment: Record<string, string>;
+  readonly target: import("./preview-gateway").PreviewGatewayTarget;
+  readonly dependencies: readonly import("./preview-gateway").PreviewGatewayDependencyTarget[];
+};
+
+const sheetWebEnvironmentFor = (
+  prepared: PreparedPreviewStart,
+  gateway: NonNullable<LauncherOptions["previewGateway"]>,
+  sessionId: string,
+) => {
+  const groups = new Set(prepared.config.groups.map(({ id }) => id));
+  const required = sheetWebDependencyGroups;
+  if (required.some((group) => !groups.has(group))) return undefined;
+  const origins = new Map(
+    required.map((group) => [
+      group,
+      gateway.applicationDependencyOrigin(sessionId, "sheet-web", group),
+    ]),
+  );
+  if (required.some((group) => origins.get(group) === undefined)) return undefined;
+  return {
+    AUTH_BASE_URL: origins.get("auth")!,
+    SHEET_ZERO_BASE_URL: origins.get("application-zero")!,
+    SHEET_WORKFLOWS_BASE_URL: origins.get("workflow-execution")!,
+    SEARCH_BASE_URL: origins.get("search")!,
+  };
+};
+
+const sheetWebDependencyIdentities = (
+  config: ConnectedPreviewConfig,
+): readonly import("./preview-gateway").PreviewGatewayDependencyIdentity[] | undefined => {
+  const groupIds = sheetWebDependencyGroups;
+  const credentialByGroup = sheetWebCredentialReferences(config);
+  const groups = new Map(config.groups.map((group) => [group.id, group]));
+  const dependencies = groupIds.map((group) => {
+    const selected = groups.get(group);
+    const credentialReference = credentialByGroup[group];
+    if (
+      selected?.ownership !== "reused" ||
+      selected.endpoint === undefined ||
+      selected.stateIdentity === undefined ||
+      selected.deployedManifestDigest === undefined ||
+      credentialReference === undefined
+    )
+      return undefined;
+    return {
+      role: "sheet-web" as const,
+      group,
+      endpoint: selected.endpoint,
+      stateIdentity: selected.stateIdentity,
+      deployedManifestDigest: selected.deployedManifestDigest,
+      catalogDigest: runtimeContractCatalogIdentity.digest,
+      credentialReference,
+    };
+  });
+  return dependencies.some((dependency) => dependency === undefined)
+    ? undefined
+    : (dependencies as readonly import("./preview-gateway").PreviewGatewayDependencyIdentity[]);
+};
+
+const sheetWebDependencyTargets = (
+  config: ConnectedPreviewConfig,
+  sessionId: string,
+  generation: number,
+  revision: string,
+): readonly import("./preview-gateway").PreviewGatewayDependencyTarget[] | undefined => {
+  const identities = sheetWebDependencyIdentities(config);
+  return identities?.map((identity) => ({
+    ...identity,
+    sessionId,
+    generation,
+    revision,
+  }));
+};
+
+const sheetWebRelayResources = (
+  allocationStatus: import("./preview-allocations").PreviewAllocationStatus,
+) => {
+  const resourceId = (key: string) =>
+    allocationStatus.allocations.find(({ resource }) => resource === key)?.providerResourceId;
+  const serviceResourceId = resourceId("preview-relay-service-sheet-web");
+  const attachmentResourceId = resourceId("preview-relay-attachment-sheet-web");
+  return serviceResourceId == null || attachmentResourceId == null
+    ? undefined
+    : { serviceResourceId, attachmentResourceId };
+};
+
+const makeSheetWebRuntimeTarget = (
+  prepared: PreparedPreviewStart,
+  created: import("./preview-sessions").SessionCredentials,
+  listener: NonNullable<PreparedPreviewStart["config"]["hostListeners"]>[number],
+  artifactDigest: string,
+  resources: { readonly serviceResourceId: string; readonly attachmentResourceId: string },
+): import("./preview-gateway").PreviewGatewayTarget => ({
+  sessionId: created.session.id,
+  generation: created.session.generation,
+  role: "sheet-web",
+  processId: listener.processId,
+  revision: prepared.config.identities.sourceRevision,
+  artifactDigest,
+  catalogDigest: runtimeContractCatalogIdentity.digest,
+  stateGroup: "application-zero",
+  kind: "application",
+  serviceFqdn: `${relayNameFor(created.session.id, "sheet-web")}.preview-relays.svc.cluster.local`,
+  port: listener.port,
+  ...resources,
+});
+
+const makeSheetWebRuntimeDependencies = (
+  prepared: PreparedPreviewStart,
+  gateway: NonNullable<LauncherOptions["previewGateway"]>,
+  created: import("./preview-sessions").SessionCredentials,
+  allocationStatus: import("./preview-allocations").PreviewAllocationStatus,
+) => {
+  const environment = sheetWebEnvironmentFor(prepared, gateway, created.session.id);
+  if (environment === undefined)
+    return new Error("one or more compatible reused web dependency endpoints are missing");
+  const resources = sheetWebRelayResources(allocationStatus);
+  if (resources === undefined) return new Error("the web listener relay was not recorded as owned");
+  const dependencies = sheetWebDependencyTargets(
+    prepared.config,
+    created.session.id,
+    created.session.generation,
+    prepared.config.identities.sourceRevision,
+  );
+  if (dependencies === undefined)
+    return new Error("the sheet-web profile is missing a mediated shared dependency identity");
+  return { environment, resources, dependencies };
+};
+
+const prepareSheetWebRuntimeStart = (
+  prepared: PreparedPreviewStart,
+  created: import("./preview-sessions").SessionCredentials,
+  allocationStatus: import("./preview-allocations").PreviewAllocationStatus,
+  options: LauncherOptions,
+): SheetWebRuntimeStartContext | Error => {
+  const runtime = options.previewWebRuntime;
+  const gateway = options.previewGateway;
+  const listener = prepared.config.hostListeners?.find(({ role }) => role === "sheet-web");
+  const origin = gateway?.applicationOrigin(created.session.id, "sheet-web");
+  const artifactDigest = prepared.config.identities.artifactDigests["sheet-web"];
+  if (runtime === undefined || gateway === undefined || !gateway.configured)
+    return new Error("sheet-web runtime or session gateway is unavailable");
+  if (listener === undefined || origin === undefined || artifactDigest === undefined)
+    return new Error("sheet-web listener or selected artifact identity is unavailable");
+  const dependencies = makeSheetWebRuntimeDependencies(
+    prepared,
+    gateway,
+    created,
+    allocationStatus,
+  );
+  if (dependencies instanceof Error) return dependencies;
+  const target = makeSheetWebRuntimeTarget(
+    prepared,
+    created,
+    listener,
+    artifactDigest,
+    dependencies.resources,
+  );
+  return { runtime, gateway, listener, origin, target, ...dependencies };
+};
+
+/** @internal */
+export const makeSheetWebRevisionHandler =
+  (
+    target: import("./preview-gateway").PreviewGatewayTarget,
+    dependencies: readonly import("./preview-gateway").PreviewGatewayDependencyTarget[],
+    created: import("./preview-sessions").SessionCredentials,
+    authority: SheetWebSupervisorAuthority,
+    controller: import("./preview-sessions").PreviewSessionControllerApi,
+    gateway: import("./preview-gateway").PreviewGatewayApi,
+  ) =>
+  (revision: string) =>
+    Effect.gen(function* () {
+      const active = yield* waitForSheetWebSessionActivation(created.session.id, controller);
+      if (!active)
+        return yield* failRevisionIfSessionIsActive(
+          controller,
+          gateway,
+          created,
+          authority,
+          "the selected source revision could not wait for session activation",
+        );
+      const requested = yield* Effect.result(
+        controller.requestRevision(
+          created.session.id,
+          authority.generation,
+          authority.supervisorIdentity,
+          revision,
+        ),
+      );
+      if (Result.isFailure(requested)) {
+        return yield* failRevisionIfSessionIsActive(
+          controller,
+          gateway,
+          created,
+          authority,
+          "the selected source revision was rejected by the session authority",
+        );
+      }
+      if (requested.success.phase === "active" && requested.success.activeRevision === revision)
+        return;
+      const refreshedRoute = yield* Effect.result(
+        gateway.register({ ...target, revision }, created.ownerIdentity),
+      );
+      if (Result.isFailure(refreshedRoute))
+        return yield* failApplicationRevision(
+          controller,
+          gateway,
+          created,
+          authority,
+          new Error("the changed web revision failed actual session route readiness"),
+        );
+      const refreshedDependencies = yield* Effect.result(
+        gateway.registerApplicationDependencies(
+          { ...target, revision },
+          dependencies.map((dependency) => ({ ...dependency, revision })),
+          created.ownerIdentity,
+        ),
+      );
+      if (Result.isFailure(refreshedDependencies))
+        return yield* failApplicationRevision(
+          controller,
+          gateway,
+          created,
+          authority,
+          new Error("the changed web dependency routes could not be rebound to its revision"),
+        );
+      const activatedRevision = yield* Effect.result(
+        controller.activate(
+          created.session.id,
+          authority.generation,
+          authority.supervisorIdentity,
+          revision,
+        ),
+      );
+      if (Result.isFailure(activatedRevision))
+        return yield* failApplicationRevision(
+          controller,
+          gateway,
+          created,
+          authority,
+          new Error("the changed web revision could not be activated"),
+        );
+    });
+
+// Allow Vite readiness and the bounded gateway-registration checks to finish before this
+// revision callback treats a session that is still pending as unavailable.
+const sheetWebSessionActivationTimeoutMs = 60_000;
+const sheetWebSessionActivationPollMs = 100;
+
+const waitForSheetWebSessionActivation = (
+  id: string,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+) =>
+  Effect.gen(function* () {
+    for (
+      let elapsed = 0;
+      elapsed < sheetWebSessionActivationTimeoutMs;
+      elapsed += sheetWebSessionActivationPollMs
+    ) {
+      const state = yield* Effect.result(controller.status(id));
+      if (Result.isSuccess(state)) {
+        if (state.success.phase === "ended" || state.success.phase === "expired") return false;
+        if (state.success.phase === "active") return true;
+      }
+      yield* Effect.sleep(Duration.millis(sheetWebSessionActivationPollMs));
+    }
+    return false;
+  });
+
+const failRevisionIfSessionIsActive = (
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  gateway: import("./preview-gateway").PreviewGatewayApi,
+  created: import("./preview-sessions").SessionCredentials,
+  authority: SheetWebSupervisorAuthority,
+  message: string,
+) =>
+  Effect.gen(function* () {
+    const current = yield* Effect.result(controller.status(created.session.id));
+    if (Result.isSuccess(current)) {
+      if (current.success.phase === "pending")
+        return yield* Effect.fail(
+          new Error(`${message}; the session is still pending and remains unchanged`),
+        );
+      if (current.success.phase === "ended" || current.success.phase === "expired") return;
+    }
+    return yield* failApplicationRevision(
+      controller,
+      gateway,
+      created,
+      authority,
+      new Error(message),
+    );
+  });
+
+const activateSheetWebRuntime = (
+  input: SheetWebRuntimeStartContext,
+  created: import("./preview-sessions").SessionCredentials,
+  prepared: PreparedPreviewStart,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  onSourceRevision: (revision: string) => Effect.Effect<void, Error>,
+  onSupervisorAdopt: (supervisorIdentity: string, generation: number) => Effect.Effect<void, Error>,
+) =>
+  Effect.gen(function* () {
+    const started = yield* Effect.result(
+      input.runtime.start({
+        sessionId: created.session.id,
+        revision: prepared.config.identities.sourceRevision,
+        checkout: prepared.cwd,
+        port: input.listener.port,
+        publicOrigin: input.origin,
+        environment: input.environment,
+        onSourceRevision,
+        onSupervisorAdopt,
+      }),
+    );
+    if (Result.isFailure(started)) return yield* Effect.fail(started.failure);
+    const route = yield* Effect.result(input.gateway.register(input.target, created.ownerIdentity));
+    if (Result.isFailure(route)) {
+      yield* Effect.result(input.runtime.stop(created.session.id));
+      return yield* Effect.fail(route.failure);
+    }
+    const dependencyRoutes = yield* Effect.result(
+      input.gateway.registerApplicationDependencies(
+        input.target,
+        input.dependencies,
+        created.ownerIdentity,
+      ),
+    );
+    if (Result.isFailure(dependencyRoutes)) {
+      yield* Effect.result(input.runtime.stop(created.session.id));
+      return yield* Effect.fail(dependencyRoutes.failure);
+    }
+    const activated = yield* Effect.result(
+      controller.activate(
+        created.session.id,
+        created.session.generation,
+        created.supervisorIdentity,
+        prepared.config.identities.sourceRevision,
+      ),
+    );
+    if (Result.isFailure(activated)) {
+      yield* Effect.result(controller.stop(created.session.id, created.ownerIdentity));
+      yield* Effect.result(input.gateway.cleanup(route.success.hostname, created.ownerIdentity));
+      yield* Effect.result(input.runtime.stop(created.session.id));
+      return yield* Effect.fail(activated.failure);
+    }
+    return {
+      session: activated.success,
+      routeHostname: route.success.hostname,
+      process: started.success,
+    };
+  });
+
+type SupervisedSheetWebPreviewInput = {
+  readonly sessionId: string;
+  readonly ownerIdentity: string;
+  readonly supervisorIdentity: string;
+  readonly generation: number;
+  readonly authority?: SheetWebSupervisorAuthority;
+  readonly controller: import("./preview-sessions").PreviewSessionControllerApi;
+  readonly gateway: import("./preview-gateway").PreviewGatewayApi;
+  readonly runtime: NonNullable<LauncherOptions["previewWebRuntime"]>;
+  readonly checkDependencies?: () => Effect.Effect<string | undefined, unknown>;
+};
+
+const claimSupervisedCleanup = (
+  input: SupervisedSheetWebPreviewInput,
+  authority: SheetWebSupervisorAuthority,
+) =>
+  Effect.gen(function* () {
+    const stopped = yield* Effect.result(
+      input.controller.stopSupervised(
+        input.sessionId,
+        authority.supervisorIdentity,
+        authority.generation,
+      ),
+    );
+    if (Result.isSuccess(stopped)) return true;
+    const current = yield* Effect.result(input.controller.status(input.sessionId));
+    return Result.isSuccess(current) && current.success.endedAt !== null;
+  });
+
+const stopSupervisedSheetWebPreview = (input: SupervisedSheetWebPreviewInput) =>
+  Effect.gen(function* () {
+    const authority = input.authority ?? {
+      supervisorIdentity: input.supervisorIdentity,
+      generation: input.generation,
+    };
+    if (authority.retired === true) return;
+    if (!(yield* claimSupervisedCleanup(input, authority))) {
+      yield* Console.error(
+        `Preview session ${safeIdentifier(input.sessionId)} changed owners or its state is unavailable; cleanup was not attempted because supervisor ownership could not be confirmed. Retry preview cleanup after the controller is available.`,
+      );
+      return;
+    }
+    for (let attempt = 0; attempt < supervisedWebCleanupRetryCount; attempt += 1) {
+      const route = yield* Effect.result(
+        input.gateway.cleanupSession(input.sessionId, input.ownerIdentity),
+      );
+      const process = yield* Effect.result(input.runtime.stop(input.sessionId));
+      if (Result.isSuccess(route) && Result.isSuccess(process)) return;
+      if (attempt + 1 < supervisedWebCleanupRetryCount) yield* Effect.sleep(Duration.seconds(1));
+    }
+    yield* Console.error(
+      `Preview session ${safeIdentifier(input.sessionId)} ended, but route or process cleanup was not confirmed after ${supervisedWebCleanupRetryCount} attempts. Retry preview cleanup.`,
+    );
+  });
+
+const checkSupervisedSheetWebProcess = (
+  input: SupervisedSheetWebPreviewInput,
+): Effect.Effect<
+  "ready" | "transient-failure" | "missing",
+  never,
+  FileSystem.FileSystem | HttpClient.HttpClient
+> =>
+  input.runtime.availability === undefined
+    ? Effect.gen(function* () {
+        const status = yield* Effect.result(input.runtime.status(input.sessionId));
+        if (Result.isSuccess(status) && status.success) return "ready" as const;
+        const measurements = yield* Effect.result(input.runtime.measurements(input.sessionId));
+        return Result.isSuccess(measurements) && measurements.success !== undefined
+          ? ("transient-failure" as const)
+          : ("missing" as const);
+      })
+    : input.runtime.availability(input.sessionId);
+
+const checkSupervisedSheetWebDependencies = (
+  input: SupervisedSheetWebPreviewInput,
+): Effect.Effect<boolean> =>
+  Effect.gen(function* () {
+    if (input.checkDependencies === undefined) return true;
+    const result = yield* Effect.result(input.checkDependencies());
+    return Result.isSuccess(result) && result.success === undefined;
+  });
+
+/** @internal Keeps a resumed host supervisor's durable session lease renewed. */
+const renewSupervisedSheetSession = (
+  input: SupervisedSheetWebPreviewInput,
+  authority: SheetWebSupervisorAuthority,
+  counters: { heartbeatFailures: number },
+) =>
+  Effect.gen(function* () {
+    const renewed = yield* Effect.result(
+      input.controller.heartbeat(
+        input.sessionId,
+        authority.supervisorIdentity,
+        authority.generation,
+      ),
+    );
+    if (Result.isFailure(renewed)) {
+      const state = yield* Effect.result(input.controller.status(input.sessionId));
+      if (Result.isSuccess(state) && state.success.endedAt !== null) {
+        yield* stopSupervisedSheetWebPreview(input);
+        return false;
+      }
+      counters.heartbeatFailures += 1;
+      if (counters.heartbeatFailures < 3) return true;
+      yield* stopSupervisedSheetWebPreview(input);
+      return false;
+    }
+    counters.heartbeatFailures = 0;
+    return true;
+  });
+
+const checkSupervisedProcessHealth = (
+  input: SupervisedSheetWebPreviewInput,
+  counters: { processFailures: number },
+) =>
+  Effect.gen(function* () {
+    const process = yield* checkSupervisedSheetWebProcess(input);
+    if (process === "missing") {
+      yield* stopSupervisedSheetWebPreview(input);
+      return false;
+    }
+    counters.processFailures = process === "ready" ? 0 : counters.processFailures + 1;
+    if (counters.processFailures >= 3) {
+      yield* stopSupervisedSheetWebPreview(input);
+      return false;
+    }
+    return true;
+  });
+
+const checkSupervisedDependencyHealth = (
+  input: SupervisedSheetWebPreviewInput,
+  counters: { dependencyFailures: number },
+) =>
+  Effect.gen(function* () {
+    const dependenciesReady = yield* checkSupervisedSheetWebDependencies(input);
+    if (dependenciesReady) {
+      counters.dependencyFailures = 0;
+      return true;
+    }
+    const session = yield* Effect.result(input.controller.status(input.sessionId));
+    // A requested revision temporarily invalidates the exact-revision route while it is rebound.
+    if (Result.isSuccess(session) && session.success.phase === "starting") return true;
+    counters.dependencyFailures += 1;
+    if (counters.dependencyFailures >= 3) {
+      yield* stopSupervisedSheetWebPreview(input);
+      return false;
+    }
+    return true;
+  });
+
+/** @internal Keeps one host supervisor turn fenced and health checked. */
+const superviseSheetWebPreviewTurn = (
+  input: SupervisedSheetWebPreviewInput,
+  counters: {
+    processFailures: number;
+    dependencyFailures: number;
+    heartbeatFailures: number;
+  },
+) =>
+  Effect.gen(function* () {
+    const authority = input.authority ?? {
+      supervisorIdentity: input.supervisorIdentity,
+      generation: input.generation,
+    };
+    if (authority.retired === true)
+      return (yield* checkSupervisedSheetWebProcess(input)) !== "missing";
+    if (!(yield* renewSupervisedSheetSession(input, authority, counters))) return false;
+    if (!(yield* checkSupervisedProcessHealth(input, counters))) return false;
+    return yield* checkSupervisedDependencyHealth(input, counters);
+  });
+
+/** @internal Keeps a resumed host supervisor's durable session lease renewed. */
+export const superviseSheetWebPreview = (input: SupervisedSheetWebPreviewInput) =>
+  Effect.gen(function* () {
+    const counters = { processFailures: 0, dependencyFailures: 0, heartbeatFailures: 0 };
+    while (true) {
+      yield* Effect.sleep(Duration.millis(previewSessionHeartbeatMs));
+      if (!(yield* superviseSheetWebPreviewTurn(input, counters))) return;
+    }
+  }).pipe(
+    Effect.onInterrupt(() => stopSupervisedSheetWebPreview(input)),
+    Effect.catch(() => stopSupervisedSheetWebPreview(input)),
+  );
+
+const maintainSheetWebPreview = (
+  created: import("./preview-sessions").SessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  runtime: NonNullable<LauncherOptions["previewWebRuntime"]>,
+  gateway: NonNullable<LauncherOptions["previewGateway"]>,
+  authority: SheetWebSupervisorAuthority,
+) =>
+  superviseSheetWebPreview({
+    sessionId: created.session.id,
+    ownerIdentity: created.ownerIdentity,
+    supervisorIdentity: authority.supervisorIdentity,
+    generation: authority.generation,
+    authority,
+    controller,
+    gateway,
+    runtime,
+    checkDependencies: () =>
+      gateway
+        .checkRegisteredApplicationDependencies(
+          created.session.id,
+          "sheet-web",
+          created.ownerIdentity,
+        )
+        .pipe(Effect.as(undefined)),
+  });
+
+const launchSheetWebPreviewSupervisor = (
+  sessionId: string,
+  options: LauncherOptions,
+  supervisor: Effect.Effect<void, never, FileSystem.FileSystem | HttpClient.HttpClient>,
+) => {
+  const schedule = options.previewSupervisorScheduler;
+  return schedule === undefined ? Effect.void : Effect.sync(() => schedule(sessionId, supervisor));
+};
+
+const startSheetWebRuntime = (
+  command: PreviewStartCommand,
+  prepared: PreparedPreviewStart,
+  created: import("./preview-sessions").SessionCredentials,
+  allocationStatus: import("./preview-allocations").PreviewAllocationStatus,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  allocations: import("./preview-allocations").PreviewAllocationApi,
+  options: LauncherOptions,
+): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
+  Effect.gen(function* () {
+    const startContext = prepareSheetWebRuntimeStart(prepared, created, allocationStatus, options);
+    if (startContext instanceof Error)
+      return yield* failPreviewStartAfterAllocation(
+        command,
+        created,
+        startContext,
+        controller,
+        allocations,
+      );
+    const authority: SheetWebSupervisorAuthority = {
+      supervisorIdentity: created.supervisorIdentity,
+      generation: created.session.generation,
+      retired: false,
+    };
+    const onSourceRevision = makeSheetWebRevisionHandler(
+      startContext.target,
+      startContext.dependencies,
+      created,
+      authority,
+      controller,
+      startContext.gateway,
+    );
+    const activation = yield* Effect.result(
+      activateSheetWebRuntime(
+        startContext,
+        created,
+        prepared,
+        controller,
+        onSourceRevision,
+        (supervisorIdentity, generation) =>
+          Effect.sync(() => {
+            authority.supervisorIdentity = supervisorIdentity;
+            authority.generation = generation;
+            authority.retired = true;
+          }),
+      ),
+    );
+    if (Result.isFailure(activation))
+      return yield* failPreviewStartAfterAllocation(
+        command,
+        created,
+        activation.failure,
+        controller,
+        allocations,
+        { runtime: startContext.runtime, gateway: startContext.gateway },
+      );
+    const webMeasurements = yield* startContext.runtime.measurements(created.session.id);
+    if (webMeasurements === undefined)
+      return yield* failPreviewStartAfterAllocation(
+        command,
+        created,
+        new Error("the web process measurements endpoint is unavailable"),
+        controller,
+        allocations,
+        { runtime: startContext.runtime, gateway: startContext.gateway },
+      );
+    yield* launchSheetWebPreviewSupervisor(
+      created.session.id,
+      options,
+      maintainSheetWebPreview(
+        created,
+        controller,
+        startContext.runtime,
+        startContext.gateway,
+        authority,
+      ),
+    );
+    const output = sessionOutput(command, activation.success.session, allocationStatus);
+    return {
+      ...output,
+      ...(output.previewSession === undefined
+        ? {}
+        : {
+            previewSession: {
+              ...output.previewSession,
+              webProcess: {
+                pid: webMeasurements.pid,
+                startedAt: webMeasurements.startedAt,
+                readyAt: webMeasurements.readyAt,
+                startupDurationMs: webMeasurements.startupDurationMs,
+                editCount: webMeasurements.editCount,
+                lastEditDurationMs: webMeasurements.lastEditDurationMs,
+                processTree: webMeasurements.processTree,
+              },
+            },
+          }),
+      urls: [{ name: "sheet-web", url: `https://${activation.success.routeHostname}` }],
     };
   });
 
@@ -2651,7 +3637,7 @@ const runSessionStart = (
   options: LauncherOptions,
   controller: import("./preview-sessions").PreviewSessionControllerApi,
   allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
-): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> =>
+): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
   Effect.flatMap(preparePreviewStart(command, options, allocations), (prepared) =>
     "output" in prepared
       ? Effect.succeed(prepared.output)
@@ -2659,14 +3645,57 @@ const runSessionStart = (
         ? Effect.succeed(
             sessionOperationFailure(command, "The durable allocation authority is unavailable."),
           )
-        : finishPreviewStart(command, prepared, controller, allocations),
+        : finishPreviewStart(command, prepared, controller, allocations, options),
   );
+
+const withWebProcessMeasurements = (
+  output: LauncherOutput,
+  session: import("./preview-sessions").PreviewSession,
+  id: string,
+  runtime: LauncherOptions["previewWebRuntime"],
+) =>
+  Effect.gen(function* () {
+    if (session.manifests["sheet-web"] === undefined || session.phase !== "active") return output;
+    const unavailable = () => ({
+      ...output,
+      ok: false as const,
+      readiness: "blocked" as const,
+      errors: [
+        makeDiagnostic(
+          "dependency-unavailable",
+          "The active sheet-web session has no ready host process.",
+          "The web process or its loopback readiness endpoint is unavailable. Resume only after the same session's compatible process is healthy.",
+          { mode: "preview", action: "status", dependency: "sheet-web" },
+        ),
+      ],
+    });
+    if (runtime === undefined || !(yield* runtime.status(id))) return unavailable();
+    const webProcess = yield* runtime.measurements(id);
+    if (webProcess === undefined) return unavailable();
+    if (output.previewSession === undefined) return output;
+    return {
+      ...output,
+      previewSession: {
+        ...output.previewSession,
+        webProcess: {
+          pid: webProcess.pid ?? null,
+          startedAt: webProcess.startedAt,
+          readyAt: webProcess.readyAt,
+          startupDurationMs: webProcess.startupDurationMs,
+          editCount: webProcess.editCount,
+          lastEditDurationMs: webProcess.lastEditDurationMs,
+          processTree: webProcess.processTree,
+        },
+      },
+    };
+  });
 
 const runSessionStatus = (
   command: ConnectedPreviewCommand,
   id: string,
   controller: import("./preview-sessions").PreviewSessionControllerApi,
   allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
+  options: LauncherOptions,
 ) =>
   Effect.gen(function* () {
     const result = yield* Effect.result(
@@ -2698,12 +3727,18 @@ const runSessionStatus = (
         ],
       };
     const allocationState = yield* Effect.result(allocations.inspect(id));
-    return Result.isFailure(allocationState)
-      ? sessionOperationFailure(
-          command,
-          "The durable allocation ledger could not be read; ownership is unknown.",
-        )
-      : sessionOutput(command, result.success.session, allocationState.success);
+    if (Result.isFailure(allocationState))
+      return sessionOperationFailure(
+        command,
+        "The durable allocation ledger could not be read; ownership is unknown.",
+      );
+    const output = sessionOutput(command, result.success.session, allocationState.success);
+    return yield* withWebProcessMeasurements(
+      output,
+      result.success.session,
+      id,
+      options.previewWebRuntime,
+    );
   });
 
 const runSessionCleanup = (
@@ -2867,12 +3902,195 @@ const renderCleanupOutcome = (
   };
 };
 
-const runSessionResume = (
+const canResumeWebPreview = (id: string, options: LauncherOptions) =>
+  Effect.gen(function* () {
+    const runtime = options.previewWebRuntime;
+    return (
+      runtime !== undefined &&
+      options.previewGateway?.configured === true &&
+      options.previewSupervisorScheduler !== undefined &&
+      (yield* runtime.status(id))
+    );
+  });
+
+const persistResumedSupervisor = (
+  tokenPath: string,
+  credentials: LocalSessionCredentials,
+  supervisorIdentity: string,
+) =>
+  Effect.gen(function* () {
+    const persisted = yield* Effect.result(
+      persistSessionCredentials(tokenPath, {
+        ownerIdentity: credentials.ownerIdentity,
+        supervisorIdentity,
+      }),
+    );
+    return Result.isSuccess(persisted);
+  });
+
+export const stopResumedWebSession = (
+  id: string,
+  supervisorIdentity: string,
+  generation: number,
+  credentials: LocalSessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  gateway?: LauncherOptions["previewGateway"],
+  runtime?: LauncherOptions["previewWebRuntime"],
+) =>
+  Effect.gen(function* () {
+    const stopped = yield* Effect.result(
+      controller.stopSupervised(id, supervisorIdentity, generation),
+    );
+    if (Result.isFailure(stopped)) return false;
+    const routeCleanup =
+      gateway === undefined
+        ? Result.succeed(undefined)
+        : yield* Effect.result(gateway.cleanupSession(id, credentials.ownerIdentity));
+    const runtimeCleanup =
+      runtime === undefined ? Result.succeed(undefined) : yield* Effect.result(runtime.stop(id));
+    return Result.isSuccess(routeCleanup) && Result.isSuccess(runtimeCleanup);
+  });
+
+const stopAfterFailedWebResume = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  supervisorIdentity: string,
+  generation: number,
+  credentials: LocalSessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  gateway: LauncherOptions["previewGateway"],
+  runtime: LauncherOptions["previewWebRuntime"],
+  message: string,
+) =>
+  Effect.gen(function* () {
+    const cleanupConfirmed = yield* stopResumedWebSession(
+      id,
+      supervisorIdentity,
+      generation,
+      credentials,
+      controller,
+      gateway,
+      runtime,
+    );
+    return sessionOperationFailure(
+      command,
+      cleanupConfirmed
+        ? `${message} The resumed session was ended and its route/process cleanup was confirmed.`
+        : `${message} The current supervisor could not confirm complete cleanup; inspect this exact session and keep it unavailable.`,
+    );
+  });
+
+const resumeWebApplication = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  session: import("./preview-sessions").PreviewSession,
+  supervisorIdentity: string,
+  credentials: LocalSessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  options: LauncherOptions,
+) =>
+  Effect.gen(function* () {
+    const runtime = options.previewWebRuntime;
+    const gateway = options.previewGateway;
+    if (
+      runtime === undefined ||
+      gateway === undefined ||
+      options.previewSupervisorScheduler === undefined
+    )
+      return sessionOperationFailure(
+        command,
+        "The web runtime or application route is unavailable.",
+      );
+    if (runtime.adoptSupervisor === undefined) {
+      return yield* stopAfterFailedWebResume(
+        command,
+        id,
+        supervisorIdentity,
+        session.generation,
+        credentials,
+        controller,
+        gateway,
+        runtime,
+        "The running web supervisor cannot adopt the resumed session identity, so the session was stopped safely.",
+      );
+    }
+    const adopted = yield* Effect.result(
+      runtime.adoptSupervisor(id, supervisorIdentity, session.generation),
+    );
+    if (Result.isFailure(adopted)) {
+      return yield* stopAfterFailedWebResume(
+        command,
+        id,
+        supervisorIdentity,
+        session.generation,
+        credentials,
+        controller,
+        gateway,
+        runtime,
+        "The running web supervisor did not confirm the resumed identity; the session was stopped safely.",
+      );
+    }
+    const resumedRoute = yield* Effect.result(
+      gateway.resumeApplication(id, "sheet-web", credentials.ownerIdentity),
+    );
+    if (Result.isFailure(resumedRoute)) {
+      return yield* stopAfterFailedWebResume(
+        command,
+        id,
+        supervisorIdentity,
+        session.generation,
+        credentials,
+        controller,
+        gateway,
+        runtime,
+        "The resumed web route failed its fresh session readiness check.",
+      );
+    }
+    const activated = yield* Effect.result(
+      controller.activate(id, session.generation, supervisorIdentity, session.requestedRevision),
+    );
+    if (Result.isFailure(activated)) {
+      return yield* stopAfterFailedWebResume(
+        command,
+        id,
+        supervisorIdentity,
+        session.generation,
+        credentials,
+        controller,
+        gateway,
+        runtime,
+        "The web revision could not be activated after resume.",
+      );
+    }
+    yield* launchSheetWebPreviewSupervisor(
+      id,
+      options,
+      superviseSheetWebPreview({
+        sessionId: id,
+        ownerIdentity: credentials.ownerIdentity,
+        supervisorIdentity,
+        generation: activated.success.generation,
+        authority: { supervisorIdentity, generation: activated.success.generation },
+        controller,
+        gateway,
+        runtime,
+        checkDependencies: () =>
+          gateway
+            .checkRegisteredApplicationDependencies(id, "sheet-web", credentials.ownerIdentity)
+            .pipe(Effect.as(undefined)),
+      }),
+    );
+    return sessionOutput(command, activated.success);
+  });
+
+const completeSessionResume = (
   command: ConnectedPreviewCommand,
   id: string,
   tokenPath: string,
   credentials: LocalSessionCredentials,
+  webSession: boolean,
   controller: import("./preview-sessions").PreviewSessionControllerApi,
+  options: LauncherOptions,
 ) =>
   Effect.gen(function* () {
     const result = yield* Effect.result(
@@ -2880,6 +4098,7 @@ const runSessionResume = (
         _tag: "Resume",
         id,
         ownerIdentity: credentials.ownerIdentity,
+        supervisorIdentity: credentials.supervisorIdentity,
       }),
     );
     if (Result.isFailure(result)) {
@@ -2894,18 +4113,63 @@ const runSessionResume = (
         "The controller returned an invalid resume response.",
       );
     }
-    const persisted = yield* Effect.result(
-      persistSessionCredentials(tokenPath, {
-        ownerIdentity: credentials.ownerIdentity,
-        supervisorIdentity: result.success.supervisorIdentity,
-      }),
+    const credentialPersisted = yield* persistResumedSupervisor(
+      tokenPath,
+      credentials,
+      result.success.supervisorIdentity,
     );
-    return Result.isFailure(persisted)
-      ? sessionOperationFailure(
-          command,
-          "The session resumed, but its rotated supervisor credential could not be stored. Restore credential-store write access, wait 30 seconds for the supervisor lease to expire, then retry resume before the session lease expires.",
-        )
-      : sessionOutput(command, result.success.session);
+    if (!credentialPersisted)
+      return yield* stopAfterFailedWebResume(
+        command,
+        id,
+        result.success.supervisorIdentity,
+        result.success.session.generation,
+        credentials,
+        controller,
+        webSession ? options.previewGateway : undefined,
+        webSession ? options.previewWebRuntime : undefined,
+        "The resumed supervisor credential could not be stored; the session was stopped to avoid leaving it without usable owner credentials.",
+      );
+    if (webSession)
+      return yield* resumeWebApplication(
+        command,
+        id,
+        result.success.session,
+        result.success.supervisorIdentity,
+        credentials,
+        controller,
+        options,
+      );
+    return sessionOutput(command, result.success.session);
+  });
+
+const runSessionResume = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  tokenPath: string,
+  credentials: LocalSessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  options: LauncherOptions,
+) =>
+  Effect.gen(function* () {
+    const before = yield* Effect.result(controller.status(id));
+    if (Result.isFailure(before))
+      return sessionOperationFailure(command, "Resume requires fresh durable session state.");
+    const webSession = before.success.manifests["sheet-web"] !== undefined;
+    if (webSession && !(yield* canResumeWebPreview(id, options)))
+      return sessionOperationFailure(
+        command,
+        "The compatible web process and application route are not available to resume this session.",
+      );
+    return yield* completeSessionResume(
+      command,
+      id,
+      tokenPath,
+      credentials,
+      webSession,
+      controller,
+      options,
+    );
   });
 
 const runSessionHeartbeat = (
@@ -2942,6 +4206,7 @@ const runSessionStop = (
   id: string,
   credentials: LocalSessionCredentials,
   controller: import("./preview-sessions").PreviewSessionControllerApi,
+  options: LauncherOptions,
 ) =>
   Effect.gen(function* () {
     const result = yield* Effect.result(
@@ -2957,9 +4222,36 @@ const runSessionStop = (
         "Stop requires the owner identity; the controller could not verify this session.",
       );
     }
-    return result.success._tag === "Session"
-      ? sessionOutput(command, result.success.session)
-      : sessionOperationFailure(command, "The controller returned an invalid stop response.");
+    if (result.success._tag !== "Session")
+      return sessionOperationFailure(command, "The controller returned an invalid stop response.");
+    const session = result.success.session;
+    if (session.manifests["sheet-web"] !== undefined) {
+      const stopped =
+        options.previewWebRuntime === undefined
+          ? Result.fail(new Error("web-supervisor-unavailable"))
+          : yield* Effect.result(options.previewWebRuntime.stop(id));
+      const routeCleanup =
+        options.previewGateway === undefined
+          ? Result.fail(new Error("application-gateway-unavailable"))
+          : yield* Effect.result(
+              options.previewGateway.cleanupSession(id, credentials.ownerIdentity),
+            );
+      if (Result.isFailure(stopped) || Result.isFailure(routeCleanup))
+        return {
+          ...sessionOutput(command, session),
+          ok: false,
+          readiness: "blocked" as const,
+          errors: [
+            makeDiagnostic(
+              "cleanup-failed",
+              "The session ended, but web process or route cleanup could not be confirmed.",
+              "Keep the session unavailable and retry exact session cleanup after the web supervisor and gateway authorities are reachable.",
+              { mode: "preview", action: "stop", dependency: "sheet-web" },
+            ),
+          ],
+        };
+    }
+    return sessionOutput(command, session);
   });
 
 const runSessionWithCredentials = (
@@ -3004,12 +4296,14 @@ const runSessionWithCredentials = (
       if ("output" in result) return Effect.succeed(result.output);
       return Match.value(command.action).pipe(
         Match.when("resume", () =>
-          runSessionResume(command, id, result.tokenPath, result.credentials, controller),
+          runSessionResume(command, id, result.tokenPath, result.credentials, controller, options),
         ),
         Match.when("heartbeat", () =>
           runSessionHeartbeat(command, id, result.credentials, controller),
         ),
-        Match.when("stop", () => runSessionStop(command, id, result.credentials, controller)),
+        Match.when("stop", () =>
+          runSessionStop(command, id, result.credentials, controller, options),
+        ),
         Match.when("cleanup", () =>
           allocations === undefined
             ? Effect.succeed(outputForUnavailableExecution(command))
@@ -3045,12 +4339,12 @@ const runSessionCommand = (
   options: LauncherOptions,
   controller: import("./preview-sessions").PreviewSessionControllerApi,
   allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
-): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> => {
+): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem | HttpClient.HttpClient> => {
   if (command.action === "start") return runSessionStart(command, options, controller, allocations);
   const id = command.options.sessionId;
   if (id === null) return Effect.succeed(outputForUnavailableExecution(command));
   return command.action === "status"
-    ? runSessionStatus(command, id, controller, allocations)
+    ? runSessionStatus(command, id, controller, allocations, options)
     : runSessionWithCredentials(command, id, options, controller, allocations);
 };
 
@@ -3635,7 +4929,7 @@ const inspectEnvironmentFileInputs = (
 export const connectedPreviewOutput = (
   command: ConnectedPreviewCommand,
   options: LauncherOptions,
-): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> => {
+): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem | HttpClient.HttpClient> => {
   if (command.action === "baseline") {
     if (options.previewAllocationController !== undefined)
       return runCapacityBaselineImport(command, options, options.previewAllocationController);

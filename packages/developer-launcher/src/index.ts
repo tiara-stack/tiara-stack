@@ -14,6 +14,7 @@ import {
   type KubernetesModeConfig,
 } from "./config";
 import { NodeFileSystem } from "@effect/platform-node";
+import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 import { connectedPreviewOutput } from "./connected-preview";
 import { makeDiagnostic, makeWarning } from "./diagnostics";
 import { runDoctorEffect } from "./doctor";
@@ -212,6 +213,19 @@ export {
   type PreviewResourceAdapter,
   type VerifiedAllocationResolution,
 } from "./preview-allocations";
+export {
+  makePreviewWebProcessRequest,
+  makePreviewWebRuntime,
+  PreviewWebEnvironmentSchema,
+  PreviewWebRuntime,
+  PreviewWebRuntimeError,
+  PreviewWebRuntimeLayer,
+  type PreviewWebEnvironment,
+  type PreviewWebProcess,
+  type PreviewWebProcessTreeSample,
+  type PreviewWebProcessTreeSampler,
+  type PreviewWebRuntimeApi,
+} from "./preview-web-runtime";
 export {
   COMPOSE_ENDPOINTS,
   COMPOSE_ENVIRONMENT_KEYS,
@@ -1040,9 +1054,11 @@ const isCommandParseError = (error: unknown): error is CommandParseError =>
   error instanceof Error && error.name === "CommandParseError";
 
 const runLauncherEffect = async <A>(
-  program: Effect.Effect<A, never, FileSystem.FileSystem>,
+  program: Effect.Effect<A, never, FileSystem.FileSystem | HttpClient.HttpClient>,
 ): Promise<A> => {
-  const exit = await Effect.runPromiseExit(program.pipe(Effect.provide(NodeFileSystem.layer)));
+  const exit = await Effect.runPromiseExit(
+    program.pipe(Effect.provide(NodeFileSystem.layer), Effect.provide(FetchHttpClient.layer)),
+  );
   if (Exit.isSuccess(exit)) return exit.value;
   throw Cause.squash(exit.cause);
 };
@@ -1243,7 +1259,7 @@ export const executeDevelopmentPlan = async (
 const runParsedCommand = (
   command: ParsedCommand,
   options: LauncherOptions,
-): Effect.Effect<LauncherResult, never, FileSystem.FileSystem> =>
+): Effect.Effect<LauncherResult, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
   Effect.gen(function* () {
     const outcome = yield* Match.value(command).pipe(
       Match.when({ kind: "help" }, (helpCommand) =>

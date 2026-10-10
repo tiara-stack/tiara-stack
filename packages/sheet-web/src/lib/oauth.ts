@@ -42,6 +42,7 @@ const sheetWebOAuthResource = "sheet-zero";
 const refreshSkewSeconds = 60;
 const oauthTokenRequestTimeout = Duration.seconds(5);
 const oauthRefreshTokenCookieMaxAgeSeconds = 30 * 24 * 60 * 60;
+export const previewGatewayOAuthMarker = "preview-session";
 
 type SheetWebOAuthTokenSet = {
   readonly accessToken: string;
@@ -165,6 +166,18 @@ export const oauthTokenCookieMaxAge = (
   tokenSet.refreshToken
     ? oauthRefreshTokenCookieMaxAgeSeconds
     : Math.max(tokenSet.expiresAt - nowEpochSeconds, 60);
+
+export const resolveSheetWebAuthEndpoint = (baseUrl: URL, endpointPath: string) => {
+  const basePath = baseUrl.pathname.replace(/\/+$/, "");
+  const relativePath = endpointPath.replace(/^\/+/, "");
+  return new URL(`${basePath}/${relativePath}`, baseUrl.origin);
+};
+export const resolveSheetWebDashboardUrl = (appBaseUrl: URL) =>
+  new URL("/dashboard", appBaseUrl).href;
+export const isPreviewGatewayDependencyUrl = (baseUrl: URL) =>
+  /^\/_preview\/dependencies\/[^/]+(?:\/|$)/.test(baseUrl.pathname);
+export const isPreviewGatewayAuthUrl = (baseUrl: URL) =>
+  /^\/_preview\/dependencies\/auth(?:\/|$)/.test(baseUrl.pathname);
 
 const setTokenCookie = async (tokenSet: SheetWebOAuthTokenSet, appBaseUrl: URL) => {
   const maxAge = oauthTokenCookieMaxAge(tokenSet);
@@ -328,7 +341,9 @@ const fetchToken = (
 ) =>
   Effect.gen(function* () {
     const httpClient = yield* HttpClient.HttpClient;
-    const response = yield* HttpClientRequest.post(new URL("/oauth2/token", authBaseUrl)).pipe(
+    const response = yield* HttpClientRequest.post(
+      resolveSheetWebAuthEndpoint(authBaseUrl, "/oauth2/token"),
+    ).pipe(
       HttpClientRequest.bodyUrlParams(body),
       httpClient.execute,
       Effect.flatMap(HttpClientResponse.filterStatusOk),
@@ -404,18 +419,27 @@ const refreshToken = async (tokenSet: SheetWebOAuthTokenSet) => {
   }
 };
 
-const refreshSheetWebOAuthAccessTokenServerFn = createServerFn({ method: "POST" }).handler(
-  async (_ctx) => {
-    const maybeToken = await getTokenCookie();
-    if (Option.isNone(maybeToken)) {
-      return null;
-    }
+const loadSheetWebOAuthAccessToken = async (preferCurrentToken: boolean) => {
+  const config = await loadOAuthConfig();
+  if (isPreviewGatewayAuthUrl(config.authBaseUrl)) return previewGatewayOAuthMarker;
+  const maybeToken = await getTokenCookie();
+  if (Option.isNone(maybeToken)) return null;
+  if (preferCurrentToken) {
+    const tokenSet = maybeToken.value;
+    if (
+      isJwtAccessToken(tokenSet.accessToken) &&
+      tokenSet.expiresAt - Math.floor(Date.now() / 1000) > refreshSkewSeconds
+    )
+      return tokenSet.accessToken;
+  }
+  return Option.match(await refreshToken(maybeToken.value), {
+    onNone: () => null,
+    onSome: (refreshed) => refreshed.accessToken,
+  });
+};
 
-    return Option.match(await refreshToken(maybeToken.value), {
-      onNone: () => null,
-      onSome: (refreshed) => refreshed.accessToken,
-    });
-  },
+const refreshSheetWebOAuthAccessTokenServerFn = createServerFn({ method: "POST" }).handler(() =>
+  loadSheetWebOAuthAccessToken(false),
 );
 
 export const refreshSheetWebOAuthAccessToken = () =>
@@ -423,26 +447,8 @@ export const refreshSheetWebOAuthAccessToken = () =>
     Effect.map(Option.fromNullishOr),
   );
 
-const ensureSheetWebOAuthAccessTokenServerFn = createServerFn({ method: "GET" }).handler(
-  async (_ctx) => {
-    const maybeToken = await getTokenCookie();
-    if (Option.isNone(maybeToken)) {
-      return null;
-    }
-
-    const tokenSet = maybeToken.value;
-    if (
-      isJwtAccessToken(tokenSet.accessToken) &&
-      tokenSet.expiresAt - Math.floor(Date.now() / 1000) > refreshSkewSeconds
-    ) {
-      return tokenSet.accessToken;
-    }
-
-    return Option.match(await refreshToken(tokenSet), {
-      onNone: () => null,
-      onSome: (refreshed) => refreshed.accessToken,
-    });
-  },
+const ensureSheetWebOAuthAccessTokenServerFn = createServerFn({ method: "GET" }).handler(() =>
+  loadSheetWebOAuthAccessToken(true),
 );
 
 export const ensureSheetWebOAuthAccessToken = () =>
@@ -453,6 +459,8 @@ export const ensureSheetWebOAuthAccessToken = () =>
 export const createSheetWebOAuthAuthorizationUrl = createServerFn({ method: "POST" }).handler(
   async (_ctx) => {
     const config = await loadOAuthConfig();
+    if (isPreviewGatewayAuthUrl(config.authBaseUrl))
+      return { redirectTo: resolveSheetWebDashboardUrl(config.appBaseUrl) };
     const session = await getAuthenticatedSession(config.authBaseUrl);
     if (Option.isNone(session)) {
       return { redirectTo: "/" };
@@ -465,7 +473,7 @@ export const createSheetWebOAuthAuthorizationUrl = createServerFn({ method: "POS
 
     setPkceCookie({ state, nonce, codeVerifier }, config.appBaseUrl);
 
-    const url = new URL("/oauth2/authorize", config.authBaseUrl);
+    const url = resolveSheetWebAuthEndpoint(config.authBaseUrl, "/oauth2/authorize");
     url.searchParams.set("response_type", "code");
     url.searchParams.set("client_id", config.clientId);
     url.searchParams.set("redirect_uri", redirectUri);
@@ -484,6 +492,11 @@ export const completeSheetWebOAuthAuthorization = createServerFn({ method: "POST
   .inputValidator((input: unknown) => Schema.decodeUnknownSync(SheetWebOAuthCompletionInput)(input))
   .handler(async ({ data }) => {
     const config = await loadOAuthConfig();
+    if (isPreviewGatewayAuthUrl(config.authBaseUrl)) {
+      await clearPkceCookie();
+      await clearTokenCookie();
+      return { ok: false };
+    }
     const session = await getAuthenticatedSession(config.authBaseUrl);
     if (Option.isNone(session)) {
       return { ok: false };

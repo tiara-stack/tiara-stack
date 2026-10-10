@@ -201,6 +201,25 @@ export interface LauncherOutput {
   readonly connectedPreview?: ConnectedPreviewReport;
   readonly previewSession?: {
     readonly id: string;
+    readonly requestedRevision: string;
+    readonly activeRevision: string | null;
+    readonly webProcess?: {
+      readonly pid: number | null;
+      readonly startedAt: number;
+      readonly readyAt: number;
+      readonly startupDurationMs: number;
+      readonly editCount: number;
+      readonly lastEditDurationMs: number | null;
+      readonly processTree: {
+        readonly available: boolean;
+        readonly sampleCount: number;
+        readonly processIds: readonly number[];
+        readonly cpuTimeMs: number;
+        readonly memoryRssBytes: number;
+        readonly memoryHighWaterBytes: number;
+        readonly sampledAt: number;
+      };
+    };
     readonly phase: "pending" | "starting" | "active" | "stopping" | "ended" | "expired";
     readonly generation: number;
     readonly leaseDeadline: number;
@@ -338,6 +357,8 @@ export interface ProcessRequest {
   readonly args: readonly string[];
   readonly cwd: string;
   readonly env: Readonly<Record<string, string>>;
+  /** Selects the ambient variables inherited in addition to this explicit environment. */
+  readonly environmentInheritance?: "standard" | "web-preview";
   readonly timeoutMs: number;
   readonly kind: "dependency-check" | "runtime";
   readonly readOnly: boolean;
@@ -385,6 +406,7 @@ export type TcpAccessChecker = (origin: string, timeoutMs: number) => Promise<Ac
 
 export interface RunningProcess {
   readonly pid: number | undefined;
+  readonly processGroupId?: number;
   readonly exited: Promise<ProcessResult>;
   readonly kill: () => Promise<void>;
 }
@@ -406,6 +428,15 @@ export interface LauncherOptions {
   readonly previewAllocationController?: import("./preview-allocations").PreviewAllocationApi;
   readonly previewGateway?: import("./preview-gateway").PreviewGatewayApi;
   readonly previewRelayProvider?: import("./preview-relay-provider").PreviewRelayProviderApi;
+  readonly previewWebRuntime?: import("./preview-web-runtime").PreviewWebRuntimeApi;
+  readonly previewSupervisorScheduler?: (
+    sessionId: string,
+    supervisor: import("effect/Effect").Effect<
+      void,
+      never,
+      import("effect/FileSystem").FileSystem | import("effect/unstable/http").HttpClient.HttpClient
+    >,
+  ) => void;
 }
 
 export interface LauncherResult {

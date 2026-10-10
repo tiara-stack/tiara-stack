@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
-import { Effect, Layer } from "effect";
+import { Deferred, Effect, Fiber, Layer } from "effect";
 import { TestConsole } from "effect/testing";
 import { Command } from "effect/unstable/cli";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   command,
+  completeCommandOutput,
   executeComposePlan,
   executeFastPlan,
   executeKubernetesPlan,
@@ -52,6 +53,29 @@ const kubernetesResult = (
     },
     { env: { KUBE_CONTEXT: "tiara-stack-dev" } },
   );
+
+it.effect("keeps the CLI scope open until the preview supervisor completes", () =>
+  Effect.gen(function* () {
+    const supervisorGate = yield* Deferred.make<void>();
+    let scopeReleased = false;
+    const fiber = yield* Effect.forkChild(
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* Effect.acquireRelease(Effect.void, () =>
+            Effect.sync(() => void (scopeReleased = true)),
+          );
+          yield* completeCommandOutput(null, Deferred.await(supervisorGate));
+        }),
+      ),
+    );
+
+    yield* Effect.yieldNow;
+    expect(scopeReleased).toBe(false);
+    yield* Deferred.succeed(supervisorGate, undefined);
+    yield* Fiber.join(fiber);
+    expect(scopeReleased).toBe(true);
+  }),
+);
 
 const kubernetesExecutionContext = async (
   action: "validate" | "preview",

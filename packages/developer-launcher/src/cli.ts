@@ -59,6 +59,7 @@ import {
   makePreviewRelayProvider,
   parsePreviewRelayProviderConfig,
 } from "./preview-relay-provider";
+import { makePreviewWebRuntime } from "./preview-web-runtime";
 
 const commonFlags = {
   envFile: Flag.string("env-file").pipe(Flag.optional),
@@ -196,6 +197,25 @@ const isExecutablePlan = (result: Awaited<ReturnType<typeof runLauncherFromParse
   result.output.plannedProcesses.length > 0 &&
   developmentModes.some((mode) => matchesModePlan(result, mode));
 
+type PreviewSupervisorEffect = import("effect/Effect").Effect<
+  void,
+  never,
+  import("effect/FileSystem").FileSystem | import("effect/unstable/http").HttpClient.HttpClient
+>;
+
+export const completeCommandOutput = (
+  output: string | null,
+  supervisor?: PreviewSupervisorEffect,
+) =>
+  Effect.gen(function* () {
+    if (output !== null) yield* Console.log(output);
+    if (supervisor !== undefined)
+      yield* supervisor.pipe(
+        Effect.provide(NodeServices.layer),
+        Effect.provide(FetchHttpClient.layer),
+      );
+  });
+
 const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
   Effect.serviceOption(PreviewSessionController).pipe(
     Effect.flatMap((sessionController) =>
@@ -209,9 +229,17 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
                   Effect.tryPromise({
                     // fallow-ignore-next-line complexity
                     try: async () => {
+                      let supervisorEffect: PreviewSupervisorEffect | undefined;
                       const options = launcherOptions(config);
                       const launcherConfig = {
                         ...options,
+                        previewWebRuntime,
+                        previewSupervisorScheduler: (
+                          _sessionId: string,
+                          supervisor: PreviewSupervisorEffect,
+                        ) => {
+                          supervisorEffect = supervisor;
+                        },
                         ...(Option.isSome(sessionController)
                           ? { previewSessionController: sessionController.value }
                           : {}),
@@ -257,10 +285,13 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
                             renderLifecycleTerminal(result.output, result.exitCode, 1),
                           );
                         }
-                        return null;
+                        return { output: null, supervisor: supervisorEffect };
                       }
                       const output = result.stdout.trimEnd();
-                      return output.length === 0 ? null : output;
+                      return {
+                        output: output.length === 0 ? null : output,
+                        supervisor: supervisorEffect,
+                      };
                     },
                     catch: (cause) => {
                       process.exitCode = 1;
@@ -271,8 +302,8 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
                           );
                     },
                   }).pipe(
-                    Effect.flatMap((output) =>
-                      output === null ? Effect.void : Console.log(output),
+                    Effect.flatMap(({ output, supervisor }) =>
+                      completeCommandOutput(output, supervisor),
                     ),
                     Effect.catch((error: unknown) =>
                       Console.error(
@@ -352,6 +383,11 @@ const resolvedSessionDatabase =
   sessionDatabase === undefined || sessionDatabase.trim() === ""
     ? undefined
     : path.resolve(sessionDatabase);
+const previewWebRuntime = makePreviewWebRuntime(
+  resolvedSessionDatabase === undefined
+    ? {}
+    : { registryDirectory: `${resolvedSessionDatabase}.credentials/web-processes` },
+);
 const sessionActions = new Set([
   "start",
   "status",
@@ -452,7 +488,7 @@ const previewAllocationLayer = (databasePath: string) =>
 // Cleanup remains available without live gateway/authentication adapters. It never opens routes.
 const previewSessionLayer = PreviewSessionControllerLive(Date.now);
 const previewSessionWithGatewayCleanup =
-  previewAction === "cleanup" || previewAction === "resolve"
+  previewAction === "stop" || previewAction === "cleanup" || previewAction === "resolve"
     ? Layer.effect(
         PreviewGateway,
         Effect.gen(function* () {

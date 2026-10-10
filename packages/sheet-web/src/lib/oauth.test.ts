@@ -8,7 +8,11 @@ import {
   handleOAuthRefreshError,
   isExpectedOAuthFailure,
   isJwtAccessToken,
+  isPreviewGatewayAuthUrl,
+  isPreviewGatewayDependencyUrl,
   oauthTokenCookieMaxAge,
+  resolveSheetWebAuthEndpoint,
+  resolveSheetWebDashboardUrl,
   oauthRefreshErrorMetric,
   oauthTokenRequestMetric,
   refreshTokenRequestBody,
@@ -38,6 +42,50 @@ const startOAuthServer = (handler: RequestListener) =>
   );
 
 describe("OAuth token request bodies", () => {
+  it("identifies the session-scoped dependency route as gateway-mediated", () => {
+    expect(
+      isPreviewGatewayDependencyUrl(
+        new URL("https://p-session-sheet-web.dev.theerapakg.moe/_preview/dependencies/auth"),
+      ),
+    ).toBe(true);
+    expect(
+      isPreviewGatewayDependencyUrl(
+        new URL("https://p-session-sheet-web.dev.theerapakg.moe/_preview/dependencies/auth/"),
+      ),
+    ).toBe(true);
+    expect(
+      isPreviewGatewayAuthUrl(
+        new URL("https://p-session-sheet-web.dev.theerapakg.moe/_preview/dependencies/auth"),
+      ),
+    ).toBe(true);
+    expect(
+      isPreviewGatewayAuthUrl(
+        new URL("https://p-session-sheet-web.dev.theerapakg.moe/_preview/dependencies/authentic/"),
+      ),
+    ).toBe(false);
+    expect(
+      isPreviewGatewayDependencyUrl(
+        new URL("https://p-session-sheet-web.dev/_preview/dependencies"),
+      ),
+    ).toBe(false);
+    expect(isPreviewGatewayDependencyUrl(new URL("https://auth.dev.theerapakg.moe"))).toBe(false);
+  });
+
+  it("builds a single-slash dashboard route from a preview origin", () => {
+    expect(
+      resolveSheetWebDashboardUrl(new URL("https://p-session-sheet-web.dev.theerapakg.moe/")),
+    ).toBe("https://p-session-sheet-web.dev.theerapakg.moe/dashboard");
+  });
+
+  it("preserves the browser dependency route prefix for auth endpoints", () => {
+    const baseUrl = new URL(
+      "https://p-session-sheet-web.dev.theerapakg.moe/_preview/dependencies/auth/",
+    );
+    expect(resolveSheetWebAuthEndpoint(baseUrl, "/oauth2/token").href).toBe(
+      "https://p-session-sheet-web.dev.theerapakg.moe/_preview/dependencies/auth/oauth2/token",
+    );
+  });
+
   it("keeps a refreshable OAuth cookie beyond the access-token expiry", () => {
     expect(oauthTokenCookieMaxAge({ expiresAt: 3_600, refreshToken: "refresh-token" }, 1_000)).toBe(
       30 * 24 * 60 * 60,

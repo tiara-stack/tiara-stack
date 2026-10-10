@@ -76,7 +76,17 @@ export const PreviewSessionProtocolRequest = Schema.Union([
     supervisorIdentity: Schema.String,
     generation: Schema.Number,
   }),
-  Schema.TaggedStruct("Resume", { id: Schema.String, ownerIdentity: Schema.String }),
+  Schema.TaggedStruct("Resume", {
+    id: Schema.String,
+    ownerIdentity: Schema.String,
+    supervisorIdentity: Schema.optional(Schema.String),
+  }),
+  Schema.TaggedStruct("RequestRevision", {
+    id: Schema.String,
+    generation: Schema.Number,
+    supervisorIdentity: Schema.String,
+    requestedRevision: Schema.NonEmptyString,
+  }),
   Schema.TaggedStruct("Stop", { id: Schema.String, ownerIdentity: Schema.String }),
   Schema.TaggedStruct("Admit", { id: Schema.String, generation: Schema.Number }),
   Schema.TaggedStruct("Settle", { id: Schema.String, generation: Schema.Number }),
@@ -174,7 +184,14 @@ export interface PreviewSessionControllerApi {
   readonly resume: (
     id: string,
     ownerIdentity: string,
+    supervisorIdentity?: string,
   ) => Effect.Effect<SupervisorCredentials, ControllerError>;
+  readonly requestRevision: (
+    id: string,
+    generation: number,
+    supervisorIdentity: string,
+    requestedRevision: string,
+  ) => Effect.Effect<PreviewSession, ControllerError>;
   readonly activate: (
     id: string,
     generation: number,
@@ -184,6 +201,12 @@ export interface PreviewSessionControllerApi {
   readonly stop: (
     id: string,
     ownerIdentity: string,
+  ) => Effect.Effect<PreviewSession, ControllerError>;
+  /** Atomically ends a session only while this supervisor still owns its generation. */
+  readonly stopSupervised: (
+    id: string,
+    supervisorIdentity: string,
+    generation: number,
   ) => Effect.Effect<PreviewSession, ControllerError>;
   readonly admit: (
     id: string,
@@ -281,12 +304,21 @@ export const dispatchPreviewSessionProtocol = (
         session,
       })),
     ),
-    Match.tag("Resume", ({ id, ownerIdentity }) =>
-      Effect.map(controller.resume(id, ownerIdentity), ({ session, supervisorIdentity }) => ({
-        _tag: "Resumed" as const,
-        session,
-        supervisorIdentity,
-      })),
+    Match.tag("Resume", ({ id, ownerIdentity, supervisorIdentity }) =>
+      Effect.map(
+        controller.resume(id, ownerIdentity, supervisorIdentity),
+        ({ session, supervisorIdentity }) => ({
+          _tag: "Resumed" as const,
+          session,
+          supervisorIdentity,
+        }),
+      ),
+    ),
+    Match.tag("RequestRevision", ({ id, generation, supervisorIdentity, requestedRevision }) =>
+      Effect.map(
+        controller.requestRevision(id, generation, supervisorIdentity, requestedRevision),
+        (session) => ({ _tag: "Session" as const, session }),
+      ),
     ),
     Match.tag("Stop", ({ id, ownerIdentity }) =>
       Effect.map(controller.stop(id, ownerIdentity), (session) => ({
@@ -382,6 +414,25 @@ const decodeRow = (row: Record<string, unknown>): PreviewSession => ({
   unsettled: Number(row.unsettled),
   endedAt: row.ended_at === null ? null : Number(row.ended_at),
 });
+
+const isActiveRevisionNoOpOwnedBy = (
+  row: Record<string, unknown>,
+  supervisorIdentity: string,
+  generation: number,
+  revision: string,
+  time: number,
+) => {
+  const session = decodeRow(row);
+  return (
+    digestIdentity(supervisorIdentity) === row.supervisor_identity_digest &&
+    session.generation === generation &&
+    session.phase === "active" &&
+    session.activeRevision === revision &&
+    session.requestedRevision === revision &&
+    session.endedAt === null &&
+    session.leaseDeadline > time
+  );
+};
 
 /** Durable authority store. The caller supplies time so lease boundaries are deterministic. */
 export const makePreviewSessionController = (now: () => number) =>
@@ -504,6 +555,63 @@ export const makePreviewSessionController = (now: () => number) =>
         const session = yield* expireIfNeeded(id, decodeRow(row));
         return yield* validateSessionAccess(row, session, identity, generation, allowEnded);
       });
+    const persistRequestedRevision = (
+      id: string,
+      generation: number,
+      supervisorIdentity: string,
+      requestedRevision: string,
+      time: number,
+    ) =>
+      Effect.gen(function* () {
+        const rows = yield* sql`UPDATE preview_sessions
+          SET requested_revision=${requestedRevision}, phase='starting'
+          WHERE id=${id} AND supervisor_identity_digest=${digestIdentity(supervisorIdentity)}
+            AND generation=${generation} AND phase='active' AND ended_at IS NULL
+            AND lease_deadline > ${time} RETURNING *`;
+        if (rows.length === 0) return yield* Effect.fail(sessionError("stale-supervisor"));
+        return decodeRow(rows[0] as Record<string, unknown>);
+      });
+    const prepareResumeIdentity = (
+      current: PreviewSession,
+      currentRow: Record<string, unknown>,
+      previousSupervisorIdentity: string | undefined,
+    ) => {
+      if (current.manifests["sheet-web"] === undefined)
+        return Effect.succeed({
+          supervisorIdentity: randomBytes(32).toString("base64url"),
+          generation: current.generation + 1,
+        });
+      if (
+        previousSupervisorIdentity === undefined ||
+        digestIdentity(previousSupervisorIdentity) !== currentRow.supervisor_identity_digest
+      )
+        return Effect.fail(sessionError("identity-mismatch"));
+      return Effect.succeed({
+        supervisorIdentity: randomBytes(32).toString("base64url"),
+        generation: current.generation,
+      });
+    };
+    const persistResume = (
+      id: string,
+      ownerIdentity: string,
+      current: PreviewSession,
+      supervisorIdentity: string,
+      generation: number,
+      time: number,
+    ) =>
+      Effect.gen(function* () {
+        const rows = yield* sql`UPDATE preview_sessions
+          SET generation=${generation}, phase='pending', supervisor_identity_digest=${digestIdentity(supervisorIdentity)}, supervisor_lease_until=${time + previewSupervisorLeaseMs}
+          WHERE id=${id} AND identity_digest=${digestIdentity(ownerIdentity)}
+            AND generation=${current.generation} AND supervisor_lease_until <= ${time}
+            AND ended_at IS NULL AND lease_deadline > ${time} RETURNING *`;
+        if (rows.length === 0) return yield* Effect.fail(sessionError("resume-raced-or-expired"));
+        yield* fenceSession(id);
+        return {
+          session: decodeRow(rows[0] as Record<string, unknown>),
+          supervisorIdentity,
+        };
+      });
 
     const requireActiveWorkloadSession = (id: string, generation: number, time: number) =>
       Effect.gen(function* () {
@@ -606,7 +714,7 @@ export const makePreviewSessionController = (now: () => number) =>
           if (rows.length === 0) return yield* Effect.fail(sessionError("lease-expired-or-fenced"));
           return decodeRow(rows[0] as Record<string, unknown>);
         }),
-      resume: (id, ownerIdentity) =>
+      resume: (id, ownerIdentity, previousSupervisorIdentity) =>
         Effect.gen(function* () {
           const current = yield* valid(id, ownerIdentity);
           if (current.phase === "ended" || current.phase === "expired")
@@ -616,16 +724,50 @@ export const makePreviewSessionController = (now: () => number) =>
           if (currentRow === undefined) return yield* Effect.fail(sessionError("unknown-session"));
           if (Number(currentRow.supervisor_lease_until) > time)
             return yield* Effect.fail(sessionError("supervisor-already-active"));
-          const supervisorIdentity = randomBytes(32).toString("base64url");
-          // Incrementing the durable generation fences every write from the previous supervisor.
-          const rows =
-            yield* sql`UPDATE preview_sessions SET generation=generation+1, phase='pending', supervisor_identity_digest=${digestIdentity(supervisorIdentity)}, supervisor_lease_until=${time + previewSupervisorLeaseMs} WHERE id=${id} AND identity_digest=${digestIdentity(ownerIdentity)} AND generation=${current.generation} AND supervisor_lease_until <= ${time} AND ended_at IS NULL AND lease_deadline > ${time} RETURNING *`;
-          if (rows.length === 0) return yield* Effect.fail(sessionError("resume-raced-or-expired"));
-          yield* fenceSession(id);
-          return {
-            session: decodeRow(rows[0] as Record<string, unknown>),
+          const prepared = yield* prepareResumeIdentity(
+            current,
+            currentRow,
+            previousSupervisorIdentity,
+          );
+          return yield* persistResume(
+            id,
+            ownerIdentity,
+            current,
+            prepared.supervisorIdentity,
+            prepared.generation,
+            time,
+          );
+        }),
+      requestRevision: (id, generation, supervisorIdentity, requestedRevision) =>
+        Effect.gen(function* () {
+          const current = yield* valid(id, undefined, generation);
+          const canRequest = current.phase === "active" && current.activeRevision !== null;
+          if (!canRequest) return yield* Effect.fail(sessionError("invalid-lifecycle-transition"));
+          if (
+            requestedRevision === current.requestedRevision &&
+            requestedRevision === current.activeRevision
+          ) {
+            const row = yield* find(id);
+            if (
+              row === undefined ||
+              !isActiveRevisionNoOpOwnedBy(
+                row,
+                supervisorIdentity,
+                generation,
+                requestedRevision,
+                now(),
+              )
+            )
+              return yield* Effect.fail(sessionError("stale-supervisor"));
+            return decodeRow(row);
+          }
+          return yield* persistRequestedRevision(
+            id,
+            generation,
             supervisorIdentity,
-          };
+            requestedRevision,
+            now(),
+          );
         }),
       activate: (id, generation, supervisorIdentity, activeRevision) =>
         Effect.gen(function* () {
@@ -650,6 +792,19 @@ export const makePreviewSessionController = (now: () => number) =>
             yield* sql`UPDATE preview_sessions SET phase='ended', supervisor_lease_until=0, ended_at=${time} WHERE id=${id} AND identity_digest=${digestIdentity(ownerIdentity)} AND ended_at IS NULL RETURNING *`;
           yield* fenceSession(id);
           if (rows.length === 0) return yield* valid(id, ownerIdentity, undefined, true);
+          return decodeRow(rows[0] as Record<string, unknown>);
+        }),
+      stopSupervised: (id, supervisorIdentity, generation) =>
+        Effect.gen(function* () {
+          const current = yield* valid(id, undefined, generation, true);
+          if (current.endedAt !== null) return yield* Effect.fail(sessionError("session-ended"));
+          const time = now();
+          const rows = yield* sql`UPDATE preview_sessions
+            SET phase='ended', supervisor_lease_until=0, ended_at=${time}
+            WHERE id=${id} AND supervisor_identity_digest=${digestIdentity(supervisorIdentity)}
+              AND generation=${generation} AND ended_at IS NULL RETURNING *`;
+          if (rows.length === 0) return yield* Effect.fail(sessionError("stale-supervisor"));
+          yield* fenceSession(id);
           return decodeRow(rows[0] as Record<string, unknown>);
         }),
       admit: (id, generation) =>

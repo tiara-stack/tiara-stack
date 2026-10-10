@@ -77,7 +77,7 @@ const readJsonStringEnd = (body: string, start: number) => {
   }
   throw new Error("invalid JSON string");
 };
-const isTokenProperty = (key: string) => /^(?:access|refresh)_?token$/i.test(key);
+const isTokenProperty = (key: string) => /^(?:(?:access|refresh|id|session)_?)?token$/i.test(key);
 const shouldRedactJsonProperty = (key: string, accessToken: string) =>
   isTokenProperty(key) || (accessToken.length > 0 && key.includes(accessToken));
 const redactJsonStringValue = (body: string, start: number, accessToken: string) => {

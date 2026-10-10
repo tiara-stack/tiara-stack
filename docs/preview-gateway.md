@@ -1,9 +1,10 @@
 # Session preview gateway
 
-TIA-237 adds the gateway route and owner-grant protocol to `developer-launcher`.
-It serves disposable probes only. Connected application routes remain unsupported.
-The default CLI does not start a gateway or infer authentication, DNS, certificate,
-or relay identity evidence from configuration.
+TIA-237 adds the owner-grant protocol and disposable probe route. TIA-240 extends
+the same gateway with explicitly registered application HTTP/WSS targets for
+selected host roles, including `sheet-web` and `sheet-workflows-api`. The default
+CLI still does not start a public gateway or infer authentication, DNS,
+certificate, credential, or relay identity evidence from configuration.
 
 The binding decisions are [TIA-230](https://linear.app/tiara-stack/issue/TIA-230),
 [TIA-224](https://linear.app/tiara-stack/issue/TIA-224), and
@@ -29,6 +30,7 @@ messages with `version: 1`, validated with Effect Schema:
 | Message         | Required fields                                  | Result                              |
 | --------------- | ------------------------------------------------ | ----------------------------------- |
 | `RegisterProbe` | `target`, `ownerIdentity`                        | Recorded hostname and exact target  |
+| `RegisterApplication` | `target`, `ownerIdentity`                    | Application route after actual `/ready` check |
 | `Grant`         | `hostname`, `ownerIdentity`, `userId`, `allowed` | Grant added or removed              |
 | `Cleanup`       | `hostname`, `ownerIdentity`                      | Route tombstoned and grants removed |
 
@@ -38,32 +40,73 @@ proof is the private identity returned by the existing session controller, not
 a user ID from a request header. Do not log it or place it in a public URL.
 Additional-user config declarations do not install grants by themselves.
 
-Registration verifies the target through a newly authenticated adapter connection
-before recording the route. It can run while the session is pending. Admission
+Application target identity includes the session, generation, selected host role,
+process, requested revision, state group, relay FQDN, owned service/attachment
+IDs and reserved listener port. Application registration rejects probe targets,
+and probe registration rejects application targets. Web and producer API roles
+share the application contract with their own role and state group identity.
+
+Registration verifies the target through a fresh authenticated adapter connection
+before recording the route. For application targets it also performs an
+authenticated `GET /ready` through that connection and requires a 2xx response.
+It can run while the session is pending. Admission
 requires the active session and active revision as well. Re-registering the same
 target is idempotent; retargeting within a generation is rejected. Explicit resume
-requires fresh target verification and the controller's new generation. It drops
-old grants, and old browser proofs cannot adopt the new generation. Removed routes
-and ended sessions cannot be resurrected.
+requires fresh target verification. Non-web resumes use a new controller
+generation and drop old grants, so old browser proofs cannot adopt that
+generation. A compatible sheet-web resume preserves its generation and grants
+for browser/state continuity, while fencing existing connections until the
+supervisor reactivates the same revision. Removed routes and ended sessions
+cannot be resurrected.
 
 Gateway authentication is independent of `sheet-auth` and of selected application
 health. Its verified principal includes user, session, role, generation and an
 expiry. Only the owner or a user granted on that exact route is admitted. This
 identity confers no application authorization.
 
-## Public probe transport
+## Public probe and application transport
 
 `PreviewGatewayHttpsLive` binds an Effect HTTP router through Node's TLS server.
-Only `GET /_preview/probe` is mounted, for HTTPS requests and WebSocket upgrades.
-Query parameters, WebSocket subprotocol credentials and cross-origin requests
-are rejected. A WebSocket upgrade requires the exact HTTPS Origin. A top-level
-HTTP navigation may omit Origin. Unknown hosts have no default upstream.
+`GET /_preview/probe` remains available for disposable probes. Registered
+application targets serve the session hostname root over HTTPS and WebSocket
+upgrades; `/_preview/app/*` is also accepted as an explicit application path
+alias. The root URL printed by `preview start` therefore reaches the selected
+web application. `/_preview/probe` is reserved for disposable probes. Application
+paths and queries cannot change the session, role, revision or destination. Unsafe encoded paths, cross-origin `Origin`, and
+methods outside GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS are rejected.
+A WebSocket upgrade requires the exact HTTPS Origin. A top-level same-origin
+navigation may omit Origin. Unknown hosts have no default upstream.
 
-The relay receives only the allowlisted `Accept` and `Accept-Language` headers.
-The gateway removes cookies, Authorization, forwarding headers and arbitrary
-routing metadata. The probe response is plain text with `Cache-Control: no-store`;
-upstream cookies, redirects and authentication headers are not propagated.
-WebSocket handshake credentials are not forwarded to the relay.
+Probe relays receive only allowlisted `Accept` and `Accept-Language` headers.
+Application HTTP receives `Accept`, `Accept-Language`, `Content-Type`,
+`If-Modified-Since`, and `If-None-Match`; request bodies are capped at 1 MiB.
+Application WSS receives only those headers plus the Vite `vite-hmr` subprotocol.
+Cookies, Authorization, forwarding headers and arbitrary routing metadata are
+removed. Application responses forward only content type, ETag and Last-Modified,
+and are marked `Cache-Control: no-store`; upstream cookies, redirects and
+authentication headers are not propagated. Requests and responses stream with
+backpressure and are capped at 1 MiB and 16 MiB respectively. Each application
+request and WebSocket upgrade receives the independently authenticated,
+validated Effective Principal, issuer, audience and scopes through the trusted
+relay adapter. The adapter keeps reusable access/refresh tokens server-side and
+must mediate only a session- and role-scoped authorization to the selected
+application. If that identity mediation is not operator-verified, application
+routes remain unavailable. WebSocket frames flow in both directions and are
+individually guarded against session or user revocation.
+
+Browser Zero, authentication, workflow and search base URLs point back to the
+same session hostname under `/_preview/dependencies/<group>/`; they never expose
+the selected shared service origin to browser code. Each registered dependency
+target binds the session, generation, application role, requested revision,
+group, endpoint, state identity, deployed manifest/catalog digests and positive
+credential reference. Unknown or unregistered groups return unavailable. The
+trusted dependency adapter rechecks that identity, applies the group's
+request-specific acceptance protocol, and uses server-held upstream tokens.
+Zero WSS requires a protocol adapter that replaces preview admission with the
+server-held user-scoped token and fences its frames; workflow enqueue/observation
+requires the shared-work admission adapter. Generic forwarding remains
+unavailable. Startup requires operator evidence for both application identity
+and browser dependency mediation before allocating resources.
 
 The transport adapter authenticates the actual relay and attests the full target
 on the connection used for forwarding. Echoing client headers, trusting selected
@@ -75,13 +118,32 @@ must also be verified; renaming an application a probe is not supported.
 Every HTTP operation and each WebSocket frame in either direction rechecks the
 session, user grant, generation, revision, owned receipts and connection state.
 Reconnect authenticates again against the same hostname and target. No shared
-service or second session is a fallback. The probe HTTP response is buffered;
-arbitrary HTTP response streaming, application HMR and application paths are not
-advertised by this slice.
+service or second session is a fallback. The web Vite configuration pins HMR
+to the registered session hostname using WSS path `/_preview/app/__vite_hmr`;
+the public gateway preserves that exact Vite upgrade path and strips
+`/_preview/app` from ordinary application requests. Vite reports changed file
+revisions to the session-owned loopback supervisor using a private
+per-process token. The controller records the requested revision first, making
+the old route unavailable. The gateway checks `/ready` on the same application
+target, updates its recorded revision, and the controller activates it. A failed
+revision check ends the session and closes the route.
+The established Vite HMR WebSocket remains authorized across this same-generation
+revision transition so HMR updates can apply without disconnecting the browser.
+Its frames still check the live session, lease, principal, generation, and current
+route identity. Other application and shared-dependency sockets retain exact
+revision fencing and must reconnect against the activated revision.
+Session JSON includes initial startup duration and, while the supervisor is
+attached, edit count, the most recent edit-to-route-activation duration, and
+periodic process-group samples with member PIDs, aggregate CPU time, current
+resident memory, and resident-memory high-water usage. Process-group sampling
+is reported unavailable on hosts without the supported `ps` interface. These
+samples do not establish a reference environment or p95 target results.
 
-Readiness reports `gateway: ready`, `relay: ready`, and
-`application: unsupported` separately. Neither route registration nor this report
-activates an application in the common launcher lifecycle.
+Readiness reports `gateway: ready`, `relay: ready`, and `application: ready`
+only when an application registration has HTTP and WSS adapters and its actual
+`/ready` check passes. Probe-only targets continue to report
+`application: unsupported`. The common launcher activates a revision only after
+route registration succeeds.
 
 ## Stop, expiry and cleanup
 
@@ -117,8 +179,8 @@ lease expiry; failed cleanup retains the route record for retry.
 
 No live adapter implementation, standalone deployment image, or public browser
 identity provider is supplied here. Do not deploy an unauthenticated proxy in
-its place. Implement and verify these adapters before enabling even the public
-probe profile:
+its place. Implement and verify these adapters before advertising any public
+profile:
 
 1. Provide the existing controller/allocator store to `makePreviewGateway`, and
    run one embedded authority with the gateway. All stop/resume commands must reach
@@ -144,25 +206,30 @@ probe profile:
    Secure/HttpOnly credentials and an authenticated acquisition flow. Do not
    accept user/session headers, borrow selected-auth cookies, or distribute
    reusable shared tokens. This slice has no login/cookie-issuance adapter.
-6. Implement `connect` over an authenticated, scoped TIA-236 relay path. Attest the
-   disposable process, revision and group on that exact connection. Implement
-   connection health, HTTP probe, WebSocket and idempotent close operations with
-   Effect scopes and interruption. A disconnected relay must return unavailable.
-   Setup, authentication and connection/identity operations have five-second
-   limits; a deadline watchdog still bounds established authority.
+6. Implement `connect` over an authenticated, scoped TIA-236 relay path. Attest
+   the exact role, process, revision and group on that connection. Implement the
+   HTTP probe, bounded application request/response, WSS upgrade/frame transport
+   and idempotent close operations with Effect scopes and interruption. A
+   disconnected relay must return unavailable. Setup, authentication and
+   connection/identity operations have five-second limits; a deadline watchdog
+   still bounds established authority.
 7. Permit ingress only from the actual gateway to the approved preview relays.
    Constrain egress to the controller, independent gateway identity provider,
    required DNS and exact development relay destinations. Preserve TIA-236's
    pinned Telepresence authorization and CNI checks. Do not grant access to shared
    workload attachment, secrets or production networks.
-8. Register two disposable probe sessions through the private owner protocol.
-   Activate only after target verification. Complete the live acceptance below,
-   record its environment and adapter versions, and only then advertise the
-   public probe profile. Keep all application profiles unavailable.
+8. Register two disposable probe sessions and two application sessions through
+   the private owner protocol. Prove web HMR/WSS and changed behavior through each
+   session URL, owner/user grants, concurrent shared-control preservation,
+   crash/expiry fencing and exact cleanup. Complete the live acceptance below,
+   record its environment and adapter versions, and only then advertise a profile.
 
-This is an operator handoff, not a record that setup has happened. Missing adapters
-return `unsupported`/unavailable. The normal preview plan and doctor retain the
-unverified routes/identity admission requirement.
+This is an operator handoff, not a record that setup has happened. The stock CLI
+provides the host Vite process supervisor but does not configure the public
+gateway or browser authenticator. Its `sheet-web` profile remains unavailable.
+Injected local adapters support
+contract tests but do not establish public DNS, TLS, operator grants or live
+identity.
 
 ## Acceptance evidence and remaining gates
 
@@ -180,6 +247,8 @@ contract tests, not public browser, Kubernetes or TLS integration results.
 | Scenario                                                                     | Local evidence                                 | Live status |
 | ---------------------------------------------------------------------------- | ---------------------------------------------- | ----------- |
 | Owner HTTPS probe and two explicit targets                                   | HTTP handler and forwarding assertions         | Not run     |
+| Application HTTP path, bounded body and filtered headers                     | `preview-gateway.test.ts` application route     | Not run     |
+| Vite HMR WSS path and bidirectional frames                                    | `preview-gateway.test.ts` application socket    | Not run     |
 | Owner grant, denied guest/cross-session proof, revocation                    | Durable grants and established admission tests | Not run     |
 | WebSocket upgrade and both frame directions                                  | Handler with scoped Socket adapters            | Not run     |
 | Same-session reconnect and stale-generation rejection                        | Reauthentication and explicit resume tests     | Not run     |

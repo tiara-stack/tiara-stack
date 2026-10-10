@@ -89,9 +89,17 @@ proof, deletes only exact recorded resources, and releases reservations only
 when the ledger is empty. Failed or ambiguous deletion stays quarantined for
 safe retry and controller restart recovery. A durable conditional deletion claim
 serializes concurrent cleanup calls; adapters must make deletion of the exact
-recorded resource ID and owner token idempotent. The launcher keeps every connected
-application runtime profile unavailable; this path does not start app
-processes.
+recorded resource ID and owner token idempotent. `sheet-web` has a host Vite
+supervisor and application HTTP/WSS gateway contract behind injected local
+adapters. Its browser-visible authentication, Zero, workflow and search base
+URLs use the session gateway's per-group routes; the client does not receive
+shared dependency origins or reusable backend tokens. The gateway must verify
+each dependency's state identity, deployed manifest, contract catalog and
+per-user admission, and the Zero/workflow adapters must enforce their durable
+acceptance boundaries. The stock CLI does not configure those public gateway,
+browser identity, dependency mediation or supervisor services, so its web
+profile remains unavailable until operator configuration and live acceptance
+are completed. Local route and process tests are contract evidence only.
 
 Provider adapter calls have a 60000 ms default timeout. A timeout during
 allocation, proof, deletion, or unknown-owner resolution fails closed: uncertain

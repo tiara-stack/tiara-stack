@@ -27,7 +27,12 @@ import { HttpClient, HttpClientError, HttpClientRequest } from "effect/unstable/
 import { makeSheetWorkflowHttpClients } from "sheet-workflow-http-client";
 import { authClientAtom, sessionAtom } from "#/lib/auth";
 import { sheetWorkflowsBaseUrlAtom, sheetZeroBaseUrlAtom } from "#/lib/configAtoms";
-import { ensureSheetWebOAuthAccessToken, refreshSheetWebOAuthAccessToken } from "#/lib/oauth";
+import {
+  ensureSheetWebOAuthAccessToken,
+  isPreviewGatewayDependencyUrl,
+  previewGatewayOAuthMarker,
+  refreshSheetWebOAuthAccessToken,
+} from "#/lib/oauth";
 import { runtimeAtom } from "#/lib/runtime";
 import { getAccount } from "sheet-auth/client";
 
@@ -241,11 +246,12 @@ const makeSheetWebZeroClient = (options: {
   readonly accessToken: string;
   readonly httpClient: HttpClient.HttpClient;
 }): SheetWebZeroClient => {
-  let currentAccessToken = options.accessToken;
+  const previewGatewayMediated = isPreviewGatewayDependencyUrl(options.endpoint);
+  let currentAccessToken = previewGatewayMediated ? previewGatewayOAuthMarker : options.accessToken;
   const zero = new Zero({
     cacheURL: options.endpoint.href.replace(/\/$/, ""),
     userID: options.principalId,
-    auth: options.accessToken,
+    auth: currentAccessToken,
     schema,
     mutators,
     context: {
@@ -261,6 +267,7 @@ const makeSheetWebZeroClient = (options: {
     httpClient: options.httpClient,
     getAccessToken: () => currentAccessToken,
     refreshAccessToken: async () => {
+      if (previewGatewayMediated) return previewGatewayOAuthMarker;
       const accessToken = await Effect.runPromise(refreshSheetWebOAuthAccessToken());
       if (Option.isNone(accessToken)) {
         throw new Error("Sheet web OAuth refresh returned no access token");
@@ -450,7 +457,10 @@ export const sheetZeroClientAtom = runtimeAtom
       }
 
       const endpoint = yield* get.result(sheetZeroBaseUrlAtom);
-      const accessToken = yield* ensureSheetWebOAuthAccessToken();
+      const previewGatewayMediated = isPreviewGatewayDependencyUrl(endpoint);
+      const accessToken = previewGatewayMediated
+        ? Option.some(previewGatewayOAuthMarker)
+        : yield* ensureSheetWebOAuthAccessToken();
       if (Option.isNone(accessToken)) {
         clearSheetZeroClients();
         return yield* Effect.fail(
@@ -462,7 +472,7 @@ export const sheetZeroClientAtom = runtimeAtom
       const account = yield* getAccount(
         authClient,
         ["discord"],
-        Predicate.isNotUndefined(session.value.token)
+        !previewGatewayMediated && Predicate.isNotUndefined(session.value.token)
           ? { Authorization: `Bearer ${Redacted.value(session.value.token)}` }
           : undefined,
       ).pipe(

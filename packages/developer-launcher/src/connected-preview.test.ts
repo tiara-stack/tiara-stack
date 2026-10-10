@@ -2,12 +2,32 @@ import { expect, it } from "@effect/vitest";
 import { NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
+import { SqlError } from "effect/unstable/sql";
+import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 import path from "node:path";
-import { Deferred, Effect, Fiber, FileSystem, Layer, Path, Scope } from "effect";
+import { Deferred, Duration, Effect, Fiber, FileSystem, Layer, Path, Scope } from "effect";
+import { TestClock } from "effect/testing";
 import { parseCommand, parsePositionals, runLauncher, type ProcessExecutor } from "./index";
-import { makePreviewGateway } from "./preview-gateway";
-import { connectedPreviewOutput } from "./connected-preview";
-import { makePreviewSessionController, type PreviewSessionControllerApi } from "./preview-sessions";
+import { makePreviewGateway, PreviewGatewayError } from "./preview-gateway";
+import {
+  connectedPreviewOutput,
+  makeSheetWebRevisionHandler,
+  stopResumedWebSession,
+  superviseSheetWebPreview,
+} from "./connected-preview";
+import {
+  makePreviewSessionController,
+  previewSessionHeartbeatMs,
+  previewSupervisorLeaseMs,
+  PreviewSessionError,
+  type PreviewSessionControllerApi,
+} from "./preview-sessions";
+import type { PreviewGatewayApi, PreviewGatewayTarget } from "./preview-gateway";
+import {
+  makePreviewWebRuntime,
+  PreviewWebRuntimeError,
+  type PreviewWebRuntimeApi,
+} from "./preview-web-runtime";
 import {
   makeLocalFilesystemPreviewResourceAdapter,
   makePreviewAllocationController,
@@ -109,10 +129,13 @@ const previewArtifactDigest = `sha256:${"b".repeat(64)}`;
 const previewManifestDigest = `sha256:${"c".repeat(64)}`;
 const previewEnvironmentKeys = ["NODE_ENV", "LOG_LEVEL"] as const;
 
-const liveTest = <E, R extends NodeServices.NodeServices | Scope.Scope>(
+const liveTest = <E, R extends NodeServices.NodeServices | Scope.Scope | HttpClient.HttpClient>(
   name: string,
   run: () => Effect.Effect<void, E, R>,
-) => it.live(name, () => run().pipe(Effect.provide(NodeServices.layer)));
+) =>
+  it.live(name, () =>
+    run().pipe(Effect.provide(NodeServices.layer), Effect.provide(FetchHttpClient.layer)),
+  );
 
 const makeUnavailableProfileAllocationController = (now: () => number) =>
   makePreviewAllocationController(
@@ -923,6 +946,61 @@ liveTest("plans explicit producer-only shared execution as intent without starti
   }),
 );
 
+liveTest("describes web-only producer-only validation remediation", () =>
+  Effect.gen(function* () {
+    const result = yield* runConnectedPreviewConfig(
+      "plan",
+      createConnectedPreviewConfig({
+        roles: ["sheet-web"],
+        groupOwnership: {
+          "application-zero": "reused",
+          auth: "reused",
+          "workflow-execution": "owned",
+          search: "reused",
+        },
+        configOverrides: { sharedExecution: "producer-only" },
+      }),
+    );
+    const diagnostic = result.output.errors.find(({ message }) =>
+      message.startsWith("Shared execution requires a reused workflow-execution group"),
+    );
+
+    expect(diagnostic?.message).toContain("either a sole sheet-web selection");
+    expect(diagnostic?.remediation).toContain(
+      "either select only sheet-web or select sheet-workflows-api with compatible workflow contracts",
+    );
+  }),
+);
+
+liveTest("requires workflow compatibility for a mixed web and API selection", () =>
+  Effect.gen(function* () {
+    const result = yield* runConnectedPreviewConfig(
+      "plan",
+      createConnectedPreviewConfig({
+        roles: ["sheet-web", "sheet-workflows-api"],
+        groupOwnership: {
+          "application-zero": "reused",
+          auth: "reused",
+          "workflow-execution": "reused",
+          search: "reused",
+        },
+        changeOverrides: {
+          "sheet-workflows-api:workflow.enqueue": { classification: "unknown" },
+        },
+        configOverrides: { sharedExecution: "producer-only" },
+      }),
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(result.output.errors).toContainEqual(
+      expect.objectContaining({
+        code: "unknown-compatibility",
+        dependency: "workflow.enqueue",
+      }),
+    );
+  }),
+);
+
 liveTest("keeps planning JSON Lines on lifecycle version 1", () =>
   Effect.gen(function* () {
     const result = yield* runConnectedPreviewConfig(
@@ -1566,7 +1644,7 @@ liveTest("reports unreadable capacity baseline as not imported", () =>
   ),
 );
 
-liveTest("passes the validated seed selection to the owned application allocation", () =>
+liveTest("keeps sheet-web allocation unavailable until its host runtime is wired", () =>
   withConnectedPreviewConfig(
     createConnectedPreviewConfig({
       roles: ["sheet-web", "sheet-db-server", "sheet-workflows-api", "sheet-workflows-runner"],
@@ -1636,8 +1714,13 @@ liveTest("passes the validated seed selection to the owned application allocatio
             previewRelayProvider: makeRelayProviderWithAttachmentStatus("ready"),
           },
         );
-        expect(result.exitCode, result.stdout).toBe(0);
-        expect(applicationMetadata).toEqual({ seedId: "synthetic-development-v1" });
+        expect(result.exitCode).toBe(2);
+        expect(result.output.readiness).toBe("blocked");
+        expect(result.output.previewSession).toBeUndefined();
+        expect(result.output.errors[0]?.message).toContain(
+          "sheet-web preview runtime is unavailable",
+        );
+        expect(applicationMetadata).toBeUndefined();
       }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
   ),
 );
@@ -1793,6 +1876,31 @@ const blockedPreviewActions: readonly [string, readonly string[]][] = [
   ["resolve", ["resolve", "--session", "session-123", "--resource", "database"]],
 ];
 
+liveTest("plans a web-only compatible shared workflow profile without adding API callers", () =>
+  runConnectedPreviewConfig(
+    "plan",
+    createConnectedPreviewConfig({
+      roles: ["sheet-web"],
+      groupOwnership: {
+        "application-zero": "reused",
+        auth: "reused",
+        "workflow-execution": "reused",
+        search: "reused",
+      },
+      configOverrides: { sharedExecution: "producer-only" },
+    }),
+  ).pipe(
+    Effect.tap((result) =>
+      Effect.sync(() => {
+        expect(result.output.connectedPreview?.requiredRoles).toEqual(["sheet-web"]);
+        expect(
+          result.output.errors.some((error) => error.message.includes("Required caller role")),
+        ).toBe(false);
+      }),
+    ),
+  ),
+);
+
 for (const [action, args] of blockedPreviewActions) {
   liveTest(`keeps connected preview ${action} blocked`, () =>
     Effect.gen(function* () {
@@ -1902,6 +2010,85 @@ it.live(
       Effect.provide(
         Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
       ),
+    ),
+);
+
+liveTest(
+  "stops and returns the session ID when allocation status cannot be read after reservation",
+  () =>
+    withConnectedPreviewConfig(
+      createConnectedPreviewConfig({ roles: ["sheet-auth"] }),
+      (configPath, cwd) =>
+        Effect.gen(function* () {
+          const now = 50_000;
+          const controller = yield* makePreviewSessionController(() => now);
+          const base = makeLocalFilesystemPreviewResourceAdapter(path.join(cwd, "resources"));
+          const actualAllocations = yield* makePreviewAllocationController(
+            {
+              ...base,
+              planProfile: () =>
+                Effect.succeed({
+                  demands: previewCapacityDimensionsByGroup.auth.map((dimension) => ({
+                    dimension,
+                    amount: 1,
+                    provider: "local-test",
+                    identity: "disposable",
+                  })),
+                  resources: ["auth"],
+                }),
+              validateProfileAllocation: () => Effect.void,
+            },
+            () => now,
+          );
+          yield* Effect.forEach(previewCapacityDimensionsByGroup.auth, (dimension) =>
+            actualAllocations.observeCapacity({
+              provider: "local-test",
+              identity: "disposable",
+              dimension,
+              observedAt: now,
+              total: 2,
+              inUse: 0,
+              grantsVerified: true,
+            }),
+          );
+          let inspections = 0;
+          const allocations: PreviewAllocationApi = {
+            ...actualAllocations,
+            inspect: (sessionId) => {
+              inspections += 1;
+              return inspections === 1
+                ? Effect.fail(
+                    new SqlError.SqlError({
+                      reason: new SqlError.UnknownError({
+                        cause: new Error("allocation-status-unavailable"),
+                        message: "allocation status unavailable",
+                        operation: "inspect allocation",
+                      }),
+                    }),
+                  )
+                : actualAllocations.inspect(sessionId);
+            },
+          };
+          const result = yield* runLauncherEffect(
+            ["preview", "start", "--config", configPath, "--json"],
+            {
+              cwd,
+              env: { TIARA_PREVIEW_SESSION_DATABASE: `${cwd}/controller.sqlite` },
+              previewSessionController: controller,
+              previewAllocationController: allocations,
+              previewRelayProvider: makeRelayProviderWithAttachmentStatus("ready"),
+            },
+          );
+
+          expect(result.exitCode).toBe(2);
+          expect(result.output.readiness).toBe("blocked");
+          expect(result.output.previewSession?.id).toMatch(/^[a-f0-9-]{36}$/i);
+          expect(result.output.previewSession?.phase).toBe("ended");
+          expect(result.output.errors[0]?.code).toBe("prerequisite-unavailable");
+          const ended = yield* controller.status(result.output.previewSession!.id);
+          expect(ended.phase).toBe("ended");
+          expect(inspections).toBeGreaterThanOrEqual(2);
+        }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
     ),
 );
 
@@ -2414,4 +2601,1124 @@ it.live("stops a newly created session when owner credentials cannot be persiste
       Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
     ),
   ),
+);
+
+it.effect("renews the durable lease after compatible sheet-web resume", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const controller = yield* makePreviewSessionController(now);
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: { "sheet-web": "sha256:manifest" },
+      requestedRevision: "revision-a",
+    });
+    yield* controller.activate(
+      created.session.id,
+      created.session.generation,
+      created.supervisorIdentity,
+      "revision-a",
+    );
+    yield* TestClock.adjust(Duration.millis(previewSupervisorLeaseMs));
+    const resumed = yield* controller.resume(
+      created.session.id,
+      created.ownerIdentity,
+      created.supervisorIdentity,
+    );
+    const active = yield* controller.activate(
+      created.session.id,
+      resumed.session.generation,
+      resumed.supervisorIdentity,
+      resumed.session.requestedRevision,
+    );
+    const gateway = yield* makePreviewGateway({ domain: "", controller, now });
+    const runtime = {
+      start: () => Effect.fail(new PreviewWebRuntimeError({ reason: "unused" })),
+      status: () => Effect.succeed(true),
+      measurements: () => Effect.succeed(undefined),
+      stop: () => Effect.void,
+    } satisfies PreviewWebRuntimeApi;
+    const fiber = yield* superviseSheetWebPreview({
+      sessionId: created.session.id,
+      ownerIdentity: created.ownerIdentity,
+      supervisorIdentity: resumed.supervisorIdentity,
+      generation: active.generation,
+      controller,
+      gateway,
+      runtime,
+    }).pipe(Effect.forkChild);
+
+    yield* Effect.yieldNow;
+    yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+    yield* Effect.yieldNow;
+    const renewed = yield* controller.status(created.session.id);
+    expect(renewed.lastRenewedAt).toBe(now());
+    expect(renewed.phase).toBe("active");
+    yield* Fiber.interrupt(fiber);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+        FetchHttpClient.layer,
+      ),
+    ),
+  ),
+);
+
+it.effect("keeps an active sheet-web session alive for an already-active revision", () =>
+  Effect.gen(function* () {
+    const now = () => 50_000;
+    const controller = yield* makePreviewSessionController(now);
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: { "sheet-web": "sha256:manifest" },
+      requestedRevision: "revision-a",
+    });
+    yield* controller.activate(
+      created.session.id,
+      created.session.generation,
+      created.supervisorIdentity,
+      "revision-a",
+    );
+    const gateway = yield* makePreviewGateway({ domain: "", controller, now });
+    const onRevision = makeSheetWebRevisionHandler(
+      {
+        sessionId: created.session.id,
+        generation: created.session.generation,
+        role: "sheet-web",
+        processId: "web-process",
+        revision: "revision-a",
+        artifactDigest: `sha256:${"a".repeat(64)}`,
+        catalogDigest: `sha256:${"b".repeat(64)}`,
+        stateGroup: "web-state",
+        serviceFqdn: "web.preview-relays.svc.cluster.local",
+        serviceResourceId: "web-service",
+        attachmentResourceId: "web-attachment",
+        port: 4100,
+        kind: "application",
+      },
+      [],
+      created,
+      {
+        supervisorIdentity: created.supervisorIdentity,
+        generation: created.session.generation,
+      },
+      controller,
+      gateway,
+    );
+
+    yield* onRevision("revision-a");
+
+    const session = yield* controller.status(created.session.id);
+    expect(session.phase).toBe("active");
+    expect(session.activeRevision).toBe("revision-a");
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
+    ),
+  ),
+);
+
+it.effect("applies a source revision received while sheet-web startup is pending", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const controller = yield* makePreviewSessionController(now);
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: { "sheet-web": "sha256:manifest" },
+      requestedRevision: "revision-a",
+    });
+    const registeredRoutes: string[] = [];
+    const baseGateway = yield* makePreviewGateway({ domain: "", controller, now });
+    const gateway: PreviewGatewayApi = {
+      ...baseGateway,
+      register: (target) =>
+        Effect.sync(() => {
+          registeredRoutes.push(target.revision);
+          return { hostname: "p-session-startup-revision", target };
+        }),
+      registerApplicationDependencies: (target) =>
+        Effect.sync(() => {
+          registeredRoutes.push(target.revision);
+        }),
+      cleanupSession: () => Effect.void,
+    };
+    const authority = {
+      supervisorIdentity: created.supervisorIdentity,
+      generation: created.session.generation,
+    };
+    const onRevision = makeSheetWebRevisionHandler(
+      {
+        sessionId: created.session.id,
+        generation: created.session.generation,
+        role: "sheet-web",
+        processId: "web-process",
+        revision: "revision-a",
+        artifactDigest: `sha256:${"a".repeat(64)}`,
+        catalogDigest: `sha256:${"b".repeat(64)}`,
+        stateGroup: "web-state",
+        serviceFqdn: "web.preview-relays.svc.cluster.local",
+        serviceResourceId: "web-service",
+        attachmentResourceId: "web-attachment",
+        port: 4100,
+        kind: "application",
+      },
+      [],
+      created,
+      authority,
+      controller,
+      gateway,
+    );
+
+    const revisionFiber = yield* Effect.forkChild(onRevision("revision-b"));
+    yield* Effect.yieldNow;
+    yield* TestClock.adjust(Duration.seconds(31));
+    yield* Effect.yieldNow;
+    expect((yield* controller.status(created.session.id)).phase).toBe("pending");
+    expect(registeredRoutes).toEqual([]);
+
+    yield* controller.activate(
+      created.session.id,
+      created.session.generation,
+      created.supervisorIdentity,
+      "revision-a",
+    );
+    yield* TestClock.adjust(Duration.seconds(1));
+    yield* Fiber.join(revisionFiber);
+
+    const active = yield* controller.status(created.session.id);
+    expect(active.phase).toBe("active");
+    expect(active.activeRevision).toBe("revision-b");
+    expect(registeredRoutes).toEqual(["revision-b", "revision-b"]);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
+it.effect("rejects an unrecorded revision when startup remains pending past its wait", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const controller = yield* makePreviewSessionController(now);
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: { "sheet-web": "sha256:manifest" },
+      requestedRevision: "revision-a",
+    });
+    const registeredRoutes: string[] = [];
+    let cleanupCalls = 0;
+    const baseGateway = yield* makePreviewGateway({ domain: "", controller, now });
+    const gateway: PreviewGatewayApi = {
+      ...baseGateway,
+      register: (target) =>
+        Effect.sync(() => {
+          registeredRoutes.push(target.revision);
+          return { hostname: "p-session-startup-timeout", target };
+        }),
+      registerApplicationDependencies: (target) =>
+        Effect.sync(() => {
+          registeredRoutes.push(target.revision);
+        }),
+      cleanupSession: () => Effect.sync(() => void cleanupCalls++),
+    };
+    const onRevision = makeSheetWebRevisionHandler(
+      {
+        sessionId: created.session.id,
+        generation: created.session.generation,
+        role: "sheet-web",
+        processId: "web-process",
+        revision: "revision-a",
+        artifactDigest: `sha256:${"a".repeat(64)}`,
+        catalogDigest: `sha256:${"b".repeat(64)}`,
+        stateGroup: "web-state",
+        serviceFqdn: "web.preview-relays.svc.cluster.local",
+        serviceResourceId: "web-service",
+        attachmentResourceId: "web-attachment",
+        port: 4100,
+        kind: "application",
+      },
+      [],
+      created,
+      {
+        supervisorIdentity: created.supervisorIdentity,
+        generation: created.session.generation,
+      },
+      controller,
+      gateway,
+    );
+
+    const revisionFiber = yield* Effect.forkChild(onRevision("revision-b"));
+    yield* Effect.yieldNow;
+    for (let attempt = 0; attempt < 600; attempt += 1) {
+      yield* TestClock.adjust(Duration.millis(100));
+      yield* Effect.yieldNow;
+    }
+
+    const revisionResult = yield* Effect.exit(Fiber.join(revisionFiber));
+    expect(revisionResult._tag).toBe("Failure");
+    expect(registeredRoutes).toEqual([]);
+    expect(cleanupCalls).toBe(0);
+    const stillPending = yield* controller.status(created.session.id);
+    expect(stillPending.phase).toBe("pending");
+    expect(stillPending.requestedRevision).toBe("revision-a");
+    expect(stillPending.activeRevision).toBe(null);
+
+    yield* controller.activate(
+      created.session.id,
+      created.session.generation,
+      created.supervisorIdentity,
+      "revision-a",
+    );
+    const active = yield* controller.status(created.session.id);
+    expect(active.phase).toBe("active");
+    expect(active.requestedRevision).toBe("revision-a");
+    expect(active.activeRevision).toBe("revision-a");
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
+it.effect("keeps a retired supervisor controller scope open until its process is missing", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const controller = yield* makePreviewSessionController(now);
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: { "sheet-web": "sha256:manifest" },
+      requestedRevision: "revision-a",
+    });
+    yield* controller.activate(
+      created.session.id,
+      created.session.generation,
+      created.supervisorIdentity,
+      "revision-a",
+    );
+    const gateway = yield* makePreviewGateway({ domain: "", controller, now });
+    let oldControllerScopeOpen = true;
+    const scopedController: PreviewSessionControllerApi = {
+      ...controller,
+      requestRevision: (id, generation, supervisorIdentity, revision) =>
+        oldControllerScopeOpen
+          ? controller.requestRevision(id, generation, supervisorIdentity, revision)
+          : Effect.fail(new PreviewSessionError({ reason: "controller-scope-closed" })),
+    };
+    const firstRetiredCheck = yield* Deferred.make<void>();
+    let availabilityChecks = 0;
+    let cleanupCalls = 0;
+    const baseRuntime = makePreviewWebRuntime({ now });
+    const runtime: PreviewWebRuntimeApi = {
+      ...baseRuntime,
+      availability: () =>
+        Effect.gen(function* () {
+          availabilityChecks += 1;
+          if (availabilityChecks === 1) yield* Deferred.succeed(firstRetiredCheck, undefined);
+          return availabilityChecks === 1 ? ("ready" as const) : ("missing" as const);
+        }),
+      stop: () => Effect.sync(() => void cleanupCalls++),
+    };
+    const authority = {
+      supervisorIdentity: created.supervisorIdentity,
+      generation: created.session.generation,
+      retired: true,
+    };
+    const supervisor = superviseSheetWebPreview({
+      sessionId: created.session.id,
+      ownerIdentity: created.ownerIdentity,
+      supervisorIdentity: authority.supervisorIdentity,
+      generation: authority.generation,
+      authority,
+      controller: scopedController,
+      gateway,
+      runtime,
+    }).pipe(Effect.ensuring(Effect.sync(() => void (oldControllerScopeOpen = false))));
+    const fiber = yield* Effect.forkChild(supervisor);
+    yield* Effect.yieldNow;
+    yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+    yield* Deferred.await(firstRetiredCheck);
+
+    const onRevision = makeSheetWebRevisionHandler(
+      {
+        sessionId: created.session.id,
+        generation: authority.generation,
+        role: "sheet-web",
+        processId: "web-process",
+        revision: "revision-a",
+        artifactDigest: `sha256:${"a".repeat(64)}`,
+        catalogDigest: `sha256:${"b".repeat(64)}`,
+        stateGroup: "application-zero",
+        serviceFqdn: "web.preview-relays.svc.cluster.local",
+        serviceResourceId: "web-service",
+        attachmentResourceId: "web-attachment",
+        port: 4100,
+        kind: "application",
+      },
+      [],
+      created,
+      authority,
+      scopedController,
+      gateway,
+    );
+    yield* onRevision("revision-a");
+    expect(oldControllerScopeOpen).toBe(true);
+    expect((yield* controller.status(created.session.id)).phase).toBe("active");
+
+    yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+    yield* Fiber.join(fiber);
+    expect(availabilityChecks).toBe(2);
+    expect(oldControllerScopeOpen).toBe(false);
+    expect(cleanupCalls).toBe(0);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+        FetchHttpClient.layer,
+      ),
+    ),
+  ),
+);
+
+it.effect("cleans only the resumed web generation that still owns the supervisor fence", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const controller = yield* makePreviewSessionController(now);
+    let processStops = 0;
+    const runtime = {
+      start: () => Effect.fail(new PreviewWebRuntimeError({ reason: "unused" })),
+      status: () => Effect.succeed(true),
+      measurements: () => Effect.succeed(undefined),
+      stop: () => Effect.sync(() => void processStops++),
+    } satisfies PreviewWebRuntimeApi;
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: { "sheet-web": "sha256:manifest" },
+      requestedRevision: "revision-a",
+    });
+    yield* controller.activate(
+      created.session.id,
+      created.session.generation,
+      created.supervisorIdentity,
+      "revision-a",
+    );
+    yield* TestClock.adjust(Duration.millis(previewSupervisorLeaseMs));
+    const resumed = yield* controller.resume(
+      created.session.id,
+      created.ownerIdentity,
+      created.supervisorIdentity,
+    );
+    const cleaned = yield* stopResumedWebSession(
+      created.session.id,
+      resumed.supervisorIdentity,
+      resumed.session.generation,
+      { ownerIdentity: created.ownerIdentity, supervisorIdentity: resumed.supervisorIdentity },
+      controller,
+      undefined,
+      runtime,
+    );
+    expect(cleaned).toBe(true);
+    expect(processStops).toBe(1);
+    expect((yield* controller.status(created.session.id)).phase).toBe("ended");
+
+    const second = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: { "sheet-web": "sha256:manifest" },
+      requestedRevision: "revision-a",
+    });
+    yield* controller.activate(
+      second.session.id,
+      second.session.generation,
+      second.supervisorIdentity,
+      "revision-a",
+    );
+    yield* TestClock.adjust(Duration.millis(previewSupervisorLeaseMs));
+    const firstResume = yield* controller.resume(
+      second.session.id,
+      second.ownerIdentity,
+      second.supervisorIdentity,
+    );
+    yield* TestClock.adjust(Duration.millis(previewSupervisorLeaseMs));
+    const latestResume = yield* controller.resume(
+      second.session.id,
+      second.ownerIdentity,
+      firstResume.supervisorIdentity,
+    );
+    const staleCleanup = yield* stopResumedWebSession(
+      second.session.id,
+      firstResume.supervisorIdentity,
+      firstResume.session.generation,
+      { ownerIdentity: second.ownerIdentity, supervisorIdentity: firstResume.supervisorIdentity },
+      controller,
+      undefined,
+      runtime,
+    );
+    expect(staleCleanup).toBe(false);
+    expect(processStops).toBe(1);
+    expect((yield* controller.status(second.session.id)).phase).toBe("pending");
+    const latestCleanup = yield* controller.stopSupervised(
+      second.session.id,
+      latestResume.supervisorIdentity,
+      latestResume.session.generation,
+    );
+    expect(latestCleanup.phase).toBe("ended");
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+        FetchHttpClient.layer,
+      ),
+    ),
+  ),
+);
+
+it.effect("stops a resumed web session after registered dependency checks fail three times", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const controller = yield* makePreviewSessionController(now);
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: { "sheet-web": "sha256:manifest" },
+      requestedRevision: "revision-a",
+    });
+    yield* controller.activate(
+      created.session.id,
+      created.session.generation,
+      created.supervisorIdentity,
+      "revision-a",
+    );
+    yield* TestClock.adjust(Duration.millis(previewSupervisorLeaseMs));
+    const resumed = yield* controller.resume(
+      created.session.id,
+      created.ownerIdentity,
+      created.supervisorIdentity,
+    );
+    const active = yield* controller.activate(
+      created.session.id,
+      resumed.session.generation,
+      resumed.supervisorIdentity,
+      resumed.session.requestedRevision,
+    );
+    const actualGateway = yield* makePreviewGateway({ domain: "", controller, now });
+    let dependencyChecks = 0;
+    const gateway: PreviewGatewayApi = {
+      ...actualGateway,
+      checkRegisteredApplicationDependencies: () =>
+        Effect.sync(() => {
+          dependencyChecks += 1;
+        }).pipe(Effect.andThen(Effect.fail(new PreviewGatewayError({ reason: "unavailable" })))),
+    };
+    let stopCalls = 0;
+    const runtime = {
+      start: () => Effect.fail(new PreviewWebRuntimeError({ reason: "unused" })),
+      status: () => Effect.succeed(true),
+      measurements: () =>
+        Effect.succeed({
+          sessionId: created.session.id,
+          revision: "revision-a",
+          port: 4317,
+          pid: 123,
+          startedAt: 0,
+          readyAt: 0,
+          startupDurationMs: 0,
+          lastEditDurationMs: null,
+          editCount: 0,
+          processTree: {
+            available: false,
+            sampleCount: 0,
+            processIds: [],
+            cpuTimeMs: 0,
+            memoryRssBytes: 0,
+            memoryHighWaterBytes: 0,
+            sampledAt: 0,
+          },
+        }),
+      stop: () => Effect.sync(() => void stopCalls++),
+    } satisfies PreviewWebRuntimeApi;
+    const fiber = yield* superviseSheetWebPreview({
+      sessionId: created.session.id,
+      ownerIdentity: created.ownerIdentity,
+      supervisorIdentity: resumed.supervisorIdentity,
+      generation: active.generation,
+      controller,
+      gateway,
+      runtime,
+      checkDependencies: () =>
+        gateway
+          .checkRegisteredApplicationDependencies(
+            created.session.id,
+            "sheet-web",
+            created.ownerIdentity,
+          )
+          .pipe(Effect.as(undefined)),
+    }).pipe(Effect.forkChild);
+
+    for (let check = 1; check <= 2; check += 1) {
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+      yield* Effect.yieldNow;
+      expect((yield* controller.status(created.session.id)).phase).toBe("active");
+      expect(stopCalls).toBe(0);
+      expect(dependencyChecks).toBe(check);
+    }
+    yield* Effect.yieldNow;
+    yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+    yield* Effect.yieldNow;
+    expect(dependencyChecks).toBe(3);
+    expect((yield* controller.status(created.session.id)).phase).toBe("ended");
+    expect(stopCalls).toBe(1);
+    yield* Fiber.join(fiber);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+        FetchHttpClient.layer,
+      ),
+    ),
+  ),
+);
+
+it.effect("tolerates transient web readiness probes but ends after three failures", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const controller = yield* makePreviewSessionController(now);
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: { "sheet-web": "sha256:manifest" },
+      requestedRevision: "revision-a",
+    });
+    yield* controller.activate(
+      created.session.id,
+      created.session.generation,
+      created.supervisorIdentity,
+      "revision-a",
+    );
+    const gateway = yield* makePreviewGateway({ domain: "", controller, now });
+    let statusCalls = 0;
+    let stopCalls = 0;
+    const runtime = {
+      start: () => Effect.fail(new PreviewWebRuntimeError({ reason: "unused" })),
+      status: () => Effect.sync(() => ++statusCalls > 3),
+      measurements: () =>
+        Effect.succeed({
+          sessionId: created.session.id,
+          revision: "revision-a",
+          port: 4317,
+          pid: 123,
+          startedAt: 0,
+          readyAt: 0,
+          startupDurationMs: 0,
+          lastEditDurationMs: null,
+          editCount: 0,
+          processTree: {
+            available: false,
+            sampleCount: 0,
+            processIds: [],
+            cpuTimeMs: 0,
+            memoryRssBytes: 0,
+            memoryHighWaterBytes: 0,
+            sampledAt: 0,
+          },
+        }),
+      stop: () => Effect.sync(() => void stopCalls++),
+    } satisfies PreviewWebRuntimeApi;
+    const fiber = yield* superviseSheetWebPreview({
+      sessionId: created.session.id,
+      ownerIdentity: created.ownerIdentity,
+      supervisorIdentity: created.supervisorIdentity,
+      generation: created.session.generation,
+      controller,
+      gateway,
+      runtime,
+    }).pipe(Effect.forkChild);
+
+    for (let failure = 1; failure <= 2; failure += 1) {
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+      yield* Effect.yieldNow;
+      expect((yield* controller.status(created.session.id)).phase).toBe("active");
+      expect(stopCalls).toBe(0);
+      expect(statusCalls).toBe(failure);
+    }
+    yield* Effect.yieldNow;
+    yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+    yield* Effect.yieldNow;
+    expect(statusCalls).toBe(3);
+    expect((yield* controller.status(created.session.id)).phase).toBe("ended");
+    expect(stopCalls).toBe(1);
+    yield* Fiber.join(fiber);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+        FetchHttpClient.layer,
+      ),
+    ),
+  ),
+);
+
+it.effect(
+  "retries transient supervisor heartbeats and stops after three consecutive failures",
+  () =>
+    Effect.gen(function* () {
+      const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+      const now = () => testClock.currentTimeMillisUnsafe();
+      const controller = yield* makePreviewSessionController(now);
+      const created = yield* controller.create({
+        owner: "owner",
+        checkout: "/checkout",
+        manifests: { "sheet-web": "sha256:manifest" },
+        requestedRevision: "revision-a",
+      });
+      yield* controller.activate(
+        created.session.id,
+        created.session.generation,
+        created.supervisorIdentity,
+        "revision-a",
+      );
+      let heartbeatCalls = 0;
+      const flakyController: PreviewSessionControllerApi = {
+        ...controller,
+        heartbeat: (id, supervisorIdentity, generation) => {
+          heartbeatCalls += 1;
+          return heartbeatCalls === 3
+            ? controller.heartbeat(id, supervisorIdentity, generation)
+            : Effect.fail(new PreviewSessionError({ reason: "transient-controller-failure" }));
+        },
+      };
+      const gateway = yield* makePreviewGateway({ domain: "", controller, now });
+      let processStops = 0;
+      const runtime = {
+        start: () => Effect.fail(new PreviewWebRuntimeError({ reason: "unused" })),
+        status: () => Effect.succeed(true),
+        measurements: () => Effect.succeed(undefined),
+        stop: () => Effect.sync(() => void processStops++),
+      } satisfies PreviewWebRuntimeApi;
+      const fiber = yield* superviseSheetWebPreview({
+        sessionId: created.session.id,
+        ownerIdentity: created.ownerIdentity,
+        supervisorIdentity: created.supervisorIdentity,
+        generation: created.session.generation,
+        controller: flakyController,
+        gateway,
+        runtime,
+      }).pipe(Effect.forkChild);
+      for (let attempt = 1; attempt <= 5; attempt += 1) {
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+        yield* Effect.yieldNow;
+        expect((yield* controller.status(created.session.id)).phase).toBe("active");
+        expect(processStops).toBe(0);
+      }
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+      yield* Effect.yieldNow;
+      expect(heartbeatCalls).toBe(6);
+      expect((yield* controller.status(created.session.id)).phase).toBe("ended");
+      expect(processStops).toBe(1);
+      yield* Fiber.join(fiber);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          SqliteClient.layer({ filename: ":memory:" }),
+          NodeServices.layer,
+          TestClock.layer(),
+          FetchHttpClient.layer,
+        ),
+      ),
+    ),
+);
+
+it.effect("cleans the owned web process when another owner path ends the session", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const controller = yield* makePreviewSessionController(now);
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: { "sheet-web": "sha256:manifest" },
+      requestedRevision: "revision-a",
+    });
+    yield* controller.activate(
+      created.session.id,
+      created.session.generation,
+      created.supervisorIdentity,
+      "revision-a",
+    );
+    const actualGateway = yield* makePreviewGateway({ domain: "", controller, now });
+    let routeCleanupCalls = 0;
+    const gateway: PreviewGatewayApi = {
+      ...actualGateway,
+      cleanupSession: () => Effect.sync(() => void routeCleanupCalls++),
+    };
+    let processStops = 0;
+    const runtime = {
+      start: () => Effect.fail(new PreviewWebRuntimeError({ reason: "unused" })),
+      status: () => Effect.succeed(true),
+      measurements: () => Effect.succeed(undefined),
+      stop: () => Effect.sync(() => void processStops++),
+    } satisfies PreviewWebRuntimeApi;
+    const fiber = yield* superviseSheetWebPreview({
+      sessionId: created.session.id,
+      ownerIdentity: created.ownerIdentity,
+      supervisorIdentity: created.supervisorIdentity,
+      generation: created.session.generation,
+      controller,
+      gateway,
+      runtime,
+    }).pipe(Effect.forkChild);
+    yield* controller.stop(created.session.id, created.ownerIdentity);
+    yield* Effect.yieldNow;
+    yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+    yield* Effect.yieldNow;
+    yield* Fiber.join(fiber);
+    expect((yield* controller.status(created.session.id)).phase).toBe("ended");
+    expect(routeCleanupCalls).toBe(1);
+    expect(processStops).toBe(1);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+        FetchHttpClient.layer,
+      ),
+    ),
+  ),
+);
+
+it.effect("keeps dependency probes fail-closed but tolerates two transient failures", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const controller = yield* makePreviewSessionController(now);
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: { "sheet-web": "sha256:manifest" },
+      requestedRevision: "revision-a",
+    });
+    yield* controller.activate(
+      created.session.id,
+      created.session.generation,
+      created.supervisorIdentity,
+      "revision-a",
+    );
+    let probeCount = 0;
+    let processStopped = false;
+    let stopAttempts = 0;
+    let routesCleaned = false;
+    const actualGateway = yield* makePreviewGateway({ domain: "", controller, now });
+    const gateway: PreviewGatewayApi = {
+      ...actualGateway,
+      cleanupSession: (sessionId, ownerIdentity) =>
+        Effect.tap(actualGateway.cleanupSession(sessionId, ownerIdentity), () =>
+          Effect.sync(() => {
+            routesCleaned = true;
+          }),
+        ),
+    };
+    const runtime = {
+      start: () => Effect.fail(new PreviewWebRuntimeError({ reason: "unused" })),
+      status: () => Effect.succeed(true),
+      measurements: () => Effect.succeed(undefined),
+      stop: () =>
+        Effect.suspend(() => {
+          stopAttempts += 1;
+          if (stopAttempts === 1)
+            return Effect.fail(
+              new PreviewWebRuntimeError({ reason: "web-process-cleanup-failed" }),
+            );
+          processStopped = true;
+          return Effect.void;
+        }),
+    } satisfies PreviewWebRuntimeApi;
+    const fiber = yield* superviseSheetWebPreview({
+      sessionId: created.session.id,
+      ownerIdentity: created.ownerIdentity,
+      supervisorIdentity: created.supervisorIdentity,
+      generation: created.session.generation,
+      controller,
+      gateway,
+      runtime,
+      checkDependencies: () =>
+        Effect.sync(() => {
+          probeCount += 1;
+          return "temporarily unavailable";
+        }),
+    }).pipe(Effect.forkChild);
+    for (let index = 1; index <= 2; index += 1) {
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+      yield* Effect.yieldNow;
+      expect((yield* controller.status(created.session.id)).phase).toBe("active");
+      expect(probeCount).toBe(index);
+    }
+    yield* Effect.yieldNow;
+    yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+    yield* Effect.yieldNow;
+    expect((yield* controller.status(created.session.id)).phase).toBe("ended");
+    expect(probeCount).toBe(3);
+    expect(stopAttempts).toBe(1);
+    for (let retry = 0; retry < 5 && !processStopped; retry += 1) {
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.seconds(1));
+      yield* Effect.yieldNow;
+    }
+    expect(stopAttempts).toBe(2);
+    expect(processStopped).toBe(true);
+    expect(routesCleaned).toBe(true);
+    yield* Fiber.join(fiber);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+        FetchHttpClient.layer,
+      ),
+    ),
+  ),
+);
+
+it.effect("does not count revision registration transitions as dependency failures", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const controller = yield* makePreviewSessionController(now);
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: { "sheet-web": "sha256:manifest" },
+      requestedRevision: "revision-a",
+    });
+    const active = yield* controller.activate(
+      created.session.id,
+      created.session.generation,
+      created.supervisorIdentity,
+      "revision-a",
+    );
+    const registrationStarted = yield* Deferred.make<void>();
+    const finishDependencyRegistration = yield* Deferred.make<void>();
+    let routeRevision = "revision-a";
+    let dependencyRevision = "revision-a";
+    let dependencyDrift = false;
+    let dependencyProbes = 0;
+    let cleanupCalls = 0;
+    const baseGateway = yield* makePreviewGateway({ domain: "", controller, now });
+    const gateway: PreviewGatewayApi = {
+      ...baseGateway,
+      register: (target) =>
+        Effect.sync(() => {
+          routeRevision = target.revision;
+          return { hostname: "p-session-revision-transition", target };
+        }),
+      registerApplicationDependencies: (target) =>
+        Effect.gen(function* () {
+          yield* Deferred.succeed(registrationStarted, undefined);
+          yield* Deferred.await(finishDependencyRegistration);
+          dependencyRevision = target.revision;
+        }),
+      cleanupSession: () => Effect.sync(() => void cleanupCalls++),
+    };
+    const target: PreviewGatewayTarget = {
+      sessionId: created.session.id,
+      generation: active.generation,
+      role: "sheet-web",
+      processId: "web-process",
+      revision: "revision-a",
+      artifactDigest: "sha256:" + "a".repeat(64),
+      catalogDigest: "sha256:" + "b".repeat(64),
+      stateGroup: "application-zero",
+      serviceFqdn: "web.preview-relays.svc.cluster.local",
+      serviceResourceId: "web-service",
+      attachmentResourceId: "web-attachment",
+      port: 4100,
+      kind: "application",
+    };
+    const authority = {
+      supervisorIdentity: created.supervisorIdentity,
+      generation: active.generation,
+    };
+    const onRevision = makeSheetWebRevisionHandler(
+      target,
+      [],
+      created,
+      authority,
+      controller,
+      gateway,
+    );
+    const revisionFiber = yield* Effect.forkChild(onRevision("revision-b"));
+    yield* Deferred.await(registrationStarted);
+    expect((yield* controller.status(created.session.id)).phase).toBe("starting");
+
+    let stopAttempts = 0;
+    const runtime = {
+      start: () => Effect.fail(new PreviewWebRuntimeError({ reason: "unused" })),
+      status: () => Effect.succeed(true),
+      measurements: () => Effect.succeed(undefined),
+      stop: () => Effect.sync(() => void stopAttempts++),
+    } satisfies PreviewWebRuntimeApi;
+    const supervisor = yield* superviseSheetWebPreview({
+      sessionId: created.session.id,
+      ownerIdentity: created.ownerIdentity,
+      supervisorIdentity: authority.supervisorIdentity,
+      generation: authority.generation,
+      controller,
+      gateway,
+      runtime,
+      checkDependencies: () =>
+        Effect.gen(function* () {
+          dependencyProbes += 1;
+          const state = yield* controller.status(created.session.id);
+          return state.phase === "starting" ||
+            routeRevision !== dependencyRevision ||
+            dependencyDrift
+            ? "application dependency revision is not ready"
+            : undefined;
+        }),
+    }).pipe(Effect.forkChild);
+
+    const transitionPhases: string[] = [];
+    for (let probe = 0; probe < 3; probe += 1) {
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+      yield* Effect.yieldNow;
+      transitionPhases.push((yield* controller.status(created.session.id)).phase);
+    }
+    const transitionStopAttempts = stopAttempts;
+
+    yield* Deferred.succeed(finishDependencyRegistration, undefined);
+    const revisionResult = yield* Effect.exit(Fiber.join(revisionFiber));
+    const activated = yield* controller.status(created.session.id);
+    expect(revisionResult._tag).toBe("Success");
+    expect(activated.phase).toBe("active");
+    expect(activated.activeRevision).toBe("revision-b");
+    expect(transitionPhases).toEqual(["starting", "starting", "starting"]);
+    expect(transitionStopAttempts).toBe(0);
+
+    dependencyDrift = true;
+    for (let probe = 1; probe <= 3; probe += 1) {
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+      yield* Effect.yieldNow;
+      const state = yield* controller.status(created.session.id);
+      expect(state.phase).toBe(probe < 3 ? "active" : "ended");
+    }
+    expect(dependencyProbes).toBe(6);
+    expect(stopAttempts).toBe(1);
+    expect(cleanupCalls).toBe(1);
+    yield* Fiber.join(supervisor);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+        FetchHttpClient.layer,
+      ),
+    ),
+  ),
+);
+
+it.effect(
+  "returns after bounded supervisor cleanup retries when process cleanup stays unproven",
+  () =>
+    Effect.gen(function* () {
+      const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+      const now = () => testClock.currentTimeMillisUnsafe();
+      const controller = yield* makePreviewSessionController(now);
+      const created = yield* controller.create({
+        owner: "owner",
+        checkout: "/checkout",
+        manifests: { "sheet-web": "sha256:manifest" },
+        requestedRevision: "revision-a",
+      });
+      yield* controller.activate(
+        created.session.id,
+        created.session.generation,
+        created.supervisorIdentity,
+        "revision-a",
+      );
+      const gateway = yield* makePreviewGateway({ domain: "", controller, now });
+      let processStops = 0;
+      const runtime = {
+        start: () => Effect.fail(new PreviewWebRuntimeError({ reason: "unused" })),
+        status: () => Effect.succeed(true),
+        measurements: () => Effect.succeed(undefined),
+        stop: () =>
+          Effect.suspend(() => {
+            processStops += 1;
+            return Effect.fail(new PreviewWebRuntimeError({ reason: "cleanup-unconfirmed" }));
+          }),
+      } satisfies PreviewWebRuntimeApi;
+      const fiber = yield* superviseSheetWebPreview({
+        sessionId: created.session.id,
+        ownerIdentity: created.ownerIdentity,
+        supervisorIdentity: created.supervisorIdentity,
+        generation: created.session.generation,
+        controller,
+        gateway,
+        runtime,
+        checkDependencies: () => Effect.succeed("temporarily unavailable"),
+      }).pipe(Effect.forkChild);
+      for (let probe = 1; probe <= 3; probe += 1) {
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+        yield* Effect.yieldNow;
+        if (probe < 3) expect((yield* controller.status(created.session.id)).phase).toBe("active");
+      }
+      expect((yield* controller.status(created.session.id)).phase).toBe("ended");
+      expect(processStops).toBe(1);
+      for (let retry = 0; retry < 9; retry += 1) {
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust(Duration.seconds(1));
+        yield* Effect.yieldNow;
+      }
+      yield* Fiber.join(fiber);
+      expect(processStops).toBe(10);
+    }).pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          SqliteClient.layer({ filename: ":memory:" }),
+          NodeServices.layer,
+          TestClock.layer(),
+          FetchHttpClient.layer,
+        ),
+      ),
+    ),
 );
