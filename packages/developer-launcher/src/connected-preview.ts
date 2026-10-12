@@ -1,19 +1,53 @@
 import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import * as Console from "effect/Console";
-import { Duration, Effect, FileSystem, Match, Option, Predicate, Result, Schema } from "effect";
+import * as Cause from "effect/Cause";
+import * as Clock from "effect/Clock";
+import {
+  Context,
+  Duration,
+  Effect,
+  FileSystem,
+  Match,
+  Option,
+  Predicate,
+  Result,
+  Schema,
+  Scope,
+} from "effect";
+import * as Exit from "effect/Exit";
 import type { HttpClient } from "effect/unstable/http";
+import {
+  WorkflowRecreationDiagnosticSchema,
+  WorkflowRecreationRecoverySchema,
+  WorkflowTransitionPhaseFactsSchema,
+  type StagedSourceSnapshotValidationReason,
+  type WorkflowTransitionPhaseFacts,
+} from "sheet-workflow-contracts";
 import { sensitiveEnvironmentKeys } from "./config";
 import { ownedApplicationResource } from "./owned-application-plane";
 import { syntheticDevelopmentSeedId } from "./synthetic-development-seed";
 import {
   dispatchPreviewSessionProtocol,
   PreviewSessionController,
+  PreviewSessionError,
   previewSessionHeartbeatMs,
+  previewSessionHeartbeatFailureLimit,
   SessionCredentialsSchema,
+  supervisePreviewSessionLease,
 } from "./preview-sessions";
 import { PreviewAllocationController } from "./preview-allocations";
 import { PreviewAllocationError } from "./preview-allocations";
+import {
+  runtimeContractCatalog,
+  runtimeContractConsumers,
+  runtimeContractConsumersForSelection,
+  runtimeContractRolesForSelection,
+  workflowPreviewRuntimeContractCatalogIdentity,
+  workflowRuntimeContractCatalogVersion,
+  type RuntimeContractDefinition,
+} from "./workflow-runtime-contract-catalog";
+export { workflowPreviewRuntimeContractCatalogIdentity } from "./workflow-runtime-contract-catalog";
 import {
   buildPreviewRelayResourcePlan,
   PreviewRelayHostListenerSchema,
@@ -30,6 +64,32 @@ import {
 import { makeDiagnostic, makeWarning } from "./diagnostics";
 import type { ParsedCommand } from "./commands";
 import {
+  activateRunnerSnapshot,
+  StagedSourceSnapshotSchema,
+  StagedRunnerRuntimeLayer,
+  type StagedRunnerRuntimeApi,
+} from "./staged-source";
+import {
+  classifyWorkflowPreviewTransition,
+  emptyWorkflowTransitionPhases,
+  type IncompatibleWorkflowRecreationRuntimeApi,
+  WorkflowExecutionGroup,
+  WorkflowExecutionError,
+  WorkflowFreshGroupEvidence,
+  WorkflowPreviewDefinition,
+  workflowExecutionArtifactsEqual,
+  freshOAuthClientIdentitiesAreValid,
+  freshWorkflowGroupHasNewIdentities,
+  primaryWorkflowRunnerRole,
+  withWorkflowRecreationTimeout,
+  workflowRecreationTimeouts,
+  safeWorkflowFreshGroupProvisioningFailureReason,
+  workflowRoleBinding,
+  workflowRoleForConnectedRole,
+  workflowStringSetsMatch,
+  workflowRunnerArtifactRolesMatch,
+} from "./owned-workflow-execution";
+import {
   connectedPreviewGroups,
   connectedPreviewRoles,
   type ConnectedPreviewGroup,
@@ -40,158 +100,87 @@ import {
   type LauncherOutput,
 } from "./types";
 
-const catalogVersion = 1;
+const catalogVersion = workflowRuntimeContractCatalogVersion;
 const supervisedWebCleanupRetryCount = 10;
-
-interface RuntimeRoleDefinition {
-  readonly groups: readonly ConnectedPreviewGroup[];
-  readonly requiredRoles: readonly ConnectedPreviewRole[];
-  readonly externalEffects: readonly string[];
-  readonly credentialNames: readonly string[];
-  readonly environmentKeys: readonly string[];
-}
-
-interface RuntimeContractDefinition {
-  readonly providers: readonly ConnectedPreviewRole[];
-  readonly consumers: readonly ConnectedPreviewRole[];
-  readonly requiredOwnedGroups: readonly ConnectedPreviewGroup[];
-}
-
-const runtimeContractCatalog = {
-  version: catalogVersion,
-  roles: {
-    "sheet-web": {
-      groups: ["application-zero", "auth", "workflow-execution", "search"],
-      requiredRoles: [],
-      externalEffects: ["shared application writes", "workflow enqueue"],
-      credentialNames: ["preview-admission", "application-integration", "search-query"],
-      environmentKeys: ["NODE_ENV", "LOG_LEVEL"],
-    },
-    "sheet-auth": {
-      groups: ["auth"],
-      requiredRoles: [],
-      externalEffects: ["OAuth callback handling"],
-      credentialNames: [
-        "auth-sql",
-        "auth-redis",
-        "discord-oauth-client",
-        "issuer-signing",
-        "session-signing",
-        "subject-signing",
-        "reviewer",
-        "workload-proof",
-      ],
-      environmentKeys: ["NODE_ENV", "LOG_LEVEL"],
-    },
-    "sheet-db-server": {
-      groups: ["application-zero", "auth"],
-      requiredRoles: [],
-      externalEffects: ["application database and Zero Cache access"],
-      credentialNames: ["application-database", "verifier"],
-      environmentKeys: ["NODE_ENV", "LOG_LEVEL"],
-    },
-    "sheet-bot": {
-      groups: ["application-zero", "auth", "workflow-execution", "bot-storage"],
-      requiredRoles: [],
-      externalEffects: ["exclusive Discord gateway", "allocated Google Sheets targets"],
-      credentialNames: [
-        "discord-bot-token",
-        "redis",
-        "capability-encryption",
-        "internal-oauth-client",
-        "bot-delegation-proof",
-      ],
-      environmentKeys: ["NODE_ENV", "LOG_LEVEL"],
-    },
-    "sheet-workflows-api": {
-      groups: ["application-zero", "auth", "workflow-execution"],
-      requiredRoles: [],
-      externalEffects: ["workflow enqueue", "autonomous triggers when explicitly enabled"],
-      credentialNames: ["workflow-database", "internal-oauth-client", "workload-identity"],
-      environmentKeys: ["NODE_ENV", "LOG_LEVEL"],
-    },
-    "sheet-workflows-runner": {
-      groups: ["application-zero", "auth", "workflow-execution"],
-      requiredRoles: ["sheet-workflows-api"],
-      externalEffects: ["workflow actions and durable effects"],
-      credentialNames: [
-        "workflow-database",
-        "internal-oauth-client",
-        "workload-identity",
-        "google-service-account",
-      ],
-      environmentKeys: ["NODE_ENV", "LOG_LEVEL"],
-    },
-    "sheet-workflows-browser-runner": {
-      groups: ["application-zero", "auth", "workflow-execution"],
-      requiredRoles: ["sheet-workflows-api", "sheet-workflows-runner"],
-      externalEffects: ["anonymous browser rendering and browser child processes"],
-      credentialNames: [
-        "workflow-database",
-        "internal-oauth-client",
-        "workload-identity",
-        "bot-capability",
-      ],
-      environmentKeys: ["NODE_ENV", "LOG_LEVEL"],
-    },
-  } satisfies Readonly<Record<ConnectedPreviewRole, RuntimeRoleDefinition>>,
-  contracts: {
-    "auth.session": {
-      providers: ["sheet-auth"],
-      consumers: [
-        "sheet-web",
-        "sheet-db-server",
-        "sheet-bot",
-        "sheet-workflows-api",
-        "sheet-workflows-runner",
-        "sheet-workflows-browser-runner",
-      ],
-      requiredOwnedGroups: ["auth"],
-    },
-    "application.zero": {
-      providers: ["sheet-db-server"],
-      consumers: [
-        "sheet-web",
-        "sheet-bot",
-        "sheet-workflows-api",
-        "sheet-workflows-runner",
-        "sheet-workflows-browser-runner",
-      ],
-      requiredOwnedGroups: ["application-zero"],
-    },
-    "workflow.enqueue": {
-      providers: ["sheet-workflows-api"],
-      consumers: ["sheet-web", "sheet-bot"],
-      requiredOwnedGroups: ["workflow-execution"],
-    },
-    "workflow.execution": {
-      providers: ["sheet-workflows-runner"],
-      consumers: ["sheet-workflows-api", "sheet-workflows-browser-runner"],
-      requiredOwnedGroups: ["workflow-execution"],
-    },
-    "workflow.browser": {
-      providers: ["sheet-workflows-browser-runner"],
-      consumers: ["sheet-workflows-api", "sheet-workflows-runner"],
-      requiredOwnedGroups: ["workflow-execution"],
-    },
-    "bot.capability": {
-      providers: ["sheet-bot"],
-      consumers: ["sheet-web", "sheet-workflows-api", "sheet-workflows-browser-runner"],
-      requiredOwnedGroups: ["bot-storage"],
-    },
-    "search.query": {
-      providers: [],
-      consumers: ["sheet-web"],
-      requiredOwnedGroups: ["search"],
-    },
-  } satisfies Readonly<Record<string, RuntimeContractDefinition>>,
-} as const;
-
-const runtimeContractCatalogIdentity = {
-  version: catalogVersion,
-  digest: `sha256:${createHash("sha256").update(JSON.stringify(runtimeContractCatalog)).digest("hex")}`,
-} as const;
-
+const safeStagedSourceSnapshotValidationReasons = {
+  "missing-revision": true,
+  "snapshot-completion-mismatch": true,
+  "excluded-or-unsafe-path": true,
+  "duplicate-path": true,
+  "invalid-mode": true,
+  "invalid-base64-content": true,
+  "invalid-package-manifest-encoding": true,
+  "invalid-package-manifest": true,
+  "incomplete-workspace-manifest": true,
+} satisfies Record<StagedSourceSnapshotValidationReason, true>;
+const safeActivationFailureReasons = new Set([
+  ...Object.keys(safeStagedSourceSnapshotValidationReasons),
+  "invalid-snapshot-completion",
+  "runner-preparation-timeout",
+  "snapshot-activation-authority-unavailable",
+  "snapshot-activation-authority-timeout",
+  "snapshot-activation-authority-rejected",
+  "runner-readiness-timeout",
+  "readiness-check-failed",
+  "revision-content-conflict",
+  "workflow-transition-compatibility-evidence-unverified",
+  "workflow-recreation-runtime-unavailable",
+  "proposal-not-presented",
+  "workflow-proposal-unavailable",
+  "admission-pause-unconfirmed",
+  "workflow-admission-pause-unconfirmed",
+  "incompatible-workflow-transition-requires-explicit-recreation",
+  "workflow-previous-revision-mismatch",
+  "workflow-proposed-revision-mismatch",
+  "workflow-old-group-artifact-mismatch",
+  "workflow-old-group-role-identity-mismatch",
+  "workflow-proposed-snapshot-resolution-timeout",
+  "workflow-proposed-snapshot-artifact-mismatch",
+  "workflow-transition-previous-snapshot-required",
+  "workflow-transition-evidence-required",
+  "workflow-transition-definition-invalid",
+  "runner-restart-timeout",
+  "workflow-recreation-diagnostic-persistence-unconfirmed",
+  "runner-activation-unconfirmed",
+  "workflow-transition-not-recreated",
+  "old-session-end-unconfirmed",
+  "old-session-binding-mismatch",
+  "old-cleanup-record-unavailable",
+  "old-work-settlement-ambiguous",
+  "old-quarantine-unconfirmed",
+  "ordinary-reassignment-fence-unconfirmed",
+  "fresh-session-provisioning-failed",
+  "fresh-group-evidence-invalid",
+  "fresh-group-session-binding-mismatch",
+  "fresh-session-lease-unconfirmed",
+  "fresh-session-lease-maintenance-unconfirmed",
+  "fresh-group-quarantine-unconfirmed",
+  "fresh-group-quarantine-unavailable",
+  "fresh-group-quarantine-binding-mismatch",
+  "fresh-session-credentials-missing",
+  "fresh-session-missing",
+  "fresh-session-state-mismatch",
+  "fresh-session-activation-unconfirmed",
+  "fresh-session-supervisor-ownership-unavailable",
+  "fresh-session-supervisor-scheduling-unconfirmed",
+  "provider-activation-invalid",
+  "provider-activation-runtime-invalid",
+  "provider-activation-timeout",
+  "provider-activation-threw",
+  "provider-activation-failed",
+  "provider-activation-not-effect",
+  "workflow-group-invalid",
+  "runner-evidence-invalid",
+  "workflow-enqueue-input-invalid",
+]);
+const unverifiedActivationFailureReason = "workflow-activation-failure-unverified";
+const safeActivationFailureReason = (reported: string): string => {
+  if (safeActivationFailureReasons.has(reported)) return reported;
+  return (
+    [...safeActivationFailureReasons].find((candidate) => reported.includes(candidate)) ??
+    unverifiedActivationFailureReason
+  );
+};
 const roleSchema = Schema.Literals(connectedPreviewRoles);
 const groupSchema = Schema.Struct({
   id: Schema.Literals(connectedPreviewGroups),
@@ -247,7 +236,7 @@ const connectedPreviewConfigSchema = Schema.Struct({
   externalTargets: Schema.optionalKey(Schema.Array(Schema.String)),
   botHandoff: Schema.optionalKey(Schema.Union([Schema.Null, botHandoffSchema])),
 });
-type ConnectedPreviewConfig = Schema.Schema.Type<typeof connectedPreviewConfigSchema>;
+export type ConnectedPreviewConfig = Schema.Schema.Type<typeof connectedPreviewConfigSchema>;
 type PreviewGroupConfig = Schema.Schema.Type<typeof groupSchema>;
 type PreviewChangeConfig = Schema.Schema.Type<typeof changeSchema>;
 
@@ -343,6 +332,1381 @@ type ContractId = keyof typeof runtimeContractCatalog.contracts;
 type GroupOwnership = "owned" | "reused";
 type ConnectedPreviewCommand = Extract<ParsedCommand, { readonly kind: "preview" }>;
 type PreviewStartCommand = Extract<ConnectedPreviewCommand, { readonly action: "start" }>;
+type PreviewRecreateCommand = Extract<ConnectedPreviewCommand, { readonly action: "recreate" }>;
+
+export type ConnectedWorkflowPreviewActivation = {
+  readonly oldGroup: WorkflowExecutionGroup;
+  readonly previous: WorkflowPreviewDefinition;
+  readonly previousSnapshot: import("./staged-source").StagedSourceSnapshot;
+  readonly proposed: WorkflowPreviewDefinition;
+  readonly snapshot: import("./staged-source").StagedSourceSnapshot;
+  readonly owner: string;
+  readonly nextOwner: string;
+  readonly roles: ReadonlyArray<import("./staged-source").RunnerRole>;
+  readonly runtime: StagedRunnerRuntimeApi;
+};
+
+const ConnectedWorkflowPreviewActivationDataSchema = Schema.Struct({
+  oldGroup: WorkflowExecutionGroup,
+  previous: WorkflowPreviewDefinition,
+  previousSnapshot: StagedSourceSnapshotSchema,
+  proposed: WorkflowPreviewDefinition,
+  snapshot: StagedSourceSnapshotSchema,
+  owner: Schema.NonEmptyString,
+  nextOwner: Schema.NonEmptyString,
+  roles: Schema.Array(Schema.Literals(["workflow-api", "ordinary-runner", "browser-runner"])),
+  runtime: Schema.Unknown,
+});
+
+export class ConnectedWorkflowPreviewRuntimeError extends Schema.TaggedErrorClass<ConnectedWorkflowPreviewRuntimeError>()(
+  "ConnectedWorkflowPreviewRuntimeError",
+  { reason: Schema.String },
+) {}
+
+/** Resolves provider-owned group state and a complete, not-yet-staged snapshot. */
+export type ConnectedWorkflowPreviewProviderApi =
+  | {
+      readonly _tag: "Configured";
+      readonly resolveActivation: (input: {
+        readonly session: import("./preview-sessions").PreviewSession;
+        readonly ownerIdentity: string;
+        readonly config: ConnectedPreviewConfig;
+        readonly checkout: string;
+      }) => Effect.Effect<ConnectedWorkflowPreviewActivation, ConnectedWorkflowPreviewRuntimeError>;
+    }
+  | { readonly _tag: "Unavailable"; readonly reason: string };
+
+type ConnectedWorkflowPreviewProviderResolver = Extract<
+  ConnectedWorkflowPreviewProviderApi,
+  { readonly _tag: "Configured" }
+>;
+type ConnectedWorkflowPreviewProviderRequest = Parameters<
+  ConnectedWorkflowPreviewProviderResolver["resolveActivation"]
+>[0];
+
+export type ConnectedWorkflowPreviewRuntimeApi = {
+  readonly resolveActivation: (
+    input: ConnectedWorkflowPreviewProviderRequest,
+    lifecycleScope: Scope.Scope,
+  ) => ReturnType<ConnectedWorkflowPreviewProviderResolver["resolveActivation"]>;
+  readonly completeActivation: (input: {
+    readonly oldSession: import("./preview-sessions").PreviewSession;
+    readonly ownerIdentity: string;
+    readonly activation: ConnectedWorkflowPreviewActivation;
+    readonly status: import("sheet-workflow-contracts").RunnerRevisionStatus;
+    readonly checkout: string;
+  }) => Effect.Effect<
+    import("./preview-sessions").PreviewSession,
+    ConnectedWorkflowPreviewRuntimeError,
+    FileSystem.FileSystem
+  >;
+  readonly recoverFailedActivation: (input: {
+    readonly oldSession: import("./preview-sessions").PreviewSession;
+    readonly ownerIdentity: string;
+    readonly activation: ConnectedWorkflowPreviewActivation;
+    readonly checkout: string;
+    readonly reason: string;
+    readonly diagnostic: import("sheet-workflow-contracts").WorkflowRecreationDiagnostic;
+  }) => Effect.Effect<
+    import("sheet-workflow-contracts").WorkflowRecreationDiagnostic,
+    never,
+    FileSystem.FileSystem
+  >;
+};
+
+export class ConnectedWorkflowPreviewProvider extends Context.Service<
+  ConnectedWorkflowPreviewProvider,
+  ConnectedWorkflowPreviewProviderApi
+>()("developer-launcher/ConnectedWorkflowPreviewProvider") {}
+
+type ConnectedWorkflowPreviewRuntimeInput = {
+  readonly provider: Extract<ConnectedWorkflowPreviewProviderApi, { readonly _tag: "Configured" }>;
+  readonly controller: import("./preview-sessions").PreviewSessionControllerApi;
+  readonly previewSupervisorScheduler?: LauncherOptions["previewSupervisorScheduler"];
+  readonly env?: NodeJS.ProcessEnv;
+  readonly fileSystem: FileSystem.FileSystem;
+  readonly clock?: Clock.Clock;
+};
+
+const stagedRunnerRuntimeMethods = [
+  "stageComplete",
+  "fenceOldOwner",
+  "activateComplete",
+  "retainImmutableRevision",
+  "rebuildArtifacts",
+  "restartRole",
+  "verifyActualReadiness",
+  "resolveWorkflowArtifacts",
+  "persistWorkflowRecreationDiagnostic",
+] as const;
+const optionalStagedRunnerRuntimeMethods = ["authorizeActivation"] as const;
+
+const workflowRecreationRuntimeMethods = [
+  "presentProposal",
+  "pauseAdmission",
+  "fenceProducers",
+  "drainOldWork",
+  "settleWithOldCode",
+  "proveOldCessation",
+  "endOldSessionAndCleanup",
+  "provisionFreshGroup",
+  "quarantine",
+  "blockOrdinaryReassignment",
+] as const;
+const optionalWorkflowRecreationRuntimeMethods = [
+  "quarantineFreshGroup",
+  "persistRecoveryDisposition",
+] as const;
+
+const recordHasMethods = <Method extends string>(
+  input: unknown,
+  methods: ReadonlyArray<Method>,
+): input is Record<Method, unknown> =>
+  Predicate.isObject(input) &&
+  !Array.isArray(input) &&
+  methods.every(
+    (method) => Predicate.hasProperty(input, method) && Predicate.isFunction(input[method]),
+  );
+
+const isIncompatibleWorkflowRecreationRuntime = (
+  input: unknown,
+): input is IncompatibleWorkflowRecreationRuntimeApi =>
+  recordHasMethods(input, workflowRecreationRuntimeMethods);
+
+const hasValidOptionalStagedRunnerRuntimeMethods = (input: unknown) => {
+  if (!Predicate.hasProperty("authorizeActivation")(input)) return true;
+  const authority = Reflect.get(input, "authorizeActivation");
+  return authority === undefined || Predicate.isFunction(authority);
+};
+
+const isStagedRunnerRuntime = (input: unknown): input is StagedRunnerRuntimeApi =>
+  recordHasMethods(input, stagedRunnerRuntimeMethods) &&
+  hasValidOptionalStagedRunnerRuntimeMethods(input) &&
+  Predicate.hasProperty(input, "workflowRecreation") &&
+  isIncompatibleWorkflowRecreationRuntime(input.workflowRecreation);
+
+const bindRuntimeMethods = (
+  input: object,
+  methods: ReadonlyArray<string>,
+): Record<string, unknown> =>
+  Object.fromEntries(
+    methods.map((method) => {
+      const member = Reflect.get(input, method);
+      if (!Predicate.isFunction(member)) throw new Error("workflow-runtime-method-invalid");
+      return [method, member.bind(input)];
+    }),
+  );
+
+const decodeConnectedWorkflowPreviewActivation = (
+  input: unknown,
+): Effect.Effect<ConnectedWorkflowPreviewActivation, ConnectedWorkflowPreviewRuntimeError> =>
+  Effect.gen(function* () {
+    const data = yield* Schema.decodeUnknownEffect(ConnectedWorkflowPreviewActivationDataSchema)(
+      input,
+    ).pipe(
+      Effect.mapError(
+        () => new ConnectedWorkflowPreviewRuntimeError({ reason: "provider-activation-invalid" }),
+      ),
+    );
+    const runtime = yield* Effect.try({
+      try: () => {
+        if (!isStagedRunnerRuntime(data.runtime)) throw new Error("workflow-runtime-invalid");
+        const source = data.runtime;
+        const workflowRecreation = source.workflowRecreation;
+        if (workflowRecreation === undefined) throw new Error("workflow-runtime-invalid");
+        const optionalStagedMethods = optionalStagedRunnerRuntimeMethods.flatMap((method) => {
+          const member = Reflect.get(source, method);
+          if (member === undefined) return [];
+          if (!Predicate.isFunction(member)) throw new Error("workflow-runtime-method-invalid");
+          return [method];
+        });
+        const optionalMethods = optionalWorkflowRecreationRuntimeMethods.flatMap((method) => {
+          const member = Reflect.get(workflowRecreation, method);
+          if (member === undefined) return [];
+          if (!Predicate.isFunction(member)) throw new Error("workflow-runtime-method-invalid");
+          return [method];
+        });
+        return {
+          ...bindRuntimeMethods(source, [...stagedRunnerRuntimeMethods, ...optionalStagedMethods]),
+          workflowRecreation: bindRuntimeMethods(workflowRecreation, [
+            ...workflowRecreationRuntimeMethods,
+            ...optionalMethods,
+          ]),
+        } as unknown as StagedRunnerRuntimeApi;
+      },
+      catch: () =>
+        new ConnectedWorkflowPreviewRuntimeError({
+          reason: "provider-activation-runtime-invalid",
+        }),
+    });
+    return { ...data, runtime };
+  });
+
+const WorkflowRecreationRecoveryRecordSchema = Schema.Struct({
+  schemaVersion: Schema.Literal(1),
+  oldCleanupRecordId: Schema.NonEmptyString,
+  freshSessionId: Schema.NonEmptyString,
+  freshGeneration: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1)),
+  priorRevision: Schema.NonEmptyString,
+  requestedRevision: Schema.NonEmptyString,
+  phases: Schema.optionalKey(WorkflowTransitionPhaseFactsSchema),
+  recovery: WorkflowRecreationRecoverySchema,
+});
+
+const writeWorkflowRecreationRecoveryRecord = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  diagnostic: typeof WorkflowRecreationDiagnosticSchema.Type,
+  updated = false,
+): Effect.Effect<boolean> =>
+  Effect.gen(function* () {
+    const credentialsPath = identityPath(diagnostic.freshSessionId, input.env ?? process.env);
+    if (credentialsPath === undefined || diagnostic.recovery === undefined) return false;
+    const record = yield* Schema.encodeUnknownEffect(WorkflowRecreationRecoveryRecordSchema)({
+      schemaVersion: 1,
+      oldCleanupRecordId: diagnostic.oldCleanupRecordId,
+      freshSessionId: diagnostic.freshSessionId,
+      freshGeneration: diagnostic.freshGeneration,
+      priorRevision: diagnostic.priorRevision,
+      requestedRevision: diagnostic.requestedRevision,
+      ...(diagnostic.phases === undefined ? {} : { phases: diagnostic.phases }),
+      recovery: {
+        ...diagnostic.recovery,
+        recoveryRecordWritten: true,
+        recoveryRecordUpdated: updated || diagnostic.recovery.recoveryRecordUpdated,
+      },
+    }).pipe(Effect.exit);
+    if (Exit.isFailure(record)) return false;
+    const recoveryPath = `${credentialsPath}.workflow-recreation-recovery.json`;
+    const temporaryPath = `${recoveryPath}.${randomUUID()}.tmp`;
+    const written = yield* Effect.exit(
+      Effect.gen(function* () {
+        yield* input.fileSystem.writeFileString(temporaryPath, JSON.stringify(record.value), {
+          mode: 0o600,
+          flag: "wx",
+        });
+        yield* input.fileSystem.chmod(temporaryPath, 0o600);
+        yield* input.fileSystem.rename(temporaryPath, recoveryPath);
+        yield* input.fileSystem.chmod(recoveryPath, 0o600);
+      }).pipe(
+        Effect.onError(() =>
+          input.fileSystem.remove(temporaryPath, { force: true }).pipe(Effect.ignore),
+        ),
+      ),
+    );
+    return Exit.isSuccess(written);
+  });
+
+const preserveFreshSessionRecovery = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  diagnostic: typeof WorkflowRecreationDiagnosticSchema.Type,
+  reason: string,
+  fresh: import("./preview-sessions").SessionCredentials | undefined,
+  options: {
+    readonly quarantineDisposition:
+      | "pending"
+      | "quarantined"
+      | "ordinary-reassignment-blocked"
+      | "unconfirmed";
+    readonly ordinaryReassignmentBlocked: boolean | null;
+    readonly freshGroupQuarantineDisposition: "unconfirmed" | "quarantined";
+    readonly stopSession: boolean;
+  },
+): Effect.Effect<typeof WorkflowRecreationRecoverySchema.Type> =>
+  Effect.gen(function* () {
+    const freshSessionDisposition = yield* freshSessionFailureDisposition(
+      input,
+      fresh,
+      options.stopSession,
+      options.freshGroupQuarantineDisposition,
+    );
+    const recoveryRecordId = `${diagnostic.freshSessionId}.workflow-recreation-recovery.json`;
+    const recovery = yield* Schema.decodeUnknownEffect(WorkflowRecreationRecoverySchema)({
+      failureReason: reason,
+      freshSessionDisposition,
+      freshGroupQuarantineDisposition: options.freshGroupQuarantineDisposition,
+      quarantineDisposition: options.quarantineDisposition,
+      ordinaryReassignmentBlocked: options.ordinaryReassignmentBlocked,
+      recoveryRecordId,
+      recoveryRecordWritten: false,
+      recoveryRecordUpdated: false,
+    }).pipe(Effect.orDie);
+    const written = yield* Effect.timeoutOrElse(
+      writeWorkflowRecreationRecoveryRecord(input, {
+        ...diagnostic,
+        recovery,
+      }),
+      {
+        duration: workflowRecreationTimeouts.providerOperation,
+        orElse: () => Effect.succeed(false),
+      },
+    );
+    return written ? { ...recovery, recoveryRecordWritten: true } : recovery;
+  });
+
+type FreshSessionFailureDisposition =
+  typeof WorkflowRecreationRecoverySchema.Type.freshSessionDisposition;
+
+const freshSessionDispositionFromStatus = (
+  session: import("./preview-sessions").PreviewSession,
+  expectedGeneration: number,
+  freshGroupQuarantineDisposition: "unconfirmed" | "quarantined",
+): FreshSessionFailureDisposition => {
+  if (session.generation !== expectedGeneration) return "state-unverified";
+  if (session.phase === "ended" && session.endedAt !== null) return "ended";
+  if (session.phase === "expired" && session.endedAt !== null) return "expired";
+  if (session.phase === "active") return "active";
+  if (session.phase === "pending")
+    return freshGroupQuarantineDisposition === "quarantined" ? "pending-quarantined" : "pending";
+  return "state-unverified";
+};
+
+const freshSessionDispositionAfterStop = (
+  stopped: import("effect/Exit").Exit<import("./preview-sessions").PreviewSession, unknown>,
+  expectedGeneration: number,
+): FreshSessionFailureDisposition | undefined => {
+  if (!Exit.isSuccess(stopped)) return undefined;
+  const disposition = freshSessionDispositionFromStatus(
+    stopped.value,
+    expectedGeneration,
+    "unconfirmed",
+  );
+  return disposition === "ended" || disposition === "expired" ? disposition : undefined;
+};
+
+const freshSessionFailureDisposition = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  fresh: import("./preview-sessions").SessionCredentials | undefined,
+  stopSession: boolean,
+  freshGroupQuarantineDisposition: "unconfirmed" | "quarantined",
+): Effect.Effect<FreshSessionFailureDisposition> =>
+  Effect.gen(function* () {
+    if (fresh === undefined) return "state-unverified";
+    const status = yield* Effect.exit(
+      withWorkflowRecreationTimeout(
+        input.controller.status(fresh.session.id),
+        workflowRecreationTimeouts.providerOperation,
+        () => new Error("fresh-session-status-unconfirmed"),
+      ),
+    );
+    if (Exit.isFailure(status)) return "state-unverified";
+    const disposition = freshSessionDispositionFromStatus(
+      status.value,
+      fresh.session.generation,
+      freshGroupQuarantineDisposition,
+    );
+    if (
+      disposition !== "active" &&
+      disposition !== "pending" &&
+      disposition !== "pending-quarantined"
+    )
+      return disposition;
+    if (!stopSession) return disposition;
+    const stopped = yield* Effect.exit(
+      withWorkflowRecreationTimeout(
+        input.controller.stop(fresh.session.id, fresh.ownerIdentity, fresh.session.generation),
+        workflowRecreationTimeouts.providerOperation,
+        () => new Error("fresh-session-stop-unconfirmed"),
+      ),
+    );
+    const afterStop = freshSessionDispositionAfterStop(stopped, fresh.session.generation);
+    if (afterStop !== undefined) return afterStop;
+
+    const current = yield* Effect.exit(
+      withWorkflowRecreationTimeout(
+        input.controller.status(fresh.session.id),
+        workflowRecreationTimeouts.providerOperation,
+        () => new Error("fresh-session-status-unconfirmed"),
+      ),
+    );
+    if (Exit.isFailure(current)) return "state-unverified";
+    const currentDisposition = freshSessionDispositionFromStatus(
+      current.value,
+      fresh.session.generation,
+      freshGroupQuarantineDisposition,
+    );
+    return currentDisposition;
+  });
+
+const isOldSessionGroupBoundToRequest = (
+  request: ConnectedWorkflowPreviewProviderRequest,
+  oldGroup: WorkflowExecutionGroup,
+) =>
+  oldGroup.sessionId === request.session.id &&
+  oldGroup.ownerToken === request.ownerIdentity &&
+  oldGroup.generation === request.session.generation;
+
+const stopOldSessionAfterConfirmedCleanup = (
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  oldGroup: WorkflowExecutionGroup,
+  cleanupRecordId: string,
+  clock?: Clock.Clock,
+) => {
+  const stop = withWorkflowRecreationTimeout(
+    controller.stop(oldGroup.sessionId, oldGroup.ownerToken, oldGroup.generation),
+    workflowRecreationTimeouts.providerOperation,
+    () =>
+      new WorkflowExecutionError({
+        reason: "old-session-end-unconfirmed",
+        oldCleanupRecordId: cleanupRecordId,
+      }),
+  );
+  const clockBoundStop =
+    clock === undefined ? stop : Effect.provideService(stop, Clock.Clock, clock);
+  return Effect.exit(Effect.interruptible(clockBoundStop)).pipe(
+    Effect.flatMap((ended) => {
+      if (Exit.isSuccess(ended) && ended.value.endedAt !== null && ended.value.phase === "ended")
+        return Effect.succeed(cleanupRecordId);
+      return Effect.fail(
+        new WorkflowExecutionError({
+          reason: "old-session-end-unconfirmed",
+          oldCleanupRecordId: cleanupRecordId,
+        }),
+      );
+    }),
+  );
+};
+
+const endOldSessionAfterProviderCleanup = (
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  providerRuntime: IncompatibleWorkflowRecreationRuntimeApi,
+  request: ConnectedWorkflowPreviewProviderRequest,
+  oldGroup: WorkflowExecutionGroup,
+  onCleanupRecordConfirmed?: (cleanupRecordId: string) => void,
+  clock?: Clock.Clock,
+) =>
+  Effect.gen(function* () {
+    if (!isOldSessionGroupBoundToRequest(request, oldGroup))
+      return yield* Effect.fail(
+        new WorkflowExecutionError({ reason: "old-session-binding-mismatch" }),
+      );
+    const cleanupRecordId = yield* providerRuntime.endOldSessionAndCleanup(oldGroup);
+    if (cleanupRecordId.trim().length === 0)
+      return yield* Effect.fail(
+        new WorkflowExecutionError({ reason: "old-cleanup-record-unavailable" }),
+      );
+    onCleanupRecordConfirmed?.(cleanupRecordId);
+    return yield* stopOldSessionAfterConfirmedCleanup(controller, oldGroup, cleanupRecordId, clock);
+  }).pipe(
+    Effect.mapError((error) =>
+      error instanceof WorkflowExecutionError &&
+      (error.reason === "old-session-binding-mismatch" ||
+        error.reason === "old-cleanup-record-unavailable" ||
+        error.oldCleanupRecordId !== undefined)
+        ? error
+        : new WorkflowExecutionError({ reason: "old-session-end-unconfirmed" }),
+    ),
+  );
+
+const allowedWorkForPreviewConfig = (config: ConnectedPreviewConfig) => ({
+  endpoints: config.groups.flatMap((group) =>
+    group.ownership === "reused" && group.endpoint ? [group.endpoint] : [],
+  ),
+  targets: [
+    ...new Set([
+      ...(config.externalTargets ?? []),
+      ...(config.triggers ?? []).flatMap(({ targets }) => targets),
+      ...(config.botHandoff === null || config.botHandoff === undefined
+        ? []
+        : [config.botHandoff.targetAllocation]),
+    ]),
+  ],
+});
+
+const failFreshSessionCredentialPersistence = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  activation: ConnectedWorkflowPreviewActivation,
+  fresh: import("./preview-sessions").SessionCredentials,
+  priorCleanupRecordId: string,
+  failureReason:
+    | "fresh-session-credentials-path-unavailable"
+    | "fresh-session-credentials-write-failed",
+): Effect.Effect<never, WorkflowExecutionError> =>
+  Effect.gen(function* () {
+    const transition = classifyWorkflowPreviewTransition(activation.previous, activation.proposed);
+    const diagnostic = yield* Schema.decodeUnknownEffect(WorkflowRecreationDiagnosticSchema)({
+      oldCleanupRecordId: priorCleanupRecordId,
+      freshSessionId: fresh.session.id,
+      freshGeneration: fresh.session.generation,
+      priorRevision: activation.previous.sourceRevision,
+      requestedRevision: activation.proposed.sourceRevision,
+      reasons: transition.reasons,
+    }).pipe(Effect.orDie);
+    const reason = failureReason;
+    const recovery = yield* preserveFreshSessionRecovery(input, diagnostic, reason, fresh, {
+      quarantineDisposition: "pending",
+      ordinaryReassignmentBlocked: null,
+      freshGroupQuarantineDisposition: "unconfirmed",
+      stopSession: true,
+    });
+    return yield* Effect.fail(
+      new WorkflowExecutionError({
+        reason,
+        oldCleanupRecordId: priorCleanupRecordId,
+        recovery: { ...diagnostic, recovery },
+      }),
+    );
+  });
+
+const createConnectedFreshSession = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  request: ConnectedWorkflowPreviewProviderRequest,
+  activation: ConnectedWorkflowPreviewActivation,
+  priorCleanupRecordId: string,
+) =>
+  Effect.gen(function* () {
+    const fresh = yield* input.controller.create({
+      owner: request.config.owner,
+      checkout: request.checkout,
+      manifests: {
+        ...request.config.identities.artifactDigests,
+        "deployed-manifest": request.config.identities.deployedManifestDigest,
+        "workflow-recreation-prior-cleanup-record": priorCleanupRecordId,
+      },
+      requestedRevision: activation.proposed.sourceRevision,
+      groups: request.config.groups.map(({ id }) => id),
+      ...allowedWorkForPreviewConfig(request.config),
+    });
+    const credentialsPath = identityPath(fresh.session.id, input.env ?? process.env);
+    if (credentialsPath === undefined)
+      return yield* failFreshSessionCredentialPersistence(
+        input,
+        activation,
+        fresh,
+        priorCleanupRecordId,
+        "fresh-session-credentials-path-unavailable",
+      );
+    const persisted = yield* Effect.result(
+      persistSessionCredentials(credentialsPath, fresh).pipe(
+        Effect.provideService(FileSystem.FileSystem, input.fileSystem),
+      ),
+    );
+    if (Result.isFailure(persisted))
+      return yield* failFreshSessionCredentialPersistence(
+        input,
+        activation,
+        fresh,
+        priorCleanupRecordId,
+        "fresh-session-credentials-write-failed",
+      );
+    return fresh;
+  }).pipe(
+    Effect.mapError((error) =>
+      error instanceof WorkflowExecutionError
+        ? error
+        : new WorkflowExecutionError({ reason: "fresh-session-provisioning-failed" }),
+    ),
+  );
+
+const freshGroupSessionBindingMatches = (
+  group: WorkflowExecutionGroup,
+  fresh: import("./preview-sessions").SessionCredentials,
+) =>
+  group.sessionId === fresh.session.id &&
+  group.ownerToken === fresh.ownerIdentity &&
+  group.generation === fresh.session.generation;
+
+const freshGroupIdentityMatchesSession = (
+  group: WorkflowExecutionGroup,
+  fresh: import("./preview-sessions").SessionCredentials,
+  oldGroup: WorkflowExecutionGroup,
+) =>
+  freshGroupSessionBindingMatches(group, fresh) &&
+  freshWorkflowGroupHasNewIdentities(oldGroup, group);
+
+const freshRequiredGroupsMatch = (
+  evidence: typeof WorkflowFreshGroupEvidence.Type,
+  proposed: WorkflowPreviewDefinition,
+) => {
+  return workflowStringSetsMatch(proposed.requiredGroups, evidence.requiredGroups);
+};
+
+const freshGroupEvidenceMatchesTransition = (
+  evidence: typeof WorkflowFreshGroupEvidence.Type,
+  fresh: import("./preview-sessions").SessionCredentials,
+  activation: ConnectedWorkflowPreviewActivation,
+  priorCleanupRecordId: string,
+) =>
+  evidence.priorCleanupRecordId === priorCleanupRecordId &&
+  freshGroupIdentityMatchesSession(evidence.group, fresh, activation.oldGroup) &&
+  workflowExecutionArtifactsEqual(evidence.group.artifacts, activation.proposed.artifacts) &&
+  freshRequiredGroupsMatch(evidence, activation.proposed) &&
+  freshOAuthClientIdentitiesAreValid(activation.proposed, activation.oldGroup, evidence);
+
+type FreshSessionLeaseState = {
+  failed: boolean;
+  activationCompleted: boolean;
+  oldCleanupRecordId?: string;
+  sessionId?: string;
+  supervisor?: import("effect/Effect").Effect<
+    void,
+    never,
+    FileSystem.FileSystem | import("effect/unstable/http").HttpClient.HttpClient
+  >;
+};
+
+type FreshSessionLeaseRuntimeState = {
+  current?: FreshSessionLeaseState;
+};
+
+const confirmFreshSessionControllerEnd = (
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  fresh: import("./preview-sessions").SessionCredentials,
+  generation: number,
+): Effect.Effect<"confirmed" | "unconfirmed" | "interrupted"> =>
+  Effect.gen(function* () {
+    const stopped = yield* Effect.exit(
+      withWorkflowRecreationTimeout(
+        controller.stopSupervised(fresh.session.id, fresh.supervisorIdentity, generation),
+        workflowRecreationTimeouts.providerOperation,
+        () => new Error("fresh-session-controller-end-unconfirmed"),
+      ),
+    );
+    if (Exit.isSuccess(stopped)) return "confirmed";
+    if (Cause.hasInterruptsOnly(stopped.cause)) return "interrupted";
+    const current = yield* Effect.exit(
+      withWorkflowRecreationTimeout(
+        controller.status(fresh.session.id),
+        workflowRecreationTimeouts.providerOperation,
+        () => new Error("fresh-session-controller-status-unconfirmed"),
+      ),
+    );
+    if (Exit.isFailure(current) && Cause.hasInterruptsOnly(current.cause)) return "interrupted";
+    return Exit.isSuccess(current) && current.value.endedAt !== null ? "confirmed" : "unconfirmed";
+  });
+
+const finishUnconfirmedFreshSessionLease = (
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  fresh: import("./preview-sessions").SessionCredentials,
+  generation: number,
+  leaseState: FreshSessionLeaseState,
+  failureMessage: string,
+) =>
+  Effect.gen(function* () {
+    leaseState.failed = true;
+    if (!leaseState.activationCompleted) return;
+    const controllerEnd = yield* confirmFreshSessionControllerEnd(controller, fresh, generation);
+    if (controllerEnd === "interrupted") return;
+    yield* Console.error(
+      `Preview session ${safeIdentifier(fresh.session.id)} ${failureMessage}; activation was confirmed, old cleanup record ${leaseState.oldCleanupRecordId ?? "unavailable"}; controller end ${controllerEnd}. Provider cleanup remains unconfirmed; reconcile the session before reuse.`,
+    );
+  });
+
+const freshSessionLeaseFailureMessage = (cause: Cause.Cause<unknown>): string | undefined => {
+  if (Cause.hasInterruptsOnly(cause)) return undefined;
+  const error = Cause.findError(cause);
+  return Result.isSuccess(error) &&
+    error.success instanceof PreviewSessionError &&
+    error.success.reason === "lease-heartbeat-unconfirmed"
+    ? `lease renewal failed after ${previewSessionHeartbeatFailureLimit} consecutive heartbeat errors`
+    : "lease supervisor failed unexpectedly";
+};
+
+const superviseFreshSessionLease = (
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  fresh: import("./preview-sessions").SessionCredentials,
+  generation: number,
+  leaseState: FreshSessionLeaseState,
+): Effect.Effect<void> =>
+  supervisePreviewSessionLease(fresh.session.id, fresh.supervisorIdentity, generation).pipe(
+    Effect.provideService(PreviewSessionController, controller),
+    Effect.catchCause((cause) => {
+      const failureMessage = freshSessionLeaseFailureMessage(cause);
+      return failureMessage === undefined
+        ? Effect.void
+        : finishUnconfirmedFreshSessionLease(
+            controller,
+            fresh,
+            generation,
+            leaseState,
+            failureMessage,
+          );
+    }),
+  );
+
+const startFreshSessionLeaseSupervisor = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  fresh: import("./preview-sessions").SessionCredentials,
+  leaseState: FreshSessionLeaseState,
+  lifecycleScope: Scope.Scope,
+) =>
+  Effect.gen(function* () {
+    const leaseSupervisor = superviseFreshSessionLease(
+      input.controller,
+      fresh,
+      fresh.session.generation,
+      leaseState,
+    );
+    const clockBoundLeaseSupervisor =
+      input.clock === undefined
+        ? leaseSupervisor
+        : Effect.provideService(leaseSupervisor, Clock.Clock, input.clock);
+    leaseState.supervisor = clockBoundLeaseSupervisor;
+    leaseState.sessionId = fresh.session.id;
+    yield* Effect.forkIn(clockBoundLeaseSupervisor, lifecycleScope, {
+      startImmediately: true,
+      uninterruptible: false,
+    });
+  });
+
+type FreshGroupEvidenceState = { validated?: WorkflowFreshGroupEvidence };
+
+const provisionAndValidateFreshGroupEvidence = (input: {
+  readonly input: ConnectedWorkflowPreviewRuntimeInput;
+  readonly providerRuntime: IncompatibleWorkflowRecreationRuntimeApi;
+  readonly provisionInput: Parameters<
+    IncompatibleWorkflowRecreationRuntimeApi["provisionFreshGroup"]
+  >[0];
+  readonly activation: ConnectedWorkflowPreviewActivation;
+  readonly fresh: import("./preview-sessions").SessionCredentials;
+  readonly leaseState: FreshSessionLeaseState;
+  readonly evidenceState: FreshGroupEvidenceState;
+}): Effect.Effect<WorkflowFreshGroupEvidence, WorkflowExecutionError> =>
+  Effect.gen(function* () {
+    const providerEvidence = yield* input.providerRuntime.provisionFreshGroup({
+      ...input.provisionInput,
+      freshSession: {
+        sessionId: input.fresh.session.id,
+        ownerToken: input.fresh.ownerIdentity,
+        generation: input.fresh.session.generation,
+      },
+    });
+    const decoded = yield* Schema.decodeUnknownEffect(WorkflowFreshGroupEvidence)(
+      providerEvidence,
+    ).pipe(
+      Effect.mapError(() => new WorkflowExecutionError({ reason: "fresh-group-evidence-invalid" })),
+    );
+    if (
+      decoded.group.sessionId !== input.fresh.session.id ||
+      decoded.group.ownerToken !== input.fresh.ownerIdentity ||
+      decoded.group.generation !== input.fresh.session.generation
+    )
+      return yield* Effect.fail(
+        new WorkflowExecutionError({ reason: "fresh-group-session-binding-mismatch" }),
+      );
+    if (
+      !freshGroupEvidenceMatchesTransition(
+        decoded,
+        input.fresh,
+        input.activation,
+        input.provisionInput.priorCleanupRecordId,
+      )
+    )
+      return yield* Effect.fail(
+        new WorkflowExecutionError({ reason: "fresh-group-evidence-invalid" }),
+      );
+    input.evidenceState.validated = decoded;
+    const pendingSession = yield* input.input.controller
+      .status(input.fresh.session.id)
+      .pipe(
+        Effect.mapError(
+          () => new WorkflowExecutionError({ reason: "fresh-session-lease-unconfirmed" }),
+        ),
+      );
+    if (
+      pendingSession.generation !== input.fresh.session.generation ||
+      pendingSession.phase !== "pending"
+    )
+      return yield* Effect.fail(
+        new WorkflowExecutionError({ reason: "fresh-session-lease-unconfirmed" }),
+      );
+    if (input.leaseState.failed)
+      return yield* Effect.fail(
+        new WorkflowExecutionError({ reason: "fresh-session-lease-maintenance-unconfirmed" }),
+      );
+    return decoded;
+  });
+
+const recoverUnconfirmedFreshGroupProvisioning = (input: {
+  readonly runtimeInput: ConnectedWorkflowPreviewRuntimeInput;
+  readonly providerRuntime: IncompatibleWorkflowRecreationRuntimeApi;
+  readonly provisionInput: Parameters<
+    IncompatibleWorkflowRecreationRuntimeApi["provisionFreshGroup"]
+  >[0];
+  readonly activation: ConnectedWorkflowPreviewActivation;
+  readonly fresh: import("./preview-sessions").SessionCredentials;
+  readonly evidenceState: FreshGroupEvidenceState;
+  readonly failure: Exit.Failure<WorkflowFreshGroupEvidence, WorkflowExecutionError>;
+}): Effect.Effect<never, WorkflowExecutionError> =>
+  Effect.gen(function* () {
+    const transition = classifyWorkflowPreviewTransition(
+      input.activation.previous,
+      input.activation.proposed,
+    );
+    const error = Cause.findError(input.failure.cause);
+    const provisioningOutcomeUnconfirmed = Cause.hasInterruptsOnly(input.failure.cause);
+    let failureReason = "fresh-group-provisioning-unverified";
+    if (provisioningOutcomeUnconfirmed) failureReason = "fresh-group-provisioning-unconfirmed";
+    else if (Result.isSuccess(error) && error.success instanceof WorkflowExecutionError)
+      failureReason = safeWorkflowFreshGroupProvisioningFailureReason(error.success.reason);
+    const diagnostic = yield* Schema.decodeUnknownEffect(WorkflowRecreationDiagnosticSchema)({
+      oldCleanupRecordId: input.provisionInput.priorCleanupRecordId,
+      freshSessionId: input.fresh.session.id,
+      freshGeneration: input.fresh.session.generation,
+      priorRevision: input.activation.previous.sourceRevision,
+      requestedRevision: input.activation.proposed.sourceRevision,
+      reasons: transition.reasons,
+    }).pipe(Effect.orDie);
+    const recoveryReason = failureReason;
+    const binding =
+      input.evidenceState.validated === undefined
+        ? {
+            freshSessionId: input.fresh.session.id,
+            freshGeneration: input.fresh.session.generation,
+            priorCleanupRecordId: input.provisionInput.priorCleanupRecordId,
+          }
+        : {
+            freshSessionId: input.evidenceState.validated.group.sessionId,
+            freshGeneration: input.evidenceState.validated.group.generation,
+            priorCleanupRecordId: input.evidenceState.validated.priorCleanupRecordId,
+          };
+    const quarantine = input.providerRuntime.quarantineFreshGroup;
+    const freshGroupQuarantine =
+      quarantine === undefined
+        ? undefined
+        : yield* Effect.exit(
+            withWorkflowRecreationTimeout(
+              quarantine({
+                ...binding,
+                freshOwnerToken: input.fresh.ownerIdentity,
+                reason: recoveryReason,
+              }),
+              workflowRecreationTimeouts.providerOperation,
+              () => new WorkflowExecutionError({ reason: "fresh-group-quarantine-unconfirmed" }),
+            ),
+          );
+    const recovery = yield* preserveFreshSessionRecovery(
+      input.runtimeInput,
+      diagnostic,
+      recoveryReason,
+      input.fresh,
+      {
+        quarantineDisposition: "pending",
+        ordinaryReassignmentBlocked: null,
+        freshGroupQuarantineDisposition:
+          !provisioningOutcomeUnconfirmed &&
+          freshGroupQuarantine !== undefined &&
+          Exit.isSuccess(freshGroupQuarantine)
+            ? "quarantined"
+            : "unconfirmed",
+        stopSession: false,
+      },
+    );
+    return yield* Effect.fail(
+      new WorkflowExecutionError({
+        reason: failureReason,
+        oldCleanupRecordId: input.provisionInput.priorCleanupRecordId,
+        recovery: { ...diagnostic, recovery },
+      }),
+    );
+  });
+
+const provisionConnectedFreshGroup = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  request: ConnectedWorkflowPreviewProviderRequest,
+  providerRuntime: IncompatibleWorkflowRecreationRuntimeApi,
+  provisionInput: Parameters<IncompatibleWorkflowRecreationRuntimeApi["provisionFreshGroup"]>[0],
+  activation: ConnectedWorkflowPreviewActivation,
+  leaseState: FreshSessionLeaseState,
+  lifecycleScope: Scope.Scope,
+) =>
+  Effect.gen(function* () {
+    const fresh = yield* createConnectedFreshSession(
+      input,
+      request,
+      activation,
+      provisionInput.priorCleanupRecordId,
+    );
+    yield* startFreshSessionLeaseSupervisor(input, fresh, leaseState, lifecycleScope);
+    const evidenceState: FreshGroupEvidenceState = {};
+    const evidence = yield* Effect.exit(
+      provisionAndValidateFreshGroupEvidence({
+        input,
+        providerRuntime,
+        provisionInput,
+        activation,
+        fresh,
+        leaseState,
+        evidenceState,
+      }),
+    );
+    if (Exit.isFailure(evidence))
+      return yield* recoverUnconfirmedFreshGroupProvisioning({
+        runtimeInput: input,
+        providerRuntime,
+        provisionInput,
+        activation,
+        fresh,
+        evidenceState,
+        failure: evidence,
+      });
+    return evidence.value;
+  });
+
+const composeProviderWorkflowRuntime = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  request: ConnectedWorkflowPreviewProviderRequest,
+  activation: ConnectedWorkflowPreviewActivation,
+  freshSessionLease: FreshSessionLeaseRuntimeState,
+  lifecycleScope: Scope.Scope,
+) => {
+  const providerRuntime = activation.runtime.workflowRecreation;
+  if (providerRuntime === undefined) return activation;
+  let freshEvidence: WorkflowFreshGroupEvidence | undefined;
+  const composedWorkflowRecreation: IncompatibleWorkflowRecreationRuntimeApi = {
+    ...providerRuntime,
+    endOldSessionAndCleanup: (oldGroup, onCleanupRecordConfirmed) =>
+      endOldSessionAfterProviderCleanup(
+        input.controller,
+        providerRuntime,
+        request,
+        oldGroup,
+        onCleanupRecordConfirmed,
+        input.clock,
+      ),
+    persistRecoveryDisposition: (diagnostic) =>
+      writeWorkflowRecreationRecoveryRecord(input, diagnostic, true),
+    provisionFreshGroup: (provisionInput) => {
+      const leaseState: FreshSessionLeaseState = {
+        failed: false,
+        activationCompleted: false,
+        oldCleanupRecordId: provisionInput.priorCleanupRecordId,
+      };
+      freshSessionLease.current = leaseState;
+      return provisionConnectedFreshGroup(
+        input,
+        request,
+        providerRuntime,
+        provisionInput,
+        activation,
+        leaseState,
+        lifecycleScope,
+      ).pipe(
+        Effect.tap((evidence) =>
+          Effect.sync(() => {
+            freshEvidence = evidence;
+          }),
+        ),
+      );
+    },
+    quarantineFreshGroup: (quarantineInput) => {
+      if (providerRuntime.quarantineFreshGroup === undefined)
+        return Effect.fail(
+          new WorkflowExecutionError({ reason: "fresh-group-quarantine-unavailable" }),
+        );
+      if (
+        freshEvidence === undefined ||
+        freshEvidence.group.sessionId !== quarantineInput.freshSessionId ||
+        (quarantineInput.freshOwnerToken !== undefined &&
+          freshEvidence.group.ownerToken !== quarantineInput.freshOwnerToken) ||
+        freshEvidence.group.generation !== quarantineInput.freshGeneration ||
+        freshEvidence.priorCleanupRecordId !== quarantineInput.priorCleanupRecordId
+      )
+        return Effect.fail(
+          new WorkflowExecutionError({ reason: "fresh-group-quarantine-binding-mismatch" }),
+        );
+      return providerRuntime.quarantineFreshGroup({
+        ...quarantineInput,
+        freshOwnerToken: freshEvidence.group.ownerToken,
+      });
+    },
+  };
+  return {
+    ...activation,
+    runtime: {
+      ...activation.runtime,
+      workflowRecreation: composedWorkflowRecreation,
+    },
+  };
+};
+
+const loadFreshSessionCredentials = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  sessionId: string,
+) =>
+  Effect.gen(function* () {
+    const credentialsPath = identityPath(sessionId, input.env ?? process.env);
+    if (credentialsPath === undefined)
+      return yield* Effect.fail(
+        new ConnectedWorkflowPreviewRuntimeError({ reason: "fresh-session-credentials-missing" }),
+      );
+    const credentials = yield* Effect.result(readSessionCredentials(credentialsPath));
+    if (Result.isFailure(credentials))
+      return yield* Effect.fail(
+        new ConnectedWorkflowPreviewRuntimeError({ reason: "fresh-session-credentials-missing" }),
+      );
+    return credentials.success;
+  });
+
+const freshSessionMatches = (
+  session: import("./preview-sessions").PreviewSession,
+  expected: {
+    readonly id: string;
+    readonly generation: number;
+    readonly owner: string;
+    readonly checkout: string;
+    readonly revision: string;
+    readonly phase: "pending" | "active";
+  },
+) =>
+  session.id === expected.id &&
+  session.generation === expected.generation &&
+  session.owner === expected.owner &&
+  path.resolve(session.checkout) === expected.checkout &&
+  session.phase === expected.phase &&
+  (expected.phase === "pending"
+    ? session.requestedRevision === expected.revision
+    : session.activeRevision === expected.revision);
+
+const completeConnectedFreshSession = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  {
+    oldSession,
+    status,
+    checkout,
+  }: Parameters<ConnectedWorkflowPreviewRuntimeApi["completeActivation"]>[0],
+) =>
+  Effect.gen(function* () {
+    const recreation = status.workflowRecreation;
+    if (recreation === undefined)
+      return yield* Effect.fail(
+        new ConnectedWorkflowPreviewRuntimeError({ reason: "fresh-session-missing" }),
+      );
+    const credentials = yield* loadFreshSessionCredentials(input, recreation.freshSessionId);
+    const pending = yield* Effect.result(input.controller.status(recreation.freshSessionId));
+    if (Result.isFailure(pending))
+      return yield* Effect.fail(
+        new ConnectedWorkflowPreviewRuntimeError({ reason: "fresh-session-state-mismatch" }),
+      );
+    if (
+      !freshSessionMatches(pending.success, {
+        id: recreation.freshSessionId,
+        generation: recreation.freshGeneration,
+        owner: oldSession.owner,
+        checkout,
+        revision: status.requestedRevision,
+        phase: "pending",
+      })
+    )
+      return yield* Effect.fail(
+        new ConnectedWorkflowPreviewRuntimeError({ reason: "fresh-session-state-mismatch" }),
+      );
+    const activated = yield* Effect.result(
+      input.controller.activate(
+        recreation.freshSessionId,
+        recreation.freshGeneration,
+        credentials.supervisorIdentity,
+        status.requestedRevision,
+      ),
+    );
+    if (Result.isFailure(activated))
+      return yield* Effect.fail(
+        new ConnectedWorkflowPreviewRuntimeError({
+          reason: "fresh-session-activation-unconfirmed",
+        }),
+      );
+    if (
+      !freshSessionMatches(activated.success, {
+        id: recreation.freshSessionId,
+        generation: recreation.freshGeneration,
+        owner: oldSession.owner,
+        checkout,
+        revision: status.requestedRevision,
+        phase: "active",
+      })
+    )
+      return yield* Effect.fail(
+        new ConnectedWorkflowPreviewRuntimeError({
+          reason: "fresh-session-activation-unconfirmed",
+        }),
+      );
+    return activated.success;
+  });
+
+type FailedRecreationQuarantine = {
+  readonly quarantineDisposition:
+    | "pending"
+    | "quarantined"
+    | "ordinary-reassignment-blocked"
+    | "unconfirmed";
+  readonly ordinaryReassignmentBlocked: boolean | null;
+  readonly ordinaryReassignmentPhase: import("sheet-workflow-contracts").WorkflowTransitionPhaseFacts["ordinaryReassignment"];
+};
+
+const quarantineOldGroupAfterActivationFailure = (
+  runtime: IncompatibleWorkflowRecreationRuntimeApi,
+  activation: ConnectedWorkflowPreviewActivation,
+  reason: string,
+): Effect.Effect<FailedRecreationQuarantine> =>
+  Effect.gen(function* () {
+    const oldQuarantine = yield* Effect.exit(
+      withWorkflowRecreationTimeout(
+        runtime.quarantine(activation.oldGroup, reason),
+        workflowRecreationTimeouts.providerOperation,
+        () => new WorkflowExecutionError({ reason: "old-quarantine-unconfirmed" }),
+      ),
+    );
+    if (Exit.isSuccess(oldQuarantine))
+      return {
+        quarantineDisposition: "quarantined",
+        ordinaryReassignmentBlocked: null,
+        ordinaryReassignmentPhase: "not-started",
+      };
+    const reassignmentFence = yield* Effect.exit(
+      withWorkflowRecreationTimeout(
+        runtime.blockOrdinaryReassignment(activation.oldGroup, reason),
+        workflowRecreationTimeouts.providerOperation,
+        () => new WorkflowExecutionError({ reason: "ordinary-reassignment-fence-unconfirmed" }),
+      ),
+    );
+    const blocked = Exit.isSuccess(reassignmentFence) ? reassignmentFence.value : null;
+    return {
+      quarantineDisposition: blocked === true ? "ordinary-reassignment-blocked" : "unconfirmed",
+      ordinaryReassignmentBlocked: blocked,
+      ordinaryReassignmentPhase: Match.value(blocked).pipe(
+        Match.when(null, (): WorkflowTransitionPhaseFacts["ordinaryReassignment"] => "unconfirmed"),
+        Match.when(true, (): WorkflowTransitionPhaseFacts["ordinaryReassignment"] => "blocked"),
+        Match.when(
+          false,
+          (): WorkflowTransitionPhaseFacts["ordinaryReassignment"] => "not-blocked",
+        ),
+        Match.exhaustive,
+      ),
+    };
+  });
+
+const quarantineFreshGroupAfterActivationFailure = (
+  runtime: IncompatibleWorkflowRecreationRuntimeApi,
+  diagnostic: import("sheet-workflow-contracts").WorkflowRecreationDiagnostic,
+  reason: string,
+): Effect.Effect<"unconfirmed" | "quarantined"> =>
+  Effect.gen(function* () {
+    if (runtime.quarantineFreshGroup === undefined) return "unconfirmed";
+    const freshQuarantine = yield* Effect.exit(
+      withWorkflowRecreationTimeout(
+        runtime.quarantineFreshGroup({
+          freshSessionId: diagnostic.freshSessionId,
+          freshGeneration: diagnostic.freshGeneration,
+          priorCleanupRecordId: diagnostic.oldCleanupRecordId,
+          reason,
+        }),
+        workflowRecreationTimeouts.providerOperation,
+        () => new WorkflowExecutionError({ reason: "fresh-group-quarantine-unconfirmed" }),
+      ),
+    );
+    return Exit.isSuccess(freshQuarantine) ? "quarantined" : "unconfirmed";
+  });
+
+const withFreshSessionRecoveryReadTimeout = <A, E, R>(
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  effect: import("effect/Effect").Effect<A, E, R>,
+  reason: string,
+): import("effect/Effect").Effect<A, E | ConnectedWorkflowPreviewRuntimeError, R> => {
+  const timed = withWorkflowRecreationTimeout(
+    effect,
+    workflowRecreationTimeouts.providerOperation,
+    () => new ConnectedWorkflowPreviewRuntimeError({ reason }),
+  );
+  return input.clock === undefined ? timed : Effect.provideService(timed, Clock.Clock, input.clock);
+};
+
+const readFreshSessionForRecovery = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  sessionId: string,
+) =>
+  Effect.gen(function* () {
+    const credentials = yield* Effect.exit(
+      withFreshSessionRecoveryReadTimeout(
+        input,
+        loadFreshSessionCredentials(input, sessionId),
+        "fresh-session-recovery-credentials-unconfirmed",
+      ),
+    );
+    const status = yield* Effect.exit(
+      withFreshSessionRecoveryReadTimeout(
+        input,
+        input.controller.status(sessionId),
+        "fresh-session-recovery-status-unconfirmed",
+      ),
+    );
+    if (Exit.isFailure(credentials) || Exit.isFailure(status)) return undefined;
+    return {
+      session: status.value,
+      ownerIdentity: credentials.value.ownerIdentity,
+      supervisorIdentity: credentials.value.supervisorIdentity,
+    };
+  });
+
+const confirmedQuarantinesPermitSessionEnd = (
+  oldDisposition: FailedRecreationQuarantine["quarantineDisposition"],
+  freshDisposition: "unconfirmed" | "quarantined",
+) =>
+  freshDisposition === "quarantined" &&
+  (oldDisposition === "quarantined" || oldDisposition === "ordinary-reassignment-blocked");
+
+const reconcileFailedFreshSession = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  failure: {
+    readonly activation: ConnectedWorkflowPreviewActivation;
+    readonly reason: string;
+    readonly diagnostic: import("sheet-workflow-contracts").WorkflowRecreationDiagnostic;
+  },
+): Effect.Effect<
+  import("sheet-workflow-contracts").WorkflowRecreationDiagnostic,
+  never,
+  FileSystem.FileSystem
+> => {
+  const providerRuntime = failure.activation.runtime.workflowRecreation;
+  if (providerRuntime === undefined) return Effect.succeed(failure.diagnostic);
+  return Effect.gen(function* () {
+    const oldQuarantine = yield* quarantineOldGroupAfterActivationFailure(
+      providerRuntime,
+      failure.activation,
+      failure.reason,
+    );
+    const diagnostic = {
+      ...failure.diagnostic,
+      phases: {
+        ...(failure.diagnostic.phases ?? emptyWorkflowTransitionPhases()),
+        quarantine:
+          oldQuarantine.quarantineDisposition === "quarantined"
+            ? ("confirmed" as const)
+            : ("unconfirmed" as const),
+        ordinaryReassignment: oldQuarantine.ordinaryReassignmentPhase,
+      },
+    };
+    const freshQuarantine = yield* quarantineFreshGroupAfterActivationFailure(
+      providerRuntime,
+      diagnostic,
+      failure.reason,
+    );
+    const fresh = yield* readFreshSessionForRecovery(input, diagnostic.freshSessionId);
+    const recovery = yield* preserveFreshSessionRecovery(input, diagnostic, failure.reason, fresh, {
+      ...oldQuarantine,
+      freshGroupQuarantineDisposition: freshQuarantine,
+      stopSession:
+        freshQuarantine === "unconfirmed" ||
+        confirmedQuarantinesPermitSessionEnd(oldQuarantine.quarantineDisposition, freshQuarantine),
+    });
+    return { ...diagnostic, recovery };
+  });
+};
+
+const requireFreshSessionLeaseMaintenance = (lease: FreshSessionLeaseState | undefined) =>
+  lease?.failed
+    ? Effect.fail(
+        new ConnectedWorkflowPreviewRuntimeError({
+          reason: "fresh-session-lease-maintenance-unconfirmed",
+        }),
+      )
+    : Effect.void;
+
+const scheduleConnectedFreshSessionSupervisor = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  completed: import("./preview-sessions").PreviewSession,
+  lease: FreshSessionLeaseState | undefined,
+) =>
+  Effect.gen(function* () {
+    yield* requireFreshSessionLeaseMaintenance(lease);
+    const supervisorSessionId = lease?.sessionId;
+    const supervisor = lease?.supervisor;
+    if (
+      input.previewSupervisorScheduler === undefined ||
+      supervisorSessionId !== completed.id ||
+      supervisor === undefined
+    )
+      return yield* Effect.fail(
+        new ConnectedWorkflowPreviewRuntimeError({
+          reason: "fresh-session-supervisor-ownership-unavailable",
+        }),
+      );
+    if (lease !== undefined) lease.activationCompleted = true;
+    yield* Effect.try({
+      try: () => input.previewSupervisorScheduler?.(supervisorSessionId, supervisor),
+      catch: () =>
+        new ConnectedWorkflowPreviewRuntimeError({
+          reason: "fresh-session-supervisor-scheduling-unconfirmed",
+        }),
+    });
+    yield* requireFreshSessionLeaseMaintenance(lease);
+    return completed;
+  });
+
+const normalizeProviderActivationCause = <E>(cause: Cause.Cause<E>) => {
+  if (Cause.hasInterruptsOnly(cause)) return Effect.failCause(cause);
+  const error = Cause.findError(cause);
+  return Effect.fail(
+    Result.isSuccess(error) && error.success instanceof ConnectedWorkflowPreviewRuntimeError
+      ? error.success
+      : new ConnectedWorkflowPreviewRuntimeError({ reason: "provider-activation-invalid" }),
+  );
+};
+
+const resolveConnectedWorkflowActivation = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+  request: ConnectedWorkflowPreviewProviderRequest,
+  freshSessionLease: FreshSessionLeaseRuntimeState,
+  lifecycleScope: Scope.Scope,
+): Effect.Effect<ConnectedWorkflowPreviewActivation, ConnectedWorkflowPreviewRuntimeError> =>
+  Effect.try({
+    try: () => input.provider.resolveActivation(request),
+    catch: () => new ConnectedWorkflowPreviewRuntimeError({ reason: "provider-activation-threw" }),
+  }).pipe(
+    Effect.flatMap((candidate) =>
+      Effect.isEffect(candidate)
+        ? Effect.suspend(() => candidate).pipe(
+            Effect.mapError((error) =>
+              error instanceof ConnectedWorkflowPreviewRuntimeError
+                ? error
+                : new ConnectedWorkflowPreviewRuntimeError({
+                    reason: "provider-activation-failed",
+                  }),
+            ),
+          )
+        : Effect.fail(
+            new ConnectedWorkflowPreviewRuntimeError({ reason: "provider-activation-not-effect" }),
+          ),
+    ),
+    Effect.flatMap(decodeConnectedWorkflowPreviewActivation),
+    Effect.map((activation) =>
+      composeProviderWorkflowRuntime(input, request, activation, freshSessionLease, lifecycleScope),
+    ),
+  );
+
+/** Compose provider operations with session creation, old-session stop, and fresh activation. */
+export const makeConnectedWorkflowPreviewRuntime = (
+  input: ConnectedWorkflowPreviewRuntimeInput,
+): ConnectedWorkflowPreviewRuntimeApi => {
+  const freshSessionLease: FreshSessionLeaseRuntimeState = {};
+  return {
+    resolveActivation: (request, lifecycleScope) => {
+      const timed = withWorkflowRecreationTimeout(
+        resolveConnectedWorkflowActivation(input, request, freshSessionLease, lifecycleScope).pipe(
+          Effect.catchCause(normalizeProviderActivationCause),
+        ),
+        workflowRecreationTimeouts.providerOperation,
+        () => new ConnectedWorkflowPreviewRuntimeError({ reason: "provider-activation-timeout" }),
+      );
+      return input.clock === undefined
+        ? timed
+        : Effect.provideService(timed, Clock.Clock, input.clock);
+    },
+    completeActivation: (activation) =>
+      Effect.gen(function* () {
+        const lease = freshSessionLease.current;
+        yield* requireFreshSessionLeaseMaintenance(lease);
+        const completed = yield* withWorkflowRecreationTimeout(
+          completeConnectedFreshSession(input, activation),
+          workflowRecreationTimeouts.providerOperation,
+          () =>
+            new ConnectedWorkflowPreviewRuntimeError({
+              reason: "fresh-session-activation-unconfirmed",
+            }),
+        );
+        return yield* scheduleConnectedFreshSessionSupervisor(input, completed, lease);
+      }),
+    recoverFailedActivation: (failure) => reconcileFailedFreshSession(input, failure),
+  };
+};
 const getRuntimeContract = (contractId: string | null | undefined) => {
   if (contractId == null || !Object.hasOwn(runtimeContractCatalog.contracts, contractId)) {
     return undefined;
@@ -357,7 +1721,7 @@ const contractsForRole = (role: ConnectedPreviewRole) => {
     const definition = runtimeContractCatalog.contracts[contract];
     if (definition.providers.some((provider) => provider === role))
       providedContracts.push(contract);
-    if (definition.consumers.some((consumer) => consumer === role))
+    if (runtimeContractConsumers(definition).some((consumer) => consumer === role))
       consumedContracts.push(contract);
   }
   return { providedContracts, consumedContracts };
@@ -689,7 +2053,10 @@ const reportCompatibility = (
             ? change.contract
             : "<invalid>",
       classification: change.classification,
-      requiredCallers: change.classification === "incompatible" ? (contract?.consumers ?? []) : [],
+      requiredCallers:
+        change.classification === "incompatible" && contract !== undefined
+          ? runtimeContractConsumersForSelection(contract, config.roles)
+          : [],
     };
   });
 
@@ -829,7 +2196,7 @@ const buildConnectedPreviewReport = (
   return {
     status,
     configSchemaVersion: 1,
-    catalog: runtimeContractCatalogIdentity,
+    catalog: workflowPreviewRuntimeContractCatalogIdentity,
     environment: config.environment === "tiara-stack-dev" ? config.environment : "<invalid>",
     profile: safeIdentifier(config.profile),
     owner: safeIdentifier(config.owner),
@@ -1357,7 +2724,9 @@ const contractLabelFor = (change: PreviewChangeConfig) =>
   change.contract == null ? "implementation-only" : safeIdentifier(change.contract);
 
 const contractAllowsRole = (contract: RuntimeContractDefinition, role: ConnectedPreviewRole) =>
-  [...contract.providers, ...contract.consumers].some((candidate) => candidate === role);
+  [...contract.providers, ...runtimeContractConsumers(contract)].some(
+    (candidate) => candidate === role,
+  );
 
 const validateContractIdentity = (
   context: PreviewValidationContext,
@@ -1386,7 +2755,7 @@ const applyIncompatibleClosure = (
   contract: RuntimeContractDefinition,
 ) => {
   if (change.classification !== "incompatible") return;
-  for (const role of new Set([...contract.providers, ...contract.consumers])) {
+  for (const role of runtimeContractRolesForSelection(contract, [...context.selectedRoles])) {
     context.requiredRoles.add(role);
   }
   for (const group of contract.requiredOwnedGroups) {
@@ -2095,8 +3464,18 @@ const parseConfigText = (
 
 const outputForUnavailableExecution = (
   command: Extract<ParsedCommand, { readonly kind: "preview" }>,
+  workflowPreviewUnavailableReason?: string,
 ): LauncherOutput => {
   const allocationCleanupAction = command.action === "cleanup" || command.action === "resolve";
+  const configuredWorkflowProviderSessionControllerMissing =
+    command.action === "recreate" &&
+    workflowPreviewUnavailableReason === "session-controller-unavailable";
+  const workflowUnavailableMessage = configuredWorkflowProviderSessionControllerMissing
+    ? "The configured workflow recreation provider is unavailable because the durable session controller is not configured; no session operation was attempted"
+    : `Connected preview ${command.action} is unavailable; no session operation was attempted`;
+  const workflowUnavailableRemediation = configuredWorkflowProviderSessionControllerMissing
+    ? "Set TIARA_PREVIEW_SESSION_DATABASE to a private local SQLite path, then retry preview recreate."
+    : "Configure and authenticate the durable preview session controller before using session actions.";
   return {
     schemaVersion: 3,
     ok: false,
@@ -2114,10 +3493,10 @@ const outputForUnavailableExecution = (
         "dependency-unavailable",
         allocationCleanupAction
           ? "Cleanup requires the durable preview session and allocation authorities; no cleanup operation was attempted"
-          : `Connected preview ${command.action} is unavailable; no session operation was attempted`,
+          : workflowUnavailableMessage,
         allocationCleanupAction
           ? "Configure TIARA_PREVIEW_SESSION_DATABASE and the matching local owner credential store, then retry cleanup."
-          : "Configure and authenticate the durable preview session controller before using session actions.",
+          : workflowUnavailableRemediation,
         { mode: "preview", action: command.action },
       ),
     ],
@@ -2173,10 +3552,31 @@ const readSessionCredentials = (filePath: string) =>
     });
   }).pipe(Effect.mapError(() => new Error("session-credentials-unavailable")));
 
+const workflowRecreationOutput = (
+  workflowRecreation: import("sheet-workflow-contracts").WorkflowRecreationDiagnostic | undefined,
+) => {
+  if (workflowRecreation === undefined) return {};
+  const diagnostic = {
+    oldCleanupRecordId: workflowRecreation.oldCleanupRecordId,
+    freshSessionId: workflowRecreation.freshSessionId,
+    freshGeneration: workflowRecreation.freshGeneration,
+    priorRevision: workflowRecreation.priorRevision,
+    requestedRevision: workflowRecreation.requestedRevision,
+    reasons: workflowRecreation.reasons,
+  };
+  if (workflowRecreation.recovery === undefined) return { workflowRecreation: diagnostic };
+  return { workflowRecreation: { ...diagnostic, recovery: workflowRecreation.recovery } };
+};
+
 const sessionOutput = (
   command: ConnectedPreviewCommand,
   session: import("./preview-sessions").PreviewSession,
   allocationStatus?: import("./preview-allocations").PreviewAllocationStatus,
+  workflowRecreation?: import("sheet-workflow-contracts").WorkflowRecreationDiagnostic,
+  workflowTransitionPhases:
+    | import("sheet-workflow-contracts").WorkflowTransitionPhaseFacts
+    | undefined = workflowRecreation?.phases,
+  oldCleanupRecordId?: string,
 ): LauncherOutput => ({
   schemaVersion: 3,
   ok: true,
@@ -2208,6 +3608,7 @@ const sessionOutput = (
     leaseDeadline: session.leaseDeadline,
     lastRenewedAt: session.lastRenewedAt,
     unsettled: session.unsettled,
+    ...(oldCleanupRecordId === undefined ? {} : { oldCleanupRecordId }),
     ...(allocationStatus === undefined
       ? {}
       : {
@@ -2217,6 +3618,8 @@ const sessionOutput = (
             cleanup: allocationStatus.cleanup,
           },
         }),
+    ...workflowRecreationOutput(workflowRecreation),
+    ...(workflowTransitionPhases === undefined ? {} : { workflowTransitionPhases }),
   },
 });
 
@@ -2240,7 +3643,7 @@ type StartConfigResult =
   | { readonly config?: never; readonly output: LauncherOutput };
 
 const readStartConfig = (
-  command: PreviewStartCommand,
+  command: PreviewStartCommand | PreviewRecreateCommand,
   cwd: string,
 ): Effect.Effect<StartConfigResult, never, FileSystem.FileSystem> =>
   Effect.gen(function* () {
@@ -2307,18 +3710,7 @@ const createPendingPreviewSession = (
           },
           requestedRevision: config.identities.sourceRevision,
           groups: config.groups.map(({ id }) => id),
-          endpoints: config.groups.flatMap((group) =>
-            group.ownership === "reused" && group.endpoint ? [group.endpoint] : [],
-          ),
-          targets: [
-            ...new Set([
-              ...(config.externalTargets ?? []),
-              ...(config.triggers ?? []).flatMap(({ targets }) => targets),
-              ...(config.botHandoff === null || config.botHandoff === undefined
-                ? []
-                : [config.botHandoff.targetAllocation]),
-            ]),
-          ],
+          ...allowedWorkForPreviewConfig(config),
         },
       }),
     );
@@ -3009,7 +4401,7 @@ const sheetWebDependencyIdentities = (
       endpoint: selected.endpoint,
       stateIdentity: selected.stateIdentity,
       deployedManifestDigest: selected.deployedManifestDigest,
-      catalogDigest: runtimeContractCatalogIdentity.digest,
+      catalogDigest: workflowPreviewRuntimeContractCatalogIdentity.digest,
       credentialReference,
     };
   });
@@ -3058,7 +4450,7 @@ const makeSheetWebRuntimeTarget = (
   processId: listener.processId,
   revision: prepared.config.identities.sourceRevision,
   artifactDigest,
-  catalogDigest: runtimeContractCatalogIdentity.digest,
+  catalogDigest: workflowPreviewRuntimeContractCatalogIdentity.digest,
   stateGroup: "application-zero",
   kind: "application",
   serviceFqdn: `${relayNameFor(created.session.id, "sheet-web")}.preview-relays.svc.cluster.local`,
@@ -3902,6 +5294,125 @@ const renderCleanupOutcome = (
   };
 };
 
+const workflowRolesInConfiguration = (config: ConnectedPreviewConfig) => {
+  return config.roles.flatMap((role) => {
+    const identityRole = workflowRoleForConnectedRole(role);
+    return identityRole === undefined ? [] : [identityRole];
+  });
+};
+
+const digestMatchesSessionManifest = (digest: string, manifest: string | undefined) =>
+  manifest === `sha256:${digest}`;
+
+export const workflowArtifactEvidenceMatchesRoles = (input: {
+  readonly workloadRoles: ReadonlyArray<string>;
+  readonly apiDigest: string;
+  readonly runnerDigest: string;
+  readonly runnerArtifacts?: Readonly<Record<string, string>> | undefined;
+  readonly deploymentDigest: string;
+  readonly manifests: Readonly<Record<string, string | undefined>>;
+}) => {
+  if (
+    input.workloadRoles.length === 0 ||
+    input.workloadRoles.some((role) => workflowRoleBinding(role) === undefined) ||
+    new Set(input.workloadRoles).size !== input.workloadRoles.length
+  )
+    return false;
+  const apiMatches =
+    !input.workloadRoles.includes("workflow_api") ||
+    digestMatchesSessionManifest(input.apiDigest, input.manifests["sheet-workflows-api"]);
+  const selectedRunnerRoles = input.workloadRoles.filter(
+    (role): role is "ordinary_runner" | "browser_runner" =>
+      role === "ordinary_runner" || role === "browser_runner",
+  );
+  const primaryRunnerRole = primaryWorkflowRunnerRole(selectedRunnerRoles);
+  const runnerArtifactRolesMatch = workflowRunnerArtifactRolesMatch(
+    selectedRunnerRoles,
+    input.runnerArtifacts,
+  );
+  const runnerRoleEvidenceMatches =
+    selectedRunnerRoles.length === 0
+      ? runnerArtifactRolesMatch
+      : runnerArtifactRolesMatch &&
+        selectedRunnerRoles.every((role) =>
+          digestMatchesSessionManifest(
+            input.runnerArtifacts?.[role] ?? input.runnerDigest,
+            input.manifests[workflowRoleBinding(role)?.connectedRole ?? ""],
+          ),
+        ) &&
+        (input.runnerArtifacts === undefined ||
+          input.runnerDigest === input.runnerArtifacts[primaryRunnerRole]);
+  return (
+    apiMatches &&
+    runnerRoleEvidenceMatches &&
+    digestMatchesSessionManifest(input.deploymentDigest, input.manifests["deployed-manifest"])
+  );
+};
+
+const failedWorkflowPreviewRecreation = (
+  command: PreviewRecreateCommand,
+  session: import("./preview-sessions").PreviewSession,
+  message: string,
+  workflowRecreation?: import("sheet-workflow-contracts").WorkflowRecreationDiagnostic,
+  workflowTransitionPhases?: import("sheet-workflow-contracts").WorkflowTransitionPhaseFacts,
+  oldCleanupRecordId?: string,
+) => ({
+  ...sessionOutput(
+    command,
+    session,
+    undefined,
+    workflowRecreation,
+    workflowTransitionPhases,
+    oldCleanupRecordId,
+  ),
+  ok: false,
+  readiness: "blocked" as const,
+  errors: [
+    makeDiagnostic(
+      "prerequisite-unavailable",
+      "The incompatible workflow preview was not activated",
+      message,
+      { mode: "preview", action: "recreate" },
+    ),
+  ],
+});
+
+const failedWorkflowPreviewRecreationForRequest = (
+  request: WorkflowRecreationRequest,
+  message: string,
+  workflowRecreation?: import("sheet-workflow-contracts").WorkflowRecreationDiagnostic,
+  workflowTransitionPhases?: import("sheet-workflow-contracts").WorkflowTransitionPhaseFacts,
+  oldCleanupRecordId?: string,
+): Effect.Effect<LauncherOutput> =>
+  Effect.gen(function* () {
+    const statusRead = Effect.interruptible(
+      Effect.result(
+        withWorkflowRecreationTimeout(
+          Effect.interruptible(request.controller.status(request.oldSession.id)),
+          workflowRecreationTimeouts.providerOperation,
+          () => new Error("old-session-status-unconfirmed"),
+        ),
+      ),
+    );
+    const current = yield* request.clock === undefined
+      ? statusRead
+      : Effect.provideService(statusRead, Clock.Clock, request.clock);
+    const currentSession =
+      Result.isSuccess(current) && current.success.id === request.oldSession.id
+        ? current.success
+        : undefined;
+    return failedWorkflowPreviewRecreation(
+      request.command,
+      currentSession ?? request.oldSession,
+      currentSession === undefined
+        ? `${message} Current session status could not be refreshed; displayed session details are last known.`
+        : message,
+      workflowRecreation,
+      workflowTransitionPhases,
+      oldCleanupRecordId,
+    );
+  });
+
 const canResumeWebPreview = (id: string, options: LauncherOptions) =>
   Effect.gen(function* () {
     const runtime = options.previewWebRuntime;
@@ -4334,6 +5845,484 @@ const runSessionWithCredentials = (
   );
 };
 
+type WorkflowRecreationRequest = {
+  readonly command: PreviewRecreateCommand;
+  readonly runtime: ConnectedWorkflowPreviewRuntimeApi;
+  readonly controller: import("./preview-sessions").PreviewSessionControllerApi;
+  readonly clock?: Clock.Clock;
+  readonly oldSession: import("./preview-sessions").PreviewSession;
+  readonly ownerIdentity: string;
+  readonly config: ConnectedPreviewConfig;
+  readonly checkout: string;
+  readonly selectedRoles: ReadonlyArray<string>;
+};
+
+type WorkflowRecreationPreparation =
+  | { readonly request: WorkflowRecreationRequest; readonly output?: never }
+  | { readonly request?: never; readonly output: LauncherOutput };
+
+type WorkflowRecreationActivation =
+  | {
+      readonly request: WorkflowRecreationRequest;
+      readonly activation: ConnectedWorkflowPreviewActivation;
+      readonly output?: never;
+    }
+  | { readonly request?: never; readonly activation?: never; readonly output: LauncherOutput };
+
+type WorkflowRecreationSession =
+  | {
+      readonly session: import("./preview-sessions").PreviewSession;
+      readonly ownerIdentity: string;
+      readonly checkout: string;
+      readonly output?: never;
+    }
+  | {
+      readonly session?: never;
+      readonly ownerIdentity?: never;
+      readonly checkout?: never;
+      readonly output: LauncherOutput;
+    };
+
+type WorkflowSessionOwnerIdentity =
+  | { readonly ownerIdentity: string; readonly output?: never }
+  | { readonly ownerIdentity?: never; readonly output: LauncherOutput };
+
+const loadWorkflowSessionOwnerIdentity = (
+  command: PreviewRecreateCommand,
+  options: LauncherOptions,
+): Effect.Effect<WorkflowSessionOwnerIdentity, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const credentialsPath = identityPath(command.options.sessionId, options.env ?? process.env);
+    if (credentialsPath === undefined)
+      return {
+        output: sessionOperationFailure(
+          command,
+          "The session owner credential record is unavailable.",
+        ),
+      };
+    const credentials = yield* Effect.result(readSessionCredentials(credentialsPath));
+    if (Result.isFailure(credentials))
+      return {
+        output: sessionOperationFailure(
+          command,
+          "The session owner credential record is unavailable.",
+        ),
+      };
+    return { ownerIdentity: credentials.success.ownerIdentity };
+  });
+
+const verifyWorkflowRecreationSession = (
+  command: PreviewRecreateCommand,
+  options: LauncherOptions,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  config: ConnectedPreviewConfig,
+): Effect.Effect<WorkflowRecreationSession, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const identity = yield* loadWorkflowSessionOwnerIdentity(command, options);
+    if (identity.output !== undefined) return { output: identity.output };
+    const current = yield* Effect.result(controller.status(command.options.sessionId));
+    if (Result.isFailure(current))
+      return {
+        output: sessionOperationFailure(
+          command,
+          "The durable controller could not verify the old session.",
+        ),
+      };
+    const session = current.success;
+    const checkout = path.resolve(options.cwd ?? process.cwd());
+    if (
+      session.phase !== "active" ||
+      session.activeRevision === null ||
+      session.owner !== config.owner ||
+      path.resolve(session.checkout) !== checkout
+    )
+      return {
+        output: failedWorkflowPreviewRecreation(
+          command,
+          session,
+          "The active session, owner, and checkout must match the explicit recreation request.",
+        ),
+      };
+    return { session, ownerIdentity: identity.ownerIdentity, checkout };
+  });
+
+const prepareWorkflowRecreationRequest = (
+  command: PreviewRecreateCommand,
+  options: LauncherOptions,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+): Effect.Effect<WorkflowRecreationPreparation, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const runtime = options.workflowPreviewRuntime;
+    if (runtime === undefined) {
+      const providerUnavailableReason = options.workflowPreviewUnavailableReason?.trim();
+      return {
+        output: sessionOperationFailure(
+          command,
+          providerUnavailableReason === undefined || providerUnavailableReason.length === 0
+            ? "The provider-owned workflow recreation runtime is unavailable; no code, session, or allocation state was changed."
+            : `The provider-owned workflow recreation runtime is unavailable (${providerUnavailableReason}); no code, session, or allocation state was changed.`,
+        ),
+      };
+    }
+    const setup = yield* readStartConfig(command, options.cwd ?? process.cwd());
+    if (setup.output !== undefined) return { output: setup.output };
+    const config = setup.config;
+    const selectedRoles = workflowRolesInConfiguration(config);
+    if (selectedRoles.length === 0)
+      return {
+        output: sessionOperationFailure(
+          command,
+          "Select at least one workflow API or runner role in the proposed development profile.",
+        ),
+      };
+    const current = yield* verifyWorkflowRecreationSession(command, options, controller, config);
+    if (current.output !== undefined) return { output: current.output };
+    return {
+      request: {
+        command,
+        runtime,
+        controller,
+        ...(options.clock === undefined ? {} : { clock: options.clock }),
+        oldSession: current.session,
+        ownerIdentity: current.ownerIdentity,
+        config,
+        checkout: current.checkout,
+        selectedRoles,
+      },
+    };
+  });
+
+const transitionRevisionsMatchSession = (
+  activation: ConnectedWorkflowPreviewActivation,
+  request: WorkflowRecreationRequest,
+) =>
+  activation.oldGroup.sessionId === request.oldSession.id &&
+  activation.oldGroup.ownerToken === request.ownerIdentity &&
+  activation.oldGroup.generation === request.oldSession.generation &&
+  activation.previous.sourceRevision === request.oldSession.activeRevision &&
+  activation.proposed.sourceRevision === request.config.identities.sourceRevision &&
+  activation.snapshot.revision === request.config.identities.sourceRevision;
+
+const oldWorkflowArtifactsMatchSession = (
+  activation: ConnectedWorkflowPreviewActivation,
+  session: import("./preview-sessions").PreviewSession,
+) => {
+  const oldRoles = activation.previous.workloadRoles;
+  return workflowArtifactEvidenceMatchesRoles({
+    workloadRoles: oldRoles,
+    apiDigest: activation.oldGroup.artifacts.api,
+    runnerDigest: activation.oldGroup.artifacts.runner,
+    runnerArtifacts: activation.oldGroup.artifacts.runnerArtifacts,
+    deploymentDigest: activation.oldGroup.artifacts.deployment,
+    manifests: session.manifests,
+  });
+};
+
+const proposedWorkflowArtifactsMatchConfig = (
+  activation: ConnectedWorkflowPreviewActivation,
+  config: ConnectedPreviewConfig,
+) => {
+  const proposedRoles = activation.proposed.workloadRoles;
+  return workflowArtifactEvidenceMatchesRoles({
+    workloadRoles: proposedRoles,
+    apiDigest: activation.proposed.artifacts.api,
+    runnerDigest: activation.proposed.artifacts.runner,
+    runnerArtifacts: activation.proposed.artifacts.runnerArtifacts,
+    deploymentDigest: activation.proposed.artifacts.deployment,
+    manifests: {
+      "sheet-workflows-api": config.identities.artifactDigests["sheet-workflows-api"],
+      "sheet-workflows-runner": config.identities.artifactDigests["sheet-workflows-runner"],
+      "sheet-workflows-browser-runner":
+        config.identities.artifactDigests["sheet-workflows-browser-runner"],
+      "deployed-manifest": config.identities.deployedManifestDigest,
+    },
+  });
+};
+
+const proposedWorkflowCompatibilityMatchesConfig = (
+  activation: ConnectedWorkflowPreviewActivation,
+  config: ConnectedPreviewConfig,
+) => {
+  const evidence = activation.proposed.compatibility;
+  if (
+    evidence.catalogVersion !== workflowPreviewRuntimeContractCatalogIdentity.version ||
+    evidence.catalogDigest !== workflowPreviewRuntimeContractCatalogIdentity.digest ||
+    config.identities.catalogVersion !== workflowPreviewRuntimeContractCatalogIdentity.version
+  )
+    return false;
+
+  const declared = evidence.declarations
+    .map((declaration) => ({
+      role: declaration.role,
+      contract: declaration.contract,
+      classification: declaration.classification,
+      sourceRevision: declaration.sourceRevision,
+      artifactDigest: declaration.artifactDigest.replace(/^sha256:/, ""),
+      deployedManifestDigest: declaration.deployedManifestDigest.replace(/^sha256:/, ""),
+      catalogVersion: declaration.catalogVersion,
+    }))
+    .sort((left, right) =>
+      `${left.role}:${left.contract ?? ""}`.localeCompare(`${right.role}:${right.contract ?? ""}`),
+    );
+  const configured = config.changes
+    .map((change) => ({
+      role: change.role,
+      contract: change.contract ?? null,
+      classification: change.classification,
+      sourceRevision: change.sourceRevision,
+      artifactDigest: change.artifactDigest.replace(/^sha256:/, ""),
+      deployedManifestDigest: change.deployedManifestDigest.replace(/^sha256:/, ""),
+      catalogVersion: change.catalogVersion,
+    }))
+    .sort((left, right) =>
+      `${left.role}:${left.contract ?? ""}`.localeCompare(`${right.role}:${right.contract ?? ""}`),
+    );
+  return JSON.stringify(declared) === JSON.stringify(configured);
+};
+
+const proposedWorkflowGroupsMatchConfig = (
+  activation: ConnectedWorkflowPreviewActivation,
+  config: ConnectedPreviewConfig,
+) => {
+  const configuredGroups = new Set<string>(config.groups.map(({ id }) => id));
+  const proposedGroups = activation.proposed.requiredGroups;
+  return (
+    new Set(proposedGroups).size === proposedGroups.length &&
+    proposedGroups.every((group) => configuredGroups.has(group))
+  );
+};
+
+const workflowActivationMatchesRequest = (
+  activation: ConnectedWorkflowPreviewActivation,
+  request: WorkflowRecreationRequest,
+) =>
+  transitionRevisionsMatchSession(activation, request) &&
+  oldWorkflowArtifactsMatchSession(activation, request.oldSession) &&
+  proposedWorkflowArtifactsMatchConfig(activation, request.config) &&
+  proposedWorkflowCompatibilityMatchesConfig(activation, request.config) &&
+  proposedWorkflowGroupsMatchConfig(activation, request.config);
+
+const activationRolesCoverProposedWorkflow = (activation: ConnectedWorkflowPreviewActivation) => {
+  const mapped = activation.proposed.workloadRoles.map(
+    (role) => workflowRoleBinding(role)?.runnerRole,
+  );
+  if (mapped.some((role) => role === undefined)) return false;
+  const expected = mapped.filter((role) => role !== undefined).sort();
+  const actual = [...activation.roles].sort();
+  return (
+    expected.length === activation.proposed.workloadRoles.length &&
+    new Set(expected).size === expected.length &&
+    new Set(actual).size === actual.length &&
+    expected.length === actual.length &&
+    expected.every((role, index) => role === actual[index])
+  );
+};
+
+const resolveWorkflowRecreationActivation = (
+  request: WorkflowRecreationRequest,
+  lifecycleScope: Scope.Scope,
+): Effect.Effect<WorkflowRecreationActivation> =>
+  Effect.gen(function* () {
+    const resolved = yield* Effect.result(
+      request.runtime.resolveActivation(
+        {
+          session: request.oldSession,
+          ownerIdentity: request.ownerIdentity,
+          config: request.config,
+          checkout: request.checkout,
+        },
+        lifecycleScope,
+      ),
+    );
+    if (Result.isFailure(resolved))
+      return {
+        output: yield* failedWorkflowPreviewRecreationForRequest(
+          request,
+          "Authoritative old-group state and a complete staged snapshot could not be resolved.",
+        ),
+      };
+    const activation = resolved.success;
+    const transition = classifyWorkflowPreviewTransition(activation.previous, activation.proposed);
+    if (transition.classification === "unverified")
+      return {
+        output: yield* failedWorkflowPreviewRecreationForRequest(
+          request,
+          "Current catalog identity and complete, revision-bound change declarations are required before recreation.",
+        ),
+      };
+    if (transition.classification !== "incompatible")
+      return {
+        output: yield* failedWorkflowPreviewRecreationForRequest(
+          request,
+          "The proposed workflow transition is compatible; use ordinary staged activation instead of recreation.",
+        ),
+      };
+    const rolesMatch = workflowStringSetsMatch(
+      request.selectedRoles,
+      activation.proposed.workloadRoles,
+    );
+    if (
+      !workflowActivationMatchesRequest(activation, request) ||
+      !rolesMatch ||
+      !activationRolesCoverProposedWorkflow(activation)
+    )
+      return {
+        output: yield* failedWorkflowPreviewRecreationForRequest(
+          request,
+          "The active session, selected role set, authoritative group, proposed configuration, and complete snapshot must identify the same transition.",
+        ),
+      };
+    if (activation.runtime.workflowRecreation === undefined)
+      return {
+        output: yield* failedWorkflowPreviewRecreationForRequest(
+          request,
+          "The old-code settlement, cessation, fresh-group, and quarantine runtime is unavailable.",
+        ),
+      };
+    return { request, activation };
+  });
+
+const recoverActivationStatusFailure = (
+  request: WorkflowRecreationRequest,
+  activation: ConnectedWorkflowPreviewActivation,
+  status: import("sheet-workflow-contracts").RunnerRevisionStatus,
+  reason: string,
+) => {
+  const diagnostic = status.workflowRecreation;
+  if (status.failure === null || diagnostic === undefined || diagnostic.recovery !== undefined)
+    return Effect.succeed(diagnostic);
+  return request.runtime
+    .recoverFailedActivation({
+      oldSession: request.oldSession,
+      ownerIdentity: request.ownerIdentity,
+      activation,
+      checkout: request.checkout,
+      reason,
+      diagnostic,
+    })
+    .pipe(Effect.map((recovered) => recovered));
+};
+
+const matchingCompletedFreshSession = (
+  completed: import("effect/Result").Result<
+    import("./preview-sessions").PreviewSession,
+    ConnectedWorkflowPreviewRuntimeError
+  >,
+  status: import("sheet-workflow-contracts").RunnerRevisionStatus,
+  recreation: import("sheet-workflow-contracts").WorkflowRecreationDiagnostic,
+): import("./preview-sessions").PreviewSession | undefined =>
+  Result.match(completed, {
+    onFailure: () => undefined,
+    onSuccess: (session) =>
+      session.id === recreation.freshSessionId &&
+      session.generation === recreation.freshGeneration &&
+      session.phase === "active" &&
+      session.activeRevision === status.requestedRevision
+        ? session
+        : undefined,
+  });
+
+const activatePreparedWorkflowRecreation = (
+  request: WorkflowRecreationRequest,
+  activation: ConnectedWorkflowPreviewActivation,
+): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const status = yield* activateRunnerSnapshot({
+      snapshot: activation.snapshot,
+      previous: activation.previousSnapshot,
+      owner: activation.owner,
+      nextOwner: activation.nextOwner,
+      roles: activation.roles,
+      workflowTransition: {
+        oldGroup: activation.oldGroup,
+        previous: activation.previous,
+        proposed: activation.proposed,
+        explicitlyRequested: true,
+      },
+    }).pipe(Effect.provide(StagedRunnerRuntimeLayer(activation.runtime)));
+    const recreation = status.workflowRecreation;
+    if (status.failure !== null || recreation === undefined) {
+      const reportedFailureReason = status.failure ?? "workflow-transition-not-recreated";
+      const failureReason = safeActivationFailureReason(reportedFailureReason);
+      const recoveryDiagnostic = yield* recoverActivationStatusFailure(
+        request,
+        activation,
+        status,
+        failureReason,
+      );
+      return yield* failedWorkflowPreviewRecreationForRequest(
+        request,
+        failureReason,
+        recoveryDiagnostic,
+        recoveryDiagnostic?.phases ?? status.workflowTransitionPhases,
+        status.oldCleanupRecordId,
+      );
+    }
+    const completed = yield* Effect.result(
+      request.runtime.completeActivation({
+        oldSession: request.oldSession,
+        ownerIdentity: request.ownerIdentity,
+        activation,
+        status,
+        checkout: request.checkout,
+      }),
+    );
+    const completedSession = matchingCompletedFreshSession(completed, status, recreation);
+    if (completedSession === undefined) {
+      const recoveryDiagnostic = yield* request.runtime.recoverFailedActivation({
+        oldSession: request.oldSession,
+        ownerIdentity: request.ownerIdentity,
+        activation,
+        checkout: request.checkout,
+        reason: "fresh durable session activation was not confirmed",
+        diagnostic: recreation,
+      });
+      return yield* failedWorkflowPreviewRecreationForRequest(
+        request,
+        "The durable controller did not confirm the fresh session identity and activated revision; keep the preview unavailable.",
+        recoveryDiagnostic,
+      );
+    }
+    return sessionOutput(request.command, completedSession, undefined, recreation);
+  });
+
+const runWorkflowPreviewRecreation = (
+  command: PreviewRecreateCommand,
+  options: LauncherOptions,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem | HttpClient.HttpClient> => {
+  if (!command.options.confirmDevelopment)
+    return Effect.succeed(
+      sessionOperationFailure(command, "Explicit --confirm-development is required."),
+    );
+  if (options.previewSupervisorScheduler === undefined)
+    return Effect.succeed(
+      sessionOperationFailure(
+        command,
+        "Recreation requires a host session supervisor; no lifecycle operation was attempted.",
+      ),
+    );
+  return Effect.gen(function* () {
+    const prepared = yield* prepareWorkflowRecreationRequest(command, options, controller);
+    if (prepared.output !== undefined) return prepared.output;
+    return yield* Effect.scoped(
+      Effect.gen(function* () {
+        const lifecycleScope = yield* Effect.scope;
+        const activation = yield* resolveWorkflowRecreationActivation(
+          prepared.request,
+          lifecycleScope,
+        );
+        if (activation.output !== undefined) return activation.output;
+        // Once recreation can change admission or end the old session, finish settlement and
+        // quarantine/recovery bookkeeping as one interruption-safe lifecycle operation.
+        return yield* Effect.uninterruptible(
+          activatePreparedWorkflowRecreation(prepared.request, activation.activation),
+        );
+      }),
+    );
+  });
+};
+
 const runSessionCommand = (
   command: ConnectedPreviewCommand,
   options: LauncherOptions,
@@ -4341,6 +6330,8 @@ const runSessionCommand = (
   allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
 ): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem | HttpClient.HttpClient> => {
   if (command.action === "start") return runSessionStart(command, options, controller, allocations);
+  if (command.action === "recreate")
+    return runWorkflowPreviewRecreation(command, options, controller);
   const id = command.options.sessionId;
   if (id === null) return Effect.succeed(outputForUnavailableExecution(command));
   return command.action === "status"
@@ -4945,7 +6936,9 @@ export const connectedPreviewOutput = (
       allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
     ) =>
       controller === undefined
-        ? Effect.succeed(outputForUnavailableExecution(command))
+        ? Effect.succeed(
+            outputForUnavailableExecution(command, options.workflowPreviewUnavailableReason),
+          )
         : runSessionCommand(command, options, controller, allocations);
     const sessionController = options.previewSessionController;
     const allocationController = options.previewAllocationController;

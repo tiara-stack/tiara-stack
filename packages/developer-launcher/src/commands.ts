@@ -77,6 +77,15 @@ export type ParsedCommand =
     }
   | {
       readonly kind: "preview";
+      readonly action: "recreate";
+      readonly options: CommandOptions & {
+        readonly configFile: string;
+        readonly sessionId: string;
+      };
+      readonly command: string;
+    }
+  | {
+      readonly kind: "preview";
       readonly action: "status" | "heartbeat" | "resume" | "stop" | "cleanup";
       readonly options: CommandOptions & { readonly configFile: null; readonly sessionId: string };
       readonly command: string;
@@ -400,7 +409,7 @@ export const parsePositionals = (
       options.envFile !== null ||
       options.service !== null ||
       options.confirm ||
-      options.confirmDevelopment ||
+      (options.confirmDevelopment && second !== "recreate") ||
       options.tag !== null ||
       options.changedSurfaces.length > 0
     ) {
@@ -466,6 +475,29 @@ export const parsePositionals = (
         command: "preview start",
       };
     }
+    if (second === "recreate") {
+      if (
+        options.configFile === null ||
+        options.sessionId === null ||
+        options.resource !== null ||
+        hasGeneration(options) ||
+        !options.confirmDevelopment
+      )
+        throw new CommandParseError(
+          "preview recreate requires --config <file>, --session <id>, and --confirm-development",
+          "invalid-option",
+        );
+      return {
+        kind: "preview",
+        action: "recreate",
+        options: {
+          ...options,
+          configFile: options.configFile,
+          sessionId: options.sessionId,
+        },
+        command: "preview recreate",
+      };
+    }
     if (second === "resolve") {
       if (
         options.sessionId === null ||
@@ -505,7 +537,7 @@ export const parsePositionals = (
       kind: "preview",
       action: second as Exclude<
         ConnectedPreviewAction,
-        "plan" | "doctor" | "baseline" | "start" | "resolve"
+        "plan" | "doctor" | "baseline" | "start" | "resolve" | "recreate"
       >,
       options: { ...options, configFile: null, sessionId: options.sessionId },
       command: `preview ${second}`,

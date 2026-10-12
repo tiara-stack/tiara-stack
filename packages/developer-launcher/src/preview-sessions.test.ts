@@ -2,6 +2,9 @@ import { it } from "@effect/vitest";
 import { NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { Deferred, Duration, Effect, Fiber, FileSystem, Layer, Path } from "effect";
+import * as Cause from "effect/Cause";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import { TestClock } from "effect/testing";
 import type * as SqlClientType from "effect/unstable/sql/SqlClient";
 import { expect } from "vitest";
@@ -9,9 +12,12 @@ import {
   makePreviewSessionController,
   makePreviewSessionAuthority,
   PreviewSessionController,
+  type PreviewSessionControllerApi,
   previewSessionHeartbeatMs,
+  previewSessionHeartbeatFailureLimit,
   previewSessionLeaseMs,
   previewSupervisorLeaseMs,
+  PreviewSessionError,
   supervisePreviewSessionLease,
 } from "./preview-sessions";
 
@@ -221,6 +227,246 @@ it.effect("renews on the test clock and cancels with its owning supervisor fiber
   ),
 );
 
+it.effect("retries a transient lease heartbeat and exits once the session is ended", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const controller = yield* makePreviewSessionController(() =>
+      testClock.currentTimeMillisUnsafe(),
+    );
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: {},
+      requestedRevision: "rev-a",
+    });
+    yield* controller.activate(
+      created.session.id,
+      created.session.generation,
+      created.supervisorIdentity,
+      "rev-a",
+    );
+    let failuresRemaining = 1;
+    let heartbeatCalls = 0;
+    const flakyController = {
+      ...controller,
+      heartbeat: (id: string, supervisorIdentity: string, generation: number) => {
+        heartbeatCalls += 1;
+        if (failuresRemaining > 0) {
+          failuresRemaining -= 1;
+          return Effect.fail(new PreviewSessionError({ reason: "transient-heartbeat" }));
+        }
+        return controller.heartbeat(id, supervisorIdentity, generation);
+      },
+    } satisfies PreviewSessionControllerApi;
+    const fiber = yield* supervisePreviewSessionLease(
+      created.session.id,
+      created.supervisorIdentity,
+      created.session.generation,
+    ).pipe(Effect.provideService(PreviewSessionController, flakyController), Effect.forkChild);
+    yield* Effect.yieldNow;
+    expect(heartbeatCalls).toBe(1);
+    yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+    yield* Effect.yieldNow;
+    expect(heartbeatCalls).toBe(2);
+    expect((yield* controller.status(created.session.id)).phase).toBe("active");
+    expect((yield* controller.status(created.session.id)).lastRenewedAt).toBe(
+      previewSessionHeartbeatMs,
+    );
+
+    yield* controller.stopSupervised(
+      created.session.id,
+      created.supervisorIdentity,
+      created.session.generation,
+    );
+    yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+    yield* Effect.yieldNow;
+    const endedExit = yield* Effect.exit(Fiber.join(fiber));
+    expect(Exit.isSuccess(endedExit)).toBe(true);
+    expect((yield* controller.status(created.session.id)).phase).toBe("ended");
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
+it.effect("ends a fenced supervisor without retrying or ending the live session", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const controller = yield* makePreviewSessionController(() =>
+      testClock.currentTimeMillisUnsafe(),
+    );
+    const fencedReasons = [
+      "stale-supervisor",
+      "identity-mismatch",
+      "lease-expired-or-fenced",
+    ] as const;
+
+    for (const reason of fencedReasons) {
+      const created = yield* controller.create({
+        owner: "owner",
+        checkout: "/checkout",
+        manifests: {},
+        requestedRevision: "rev-a",
+      });
+      yield* controller.activate(
+        created.session.id,
+        created.session.generation,
+        created.supervisorIdentity,
+        "rev-a",
+      );
+      let heartbeatCalls = 0;
+      const fencedController = {
+        ...controller,
+        heartbeat: () => {
+          heartbeatCalls += 1;
+          return Effect.fail(new PreviewSessionError({ reason }));
+        },
+      } satisfies PreviewSessionControllerApi;
+      const fiber = yield* supervisePreviewSessionLease(
+        created.session.id,
+        created.supervisorIdentity,
+        created.session.generation,
+      ).pipe(Effect.provideService(PreviewSessionController, fencedController), Effect.forkChild);
+
+      yield* Effect.yieldNow;
+      const supervisorExit = yield* Effect.exit(Fiber.join(fiber));
+      expect(Exit.isSuccess(supervisorExit)).toBe(true);
+      expect(heartbeatCalls).toBe(1);
+      const current = yield* controller.status(created.session.id);
+      expect(current.phase).toBe("active");
+      expect(current.endedAt).toBeNull();
+      yield* controller.stop(created.session.id, created.ownerIdentity);
+    }
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
+it.effect("ends a rotated same-generation supervisor while its resumed session stays live", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const controller = yield* makePreviewSessionController(() =>
+      testClock.currentTimeMillisUnsafe(),
+    );
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: { "sheet-web": "sha256:manifest" },
+      requestedRevision: "rev-a",
+    });
+    yield* TestClock.adjust(Duration.millis(previewSupervisorLeaseMs));
+    const resumed = yield* controller.resume(
+      created.session.id,
+      created.ownerIdentity,
+      created.supervisorIdentity,
+    );
+    expect(resumed.session.generation).toBe(created.session.generation);
+    expect(resumed.supervisorIdentity).not.toBe(created.supervisorIdentity);
+
+    let heartbeatCalls = 0;
+    const countingController = {
+      ...controller,
+      heartbeat: (id: string, supervisorIdentity: string, generation: number) => {
+        heartbeatCalls += 1;
+        return controller.heartbeat(id, supervisorIdentity, generation);
+      },
+    } satisfies PreviewSessionControllerApi;
+    const oldSupervisor = yield* supervisePreviewSessionLease(
+      created.session.id,
+      created.supervisorIdentity,
+      created.session.generation,
+    ).pipe(Effect.provideService(PreviewSessionController, countingController), Effect.forkChild);
+
+    yield* Effect.yieldNow;
+    const supervisorExit = yield* Effect.exit(Fiber.join(oldSupervisor));
+    expect(Exit.isSuccess(supervisorExit)).toBe(true);
+    expect(heartbeatCalls).toBe(1);
+    const current = yield* controller.status(created.session.id);
+    expect(current.phase).toBe("pending");
+    expect(current.generation).toBe(created.session.generation);
+    expect(current.endedAt).toBeNull();
+    yield* controller.stop(created.session.id, created.ownerIdentity);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
+it.effect("surfaces a lease supervisor after the bounded consecutive heartbeat failures", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const controller = yield* makePreviewSessionController(() =>
+      testClock.currentTimeMillisUnsafe(),
+    );
+    const created = yield* controller.create({
+      owner: "owner",
+      checkout: "/checkout",
+      manifests: {},
+      requestedRevision: "rev-a",
+    });
+    yield* controller.activate(
+      created.session.id,
+      created.session.generation,
+      created.supervisorIdentity,
+      "rev-a",
+    );
+    let heartbeatCalls = 0;
+    const unavailableController = {
+      ...controller,
+      heartbeat: () => {
+        heartbeatCalls += 1;
+        return Effect.fail(new PreviewSessionError({ reason: "transient-heartbeat" }));
+      },
+    } satisfies PreviewSessionControllerApi;
+    const fiber = yield* supervisePreviewSessionLease(
+      created.session.id,
+      created.supervisorIdentity,
+      created.session.generation,
+    ).pipe(
+      Effect.provideService(PreviewSessionController, unavailableController),
+      Effect.forkChild,
+    );
+    yield* Effect.yieldNow;
+    for (let failure = 1; failure < previewSessionHeartbeatFailureLimit; failure += 1) {
+      yield* TestClock.adjust(Duration.millis(previewSessionHeartbeatMs));
+      yield* Effect.yieldNow;
+    }
+    expect(heartbeatCalls).toBe(previewSessionHeartbeatFailureLimit);
+    const terminalExit = yield* Effect.exit(Fiber.join(fiber));
+    expect(Exit.isFailure(terminalExit)).toBe(true);
+    if (Exit.isFailure(terminalExit))
+      expect(Option.getOrUndefined(Cause.findErrorOption(terminalExit.cause))).toMatchObject({
+        reason: "lease-heartbeat-unconfirmed",
+      });
+    expect((yield* controller.status(created.session.id)).phase).toBe("active");
+    yield* controller.stop(created.session.id, created.ownerIdentity);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
 it.live("recovers a session after closing and reopening the durable SQLite store", () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -330,6 +576,40 @@ it.live("makes stop idempotent and permanently closes admission", () =>
         expect(credentialRenewal._tag).toBe("Failure");
       }),
     ),
+  ),
+);
+
+it.live("does not stop a resumed generation with an earlier generation-bound stop", () =>
+  withController((clock) =>
+    Effect.gen(function* () {
+      const controller = yield* makePreviewSessionController(() => clock.value);
+      const created = yield* controller.create({
+        owner: "owner",
+        checkout: "/checkout",
+        manifests: {},
+        requestedRevision: "rev-a",
+      });
+      yield* controller.activate(
+        created.session.id,
+        created.session.generation,
+        created.supervisorIdentity,
+        "rev-a",
+      );
+
+      clock.value += previewSupervisorLeaseMs + 1;
+      const resumed = yield* controller.resume(created.session.id, created.ownerIdentity);
+      expect(resumed.session.generation).toBe(created.session.generation + 1);
+      expect(resumed.session.phase).toBe("pending");
+
+      const staleStop = yield* Effect.exit(
+        controller.stop(created.session.id, created.ownerIdentity, created.session.generation),
+      );
+      expect(Exit.isFailure(staleStop)).toBe(true);
+      const current = yield* controller.status(created.session.id);
+      expect(current.generation).toBe(resumed.session.generation);
+      expect(current.phase).toBe("pending");
+      expect(current.endedAt).toBeNull();
+    }),
   ),
 );
 

@@ -37,6 +37,35 @@ generated artifacts, or code paths not covered by tests. If the full workspace
 is impractical, run the affected package scripts with `pnpm --filter` and
 report skipped checks.
 
+## Nested conditional expressions
+
+Vite+ linting enforces `tiara/no-nested-ternary` through the local Oxlint
+JavaScript plugin in `packages/tooling-config/src/oxlint-plugins/`. Package
+`vp lint src` uses the shared registration in `packages/tooling-config/src/vite.ts`;
+the root staged check uses the registration in `vite.config.ts`. The rule is
+strict unless its configuration explicitly opts into the repository baseline.
+
+The baseline is a temporary allowance for inherited occurrences, not a file
+ignore. Each entry names a repository-relative file, a SHA-256 fingerprint of
+the normalized expression, a fingerprint of its normalized enclosing syntactic
+site, and its allowed occurrence count. The JSON records the base revision and
+fingerprint algorithm. Moving an identical expression to another site, editing
+the expression or site, and occurrences beyond the recorded count remain
+errors. Unrelated line breaks and whitespace do not change fingerprints.
+Linting never writes or refreshes this file automatically.
+
+To retire existing debt, remove its baseline entry or reduce its count when the
+expression is refactored; then run `pnpm --filter tooling-config test` and lint
+the affected package. To add an inherited allowance during a separately
+reviewed debt-adoption change, compare the exact source expression and enclosing
+site with the approved base revision, calculate their fingerprints with the
+plugin's exported `fingerprintNestedTernaryExpression` and
+`fingerprintNestedTernarySite` helpers, and add only that path/fingerprint pair
+and count. Update the recorded base/algorithm only as part of that review.
+Never add a file-wide exception or regenerate allowances from current lint
+output alone. Verify root staged behavior with the isolated staged smoke test
+when changing either Vite+ registration.
+
 ## Package scripts
 
 Packages with source code generally expose `build`, `format`, `format:apply`,

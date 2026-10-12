@@ -20,6 +20,7 @@ pnpm dev fast up --service sheet-bot
 pnpm dev compose <up|build|down|seed|reset>
 pnpm dev kubernetes <validate|preview> [--changed-surface <surface>]
 pnpm dev preview <plan|doctor|start> --config <file>
+pnpm dev preview recreate --config <file> --session <id> --confirm-development
 pnpm dev preview <status|resume|stop|cleanup> --session <id>
 pnpm dev preview heartbeat --session <id> --generation <n>
 pnpm dev doctor
@@ -48,10 +49,11 @@ applies the complete development release. Repeat
 also accepts a comma-separated value in one flag.
 
 `--config <file>` and `--session <id>` are reserved for connected preview
-commands. Plan, doctor, and start require `--config`; status, resume, stop, and
-cleanup require `--session`. Heartbeat also requires `--generation` so a stale
-supervisor cannot renew a newer session revision. The bare `pnpm dev preview`
-command prints help without reading a file or starting a process.
+commands. Plan, doctor, and start require `--config`; recreate requires both
+`--config` and `--session`; status, resume, stop, and cleanup require
+`--session`. Heartbeat also requires `--generation` so a stale supervisor cannot
+renew a newer session revision. The bare `pnpm dev preview` command prints help
+without reading a file or starting a process.
 
 Fast reads `.env.development.local` from the repository root by default. Pass
 `--env-file <path>` to use an explicit file. The default web slice accepts only
@@ -98,7 +100,132 @@ source revision, role artifact, deployed manifest, and catalog version.
 unknown declarations block the plan. The launcher never classifies changes by
 scanning file diffs. Incompatible contracts add their required callers and
 owned groups to the report. The configuration must select those callers and
-groups explicitly.
+groups explicitly. During incompatible workflow recreation, every proposed
+workflow group must also appear in the validated configuration's selected
+groups; a provider proposal cannot expand the admitted group set implicitly.
+
+Workflow definition, Action Version, durable deployment-format, or required
+workflow-group membership changes (addition or removal) are incompatible
+transitions. Automatic source watch may propose the change, but cannot activate
+it. The controlled recreation
+presents the proposal and pauses admission first. The provider then fences
+existing submission connections and autonomous triggers before accepted work is
+drained, cancelled, or reconciled using immutable old workflow code. Producer
+fence, settlement, and cessation evidence is bound to the exact old session,
+generation, source revision, group/artifact digest, and non-secret ownership
+record IDs. The launcher checks each binding before advancing lifecycle effects;
+it also requires the producer-fence binding before draining accepted work and
+checks old-work evidence before old-session cleanup or fresh-group provisioning;
+missing or mismatched evidence remains quarantined. Owner tokens and credential
+contents are never copied into the evidence. Complete provider cessation evidence
+is required before ending the old session. Admission
+pause and producer fencing are separate confirmed phases; settlement cannot
+start when either producer class remains active or ownership is unknown.
+Only after that proof can cleanup finish and a fresh workflow group be
+provisioned. The fresh group must have new session, owner, and database
+identities, carry the exact old cleanup-record ID, and report zero pending
+commands, browser queue entries, and Response References. No accepted work is
+copied.
+
+Unresolved settlement, Ambiguous Outcome, stale execution, unknown ownership,
+or incomplete cleanup keeps the old group inaccessible in quarantine and blocks
+fresh allocation. Human and JSON phase output reports producer fencing
+separately from admission, settlement, cessation, and cleanup. These are
+locally testable lifecycle contracts; no deployed provider currently supplies
+this whole transition, so the owned workflow live profile remains unavailable.
+Local tests do not establish live cessation, external ownership, or operator
+acceptance.
+
+Workflow recreation bounds ordinary provider calls at 60 seconds, accepted-work
+drain at five minutes, cancellation/reconciliation/cessation proof together at
+five additional minutes, and fresh-group provisioning at the 120-second
+group-startup target. The second settlement window includes the cessation proof,
+so it cannot extend the ten-minute accepted-work boundary. The trusted
+staged-source activation-authority decision has its own 60-second read-only
+preflight bound, using the approved TIA-229 preflight budget; it is separate
+from the 120-second snapshot-preparation bound. Restart, readiness, and transport use
+their separately documented activation bounds. A timeout records the affected
+phase as unconfirmed; it does not prove
+that an external operation was cancelled, ceased, or lost ownership. The
+transition remains quarantined or retains a pending recovery session until
+separate evidence resolves that state. Human and JSON phase output reports the
+drain, cancellation/reconciliation, cessation-proof, settlement-window, and
+accepted-work drain-and-settlement elapsed milliseconds for the phases that were entered.
+
+`pnpm dev preview recreate --config <file> --session <id> --confirm-development`
+is the explicit CLI/API transition entrypoint. It requires an active session for
+the same checkout and owner; its provider must resolve the authoritative old
+group and complete proposed snapshot before the common activation path runs.
+That path verifies the prior definition against the old group and the proposed
+API, each selected ordinary/browser runner artifact, contract, deployment, and
+complete Action Version map against the complete staged snapshot before
+settlement or staging. The map is part of the artifact identity; a caller's
+summary workflow version or transition mode is not authority. The exported
+runner supervisor also requires a trusted server-side activation decision for
+every new revision. It resolves immutable old/proposed snapshots and permits
+same-identity replacement only when compatible; its default is deny. A
+recreation first revision is authorized only for a freshly provisioned identity
+whose session authority confirms the old cleanup record. When browser actions
+are exercised, the browser runner joins the owned group and receives its own
+artifact and session-role evidence. Automatic watch proposals pause admission
+and reject before staged or active source changes. Explicit recreation
+settles with immutable old code, proves cessation, preserves the exact cleanup
+record, provisions a fresh group with every expected role's new OAuth client,
+then stages and activates source. A failed durable quarantine write returns an
+explicit `QuarantineUnconfirmed` result and attempts the independent ordinary
+reassignment fence. The CLI refuses to proceed when its provider runtime is
+missing. That runtime remains unconfigured here, so the owned-workflow live
+profile stays unavailable.
+
+If fresh-group provisioning throws, its binding, required-group, artifact, or
+OAuth evidence is incomplete, or lease maintenance fails before provisioning
+is confirmed, the CLI keeps the fresh local session pending and inaccessible.
+It writes a mode-0600 recovery record beside that session's
+credentials at `<session-id>.workflow-recreation-recovery.json`; the record
+links the fresh identity to the exact old cleanup record and describes which
+quarantine and reassignment fences were confirmed. If later staged activation
+fails, recovery verifies the fresh session ID and generation before attempting
+to end its local controller session. When provider quarantine of the fresh
+group is unconfirmed, the CLI still attempts this identity-bound local end to
+prevent further session-scoped admission. Ending the local session does not
+confirm external quarantine, cleanup, cancellation, or cessation; those remain
+unconfirmed without positive provider evidence. When fresh-group quarantine is
+confirmed, local session end is authorized only if the old group is quarantined
+or ordinary reassignment is blocked. If that local stop is not authorized or
+fails, the CLI reads the fresh
+session's current state and records the observed disposition (`active`,
+`pending`, `pending-quarantined`, `ended`, or `expired`) in JSON and human output. It
+reports `state-unverified` if the read fails, the generation does not match, or
+the terminal phase lacks its end timestamp. A pending session is called `pending-quarantined` only when fresh-group
+quarantine was confirmed; the separate quarantine fields continue to report
+the old and fresh group dispositions. These recovery records are local
+diagnostics, not provider-side proof or live acceptance evidence.
+
+`expired` means the local session controller recorded lease expiry for the
+matching generation. It is distinct from an explicit `ended` transition and
+does not prove provider-side cleanup or cessation.
+
+To configure the product entrypoint, set
+`TIARA_PREVIEW_WORKFLOW_PROVIDER_MODULE` to a checkout-relative `.mjs` module.
+The module exports `makeWorkflowPreviewProvider({ checkout })`, which returns
+the `ConnectedWorkflowPreviewProviderApi` from the developer-launcher package.
+The shipped CLI loads that provider only for `preview recreate` and composes its
+snapshot/lifecycle operations with the durable local session controller. The
+CLI ends the old local session after provider cleanup and creates the new local
+session only after old-code cessation; the provider provisions external group
+state using the fresh session ID, owner identity, and generation supplied to
+its provisioning callback. The provider must return those exact identities,
+all proposed required groups, artifact evidence, and new OAuth clients. The CLI
+performs the final local session activation after staged readiness. Module paths
+resolving outside the checkout are rejected. Without both this explicit module
+and `TIARA_PREVIEW_SESSION_DATABASE`, the profile remains unavailable and no
+lifecycle mutation occurs.
+
+After successful recreation the CLI prints the activated session result and
+stays in the foreground as that session's lease supervisor. The supervisor
+continues heartbeats until the session ends; use another terminal for status
+and stop commands. Recreation is refused before lifecycle effects when the
+host cannot own that supervisor.
 
 Every selected role names its environment input file relative to the preview
 config. The file must exist under the same config directory. The planner reads

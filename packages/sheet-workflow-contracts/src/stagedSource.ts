@@ -1,7 +1,9 @@
 import { Predicate, Schema } from "effect";
 
-/** Server budget: body 60s + prepare 120s + restart 30s + readiness 30s = 240s; client allows 360s. */
+/** Server budget: authority 60s + body 60s + prepare 120s + restart 30s + readiness 30s = 300s; client allows 360s. */
 export const stagedSourceActivationTimeouts = {
+  /** TIA-229's approved read-only preflight budget, separate from snapshot preparation. */
+  authority: "60 seconds",
   requestBody: "60 seconds",
   preparation: "120 seconds",
   restart: "30 seconds",
@@ -28,6 +30,9 @@ export const StagedSourceSnapshotSchema = Schema.Struct({
   completion: StagedSourceCompletionSchema,
 });
 export type StagedSourceSnapshot = typeof StagedSourceSnapshotSchema.Type;
+
+export const StagedRunnerRoleSchema = Schema.Literals(["ordinary-runner", "browser-runner"]);
+export type StagedRunnerRole = typeof StagedRunnerRoleSchema.Type;
 
 /** Stable JSON representation used as the input to the snapshot SHA-256 digest. */
 export const stagedSourceDigestInput = (revision: string, files: ReadonlyArray<StagedSourceFile>) =>
@@ -141,7 +146,7 @@ export const validateStagedSourceSnapshot = (
 export const StagedRunnerSnapshotIdentitySchema = Schema.Struct({
   sessionId: Schema.NonEmptyString,
   generation: Schema.Int.check(Schema.isGreaterThan(0)),
-  role: Schema.Literal("ordinary-runner"),
+  role: StagedRunnerRoleSchema,
 });
 export type StagedRunnerSnapshotIdentity = typeof StagedRunnerSnapshotIdentitySchema.Type;
 
@@ -152,13 +157,107 @@ export const StagedRunnerSnapshotActivationRequestSchema = Schema.Struct({
 export type StagedRunnerSnapshotActivationRequest =
   typeof StagedRunnerSnapshotActivationRequestSchema.Type;
 
-export const RunnerRoleSchema = Schema.Literals(["ordinary-runner", "workflow-api"]);
+export const RunnerRoleSchema = Schema.Literals([
+  "workflow-api",
+  "ordinary-runner",
+  "browser-runner",
+]);
 export type RunnerRole = typeof RunnerRoleSchema.Type;
+
+export const WorkflowRecreationRecoverySchema = Schema.Struct({
+  failureReason: Schema.NonEmptyString,
+  freshSessionDisposition: Schema.Literals([
+    "ended",
+    "expired",
+    "active",
+    "pending",
+    "pending-quarantined",
+    "state-unverified",
+  ]),
+  freshGroupQuarantineDisposition: Schema.Literals(["unconfirmed", "quarantined"]),
+  quarantineDisposition: Schema.Literals([
+    "pending",
+    "quarantined",
+    "ordinary-reassignment-blocked",
+    "unconfirmed",
+  ]),
+  ordinaryReassignmentBlocked: Schema.NullOr(Schema.Boolean),
+  recoveryRecordId: Schema.NonEmptyString,
+  recoveryRecordWritten: Schema.Boolean,
+  recoveryRecordUpdated: Schema.Boolean,
+});
+export type WorkflowRecreationRecovery = typeof WorkflowRecreationRecoverySchema.Type;
+
+/** Human and machine status for each lifecycle boundary; only confirmed results advance. */
+export const WorkflowTransitionPhaseFactsSchema = Schema.Struct({
+  proposal: Schema.Literals(["not-started", "presented", "unconfirmed"]),
+  admission: Schema.Literals(["not-started", "paused", "unconfirmed"]),
+  producerFencing: Schema.Literals(["not-started", "fenced", "unconfirmed"]),
+  drain: Schema.Literals(["not-started", "completed", "not-required", "ambiguous", "unconfirmed"]),
+  cancellation: Schema.Literals([
+    "not-started",
+    "completed",
+    "not-required",
+    "ambiguous",
+    "unconfirmed",
+  ]),
+  reconciliation: Schema.Literals([
+    "not-started",
+    "completed",
+    "not-required",
+    "ambiguous",
+    "unconfirmed",
+  ]),
+  settlement: Schema.Literals(["not-started", "settled", "ambiguous", "unconfirmed"]),
+  cessation: Schema.Literals(["not-started", "proven", "unproven", "unconfirmed"]),
+  oldSessionEnd: Schema.Literals(["not-started", "ended", "unconfirmed"]),
+  cleanup: Schema.Literals(["not-started", "completed", "unconfirmed"]),
+  freshGroup: Schema.Literals(["not-started", "provisioned", "unconfirmed"]),
+  activation: Schema.Literals(["not-started", "activated", "unconfirmed"]),
+  quarantine: Schema.Literals(["not-started", "confirmed", "unconfirmed"]),
+  ordinaryReassignment: Schema.Literals(["not-started", "blocked", "not-blocked", "unconfirmed"]),
+  drainElapsedMs: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  cancellationReconciliationElapsedMs: Schema.optionalKey(
+    Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
+  ),
+  cessationProofElapsedMs: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  settlementElapsedMs: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+  acceptedWorkElapsedMs: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
+});
+export type WorkflowTransitionPhaseFacts = typeof WorkflowTransitionPhaseFactsSchema.Type;
+
+export const WorkflowTransitionReasonSchema = Schema.Literals([
+  "compatibility-evidence-unverified",
+  "declared-contract-incompatible",
+  "workflow-contracts-changed",
+  "durable-deployment-changed",
+  "action-version-changed",
+  "workflow-group-added",
+  "workflow-group-removed",
+  "workflow-role-added",
+  "workflow-role-removed",
+]);
+export type WorkflowTransitionReason = typeof WorkflowTransitionReasonSchema.Type;
+
+export const WorkflowRecreationDiagnosticSchema = Schema.Struct({
+  oldCleanupRecordId: Schema.NonEmptyString,
+  freshSessionId: Schema.NonEmptyString,
+  freshGeneration: Schema.Int.check(Schema.isGreaterThan(0)),
+  priorRevision: Schema.NonEmptyString,
+  requestedRevision: Schema.NonEmptyString,
+  reasons: Schema.Array(WorkflowTransitionReasonSchema),
+  phases: Schema.optionalKey(WorkflowTransitionPhaseFactsSchema),
+  recovery: Schema.optionalKey(WorkflowRecreationRecoverySchema),
+});
+export type WorkflowRecreationDiagnostic = typeof WorkflowRecreationDiagnosticSchema.Type;
 
 export const RunnerRevisionStatusSchema = Schema.Struct({
   requestedRevision: Schema.String,
   activeRevision: Schema.NullOr(Schema.String),
   unavailableRoles: Schema.Array(RunnerRoleSchema),
   failure: Schema.NullOr(Schema.String),
+  oldCleanupRecordId: Schema.optionalKey(Schema.NonEmptyString),
+  workflowRecreation: Schema.optionalKey(WorkflowRecreationDiagnosticSchema),
+  workflowTransitionPhases: Schema.optionalKey(WorkflowTransitionPhaseFactsSchema),
 });
 export type RunnerRevisionStatus = typeof RunnerRevisionStatusSchema.Type;
