@@ -11,7 +11,14 @@ const lint = {
     es2022: true,
   },
   plugins: ["unicorn", "typescript", "oxc"],
+  jsPlugins: [
+    {
+      name: "tiara",
+      specifier: "../tooling-config/src/oxlint-plugins/no-nested-ternary.mjs",
+    },
+  ],
   rules: {
+    "tiara/no-nested-ternary": ["error", { baseline: "project" }],
     "no-unused-vars": [
       "error",
       {
@@ -64,6 +71,7 @@ const mergedLint = (overrides: LintConfig | undefined, browser: boolean): LintCo
   env: mergeLintEnv(overrides, browser),
   options: mergeLintOptions(overrides),
   rules: mergeLintRules(overrides),
+  jsPlugins: [...(lint.jsPlugins ?? []), ...(overrides?.jsPlugins ?? [])],
 });
 
 const mergeLint = (config: UserConfig, browser: boolean): UserConfig => ({

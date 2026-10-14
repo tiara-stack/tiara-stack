@@ -15,6 +15,7 @@ import {
   executeKubernetesPlan,
   previewAllocationConfigDiagnostic,
 } from "./cli";
+import { ConnectedWorkflowPreviewProvider } from "./connected-preview";
 import { runLauncherFromParsed, getKubernetesExecutionContext } from "./index";
 import { runKubernetesExecution, type KubernetesLifecycleObservation } from "./execution";
 import { makePreviewSessionController, PreviewSessionController } from "./preview-sessions";
@@ -185,6 +186,42 @@ describe("developer launcher Effect CLI", () => {
         Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
       ),
     ),
+  );
+
+  it.effect("explains when a configured workflow provider lacks its session controller", () =>
+    Effect.gen(function* () {
+      yield* Command.runWith(command, { version: "0.0.0" })([
+        "preview",
+        "recreate",
+        "--config",
+        "./preview.json",
+        "--session",
+        "session-id",
+        "--confirm-development",
+        "--json",
+      ]).pipe(
+        Effect.provideService(ConnectedWorkflowPreviewProvider, {
+          _tag: "Configured",
+          resolveActivation: () => Effect.die("resolver must not run without the controller"),
+        }),
+      );
+
+      const output = (yield* TestConsole.logLines).at(-1);
+      expect(output).toBeDefined();
+      if (typeof output !== "string") throw new Error("expected JSON CLI output");
+      const decoded = JSON.parse(output) as {
+        readonly errors: ReadonlyArray<{
+          readonly message: string;
+          readonly remediation: string;
+        }>;
+      };
+      expect(decoded.errors[0]).toMatchObject({
+        message:
+          "The configured workflow recreation provider is unavailable because the durable session controller is not configured; no session operation was attempted",
+        remediation:
+          "Set TIARA_PREVIEW_SESSION_DATABASE to a private local SQLite path, then retry preview recreate.",
+      });
+    }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer)),
   );
 
   it("reports finite Compose actions as completed through the terminal adapter", async () => {

@@ -1,5 +1,8 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { Context, Duration, Effect, Layer, Match, Schema, Scope } from "effect";
+import { Context, Duration, Effect, Layer, Match, Predicate, Schema, Scope } from "effect";
+import * as Cause from "effect/Cause";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import { SqlClient, SqlError } from "effect/unstable/sql";
 import {
   connectedPreviewGroups,
@@ -10,6 +13,7 @@ import {
 
 export const previewSessionLeaseMs = 120_000;
 export const previewSessionHeartbeatMs = 15_000;
+export const previewSessionHeartbeatFailureLimit = 3;
 export const previewSupervisorLeaseMs = 30_000;
 const previewCredentialIssueReservationMs = 10 * 60_000;
 
@@ -87,7 +91,11 @@ export const PreviewSessionProtocolRequest = Schema.Union([
     supervisorIdentity: Schema.String,
     requestedRevision: Schema.NonEmptyString,
   }),
-  Schema.TaggedStruct("Stop", { id: Schema.String, ownerIdentity: Schema.String }),
+  Schema.TaggedStruct("Stop", {
+    id: Schema.String,
+    ownerIdentity: Schema.String,
+    expectedGeneration: Schema.optional(Schema.Number),
+  }),
   Schema.TaggedStruct("Admit", { id: Schema.String, generation: Schema.Number }),
   Schema.TaggedStruct("Settle", { id: Schema.String, generation: Schema.Number }),
   Schema.TaggedStruct("AuthorizeCredential", {
@@ -198,9 +206,11 @@ export interface PreviewSessionControllerApi {
     supervisorIdentity: string,
     activeRevision: string,
   ) => Effect.Effect<PreviewSession, ControllerError>;
+  /** Owner stop; when expectedGeneration is supplied, the write is fenced to that generation. */
   readonly stop: (
     id: string,
     ownerIdentity: string,
+    expectedGeneration?: number,
   ) => Effect.Effect<PreviewSession, ControllerError>;
   /** Atomically ends a session only while this supervisor still owns its generation. */
   readonly stopSupervised: (
@@ -320,8 +330,8 @@ export const dispatchPreviewSessionProtocol = (
         (session) => ({ _tag: "Session" as const, session }),
       ),
     ),
-    Match.tag("Stop", ({ id, ownerIdentity }) =>
-      Effect.map(controller.stop(id, ownerIdentity), (session) => ({
+    Match.tag("Stop", ({ id, ownerIdentity, expectedGeneration }) =>
+      Effect.map(controller.stop(id, ownerIdentity, expectedGeneration), (session) => ({
         _tag: "Session" as const,
         session,
       })),
@@ -668,6 +678,53 @@ export const makePreviewSessionController = (now: () => number) =>
           return yield* Effect.fail(sessionError("session-not-active-or-expired"));
       });
 
+    const updateOwnerStoppedSession = (
+      id: string,
+      ownerIdentity: string,
+      expectedGeneration: number | undefined,
+      time: number,
+    ) =>
+      expectedGeneration === undefined
+        ? sql`UPDATE preview_sessions SET phase='ended', supervisor_lease_until=0, ended_at=${time} WHERE id=${id} AND identity_digest=${digestIdentity(ownerIdentity)} AND ended_at IS NULL RETURNING *`
+        : sql`UPDATE preview_sessions SET phase='ended', supervisor_lease_until=0, ended_at=${time} WHERE id=${id} AND identity_digest=${digestIdentity(ownerIdentity)} AND generation=${expectedGeneration} AND ended_at IS NULL RETURNING *`;
+
+    const reconcileGenerationBoundStop = (
+      id: string,
+      ownerIdentity: string,
+      expectedGeneration: number,
+    ) =>
+      Effect.gen(function* () {
+        const latest = yield* valid(id, ownerIdentity, undefined, true);
+        if (latest.generation !== expectedGeneration)
+          return yield* Effect.fail(sessionError("stale-session-generation"));
+        if (latest.endedAt !== null) {
+          yield* fenceSession(id);
+          return latest;
+        }
+        return yield* Effect.fail(sessionError("session-stop-unconfirmed"));
+      });
+
+    const stopByOwner = (
+      id: string,
+      ownerIdentity: string,
+      expectedGeneration: number | undefined,
+    ) =>
+      Effect.gen(function* () {
+        const current = yield* valid(id, ownerIdentity, undefined, true);
+        if (expectedGeneration !== undefined && current.generation !== expectedGeneration)
+          return yield* Effect.fail(sessionError("stale-session-generation"));
+        if (current.endedAt !== null) {
+          yield* fenceSession(id);
+          return current;
+        }
+        const rows = yield* updateOwnerStoppedSession(id, ownerIdentity, expectedGeneration, now());
+        if (rows.length === 0 && expectedGeneration !== undefined)
+          return yield* reconcileGenerationBoundStop(id, ownerIdentity, expectedGeneration);
+        yield* fenceSession(id);
+        if (rows.length === 0) return yield* valid(id, ownerIdentity, undefined, true);
+        return decodeRow(rows[0] as Record<string, unknown>);
+      });
+
     const api: PreviewSessionControllerApi = {
       watchFences: (id, fence) =>
         Effect.acquireRelease(
@@ -780,20 +837,7 @@ export const makePreviewSessionController = (now: () => number) =>
           if (rows.length === 0) return yield* Effect.fail(sessionError("stale-supervisor"));
           return decodeRow(rows[0] as Record<string, unknown>);
         }),
-      stop: (id, ownerIdentity) =>
-        Effect.gen(function* () {
-          const current = yield* valid(id, ownerIdentity, undefined, true);
-          if (current.endedAt !== null) {
-            yield* fenceSession(id);
-            return current;
-          }
-          const time = now();
-          const rows =
-            yield* sql`UPDATE preview_sessions SET phase='ended', supervisor_lease_until=0, ended_at=${time} WHERE id=${id} AND identity_digest=${digestIdentity(ownerIdentity)} AND ended_at IS NULL RETURNING *`;
-          yield* fenceSession(id);
-          if (rows.length === 0) return yield* valid(id, ownerIdentity, undefined, true);
-          return decodeRow(rows[0] as Record<string, unknown>);
-        }),
+      stop: stopByOwner,
       stopSupervised: (id, supervisorIdentity, generation) =>
         Effect.gen(function* () {
           const current = yield* valid(id, undefined, generation, true);
@@ -1046,6 +1090,46 @@ export const PreviewSessionRuntimeLive = Layer.effect(
   ),
 );
 
+type PreviewSessionLeaseHeartbeatOutcome = "renewed" | "ended" | "fenced" | "failed";
+
+const permanentlyFencedHeartbeatReasons: Readonly<Record<string, true>> = {
+  "stale-supervisor": true,
+  "identity-mismatch": true,
+  "lease-expired-or-fenced": true,
+};
+
+const hasPermanentFenceReason = Predicate.and(
+  Predicate.isTagged("PreviewSessionError"),
+  Predicate.hasProperty("reason"),
+);
+
+const isPermanentlyFencedHeartbeat = (cause: Cause.Cause<ControllerError>) =>
+  Option.match(Cause.findErrorOption(cause), {
+    onNone: () => false,
+    onSome: (error) =>
+      hasPermanentFenceReason(error) &&
+      Predicate.isString(error.reason) &&
+      permanentlyFencedHeartbeatReasons[error.reason] === true,
+  });
+
+const attemptPreviewSessionLeaseHeartbeat = (
+  controller: PreviewSessionControllerApi,
+  id: string,
+  supervisorIdentity: string,
+  generation: number,
+): Effect.Effect<PreviewSessionLeaseHeartbeatOutcome, ControllerError> =>
+  Effect.gen(function* () {
+    const heartbeat = yield* Effect.exit(controller.heartbeat(id, supervisorIdentity, generation));
+    if (Exit.isSuccess(heartbeat)) return "renewed" as const;
+    if (Cause.hasInterruptsOnly(heartbeat.cause)) return yield* Effect.failCause(heartbeat.cause);
+    const permanentlyFenced = isPermanentlyFencedHeartbeat(heartbeat.cause);
+    const current = yield* Effect.exit(controller.status(id));
+    if (Exit.isFailure(current) && Cause.hasInterruptsOnly(current.cause))
+      return yield* Effect.failCause(current.cause);
+    if (Exit.isSuccess(current) && current.value.endedAt !== null) return "ended";
+    return permanentlyFenced ? "fenced" : "failed";
+  });
+
 /** Supervisor loop. Fiber interruption cancels its future renewals. */
 export const supervisePreviewSessionLease = (
   id: string,
@@ -1054,8 +1138,24 @@ export const supervisePreviewSessionLease = (
 ) =>
   Effect.gen(function* () {
     const controller = yield* PreviewSessionController;
+    let consecutiveHeartbeatFailures = 0;
     while (true) {
+      const heartbeat = yield* attemptPreviewSessionLeaseHeartbeat(
+        controller,
+        id,
+        supervisorIdentity,
+        generation,
+      );
+      if (heartbeat === "ended" || heartbeat === "fenced") return;
+      if (heartbeat === "failed") {
+        consecutiveHeartbeatFailures += 1;
+        if (consecutiveHeartbeatFailures >= previewSessionHeartbeatFailureLimit)
+          return yield* Effect.fail(
+            new PreviewSessionError({ reason: "lease-heartbeat-unconfirmed" }),
+          );
+      } else {
+        consecutiveHeartbeatFailures = 0;
+      }
       yield* Effect.sleep(Duration.millis(previewSessionHeartbeatMs));
-      yield* controller.heartbeat(id, supervisorIdentity, generation);
     }
   });

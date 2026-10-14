@@ -18,6 +18,13 @@ export default defineConfig({
   },
   lint: {
     ignorePatterns: [".output", ".ts-out", "dist", "node_modules", "native", "packages/*/test-d"],
+    jsPlugins: [
+      {
+        name: "tiara",
+        specifier: "./packages/tooling-config/src/oxlint-plugins/no-nested-ternary.mjs",
+      },
+    ],
+    rules: { "tiara/no-nested-ternary": ["error", { baseline: "project" }] },
     options: { typeAware: true, typeCheck: true },
   },
 });

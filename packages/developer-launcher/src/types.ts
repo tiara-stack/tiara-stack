@@ -8,6 +8,7 @@ export const connectedPreviewActions = [
   "doctor",
   "baseline",
   "start",
+  "recreate",
   "status",
   "heartbeat",
   "resume",
@@ -225,6 +226,17 @@ export interface LauncherOutput {
     readonly leaseDeadline: number;
     readonly lastRenewedAt: number;
     readonly unsettled: number;
+    readonly oldCleanupRecordId?: string;
+    readonly workflowRecreation?: {
+      readonly oldCleanupRecordId: string;
+      readonly freshSessionId: string;
+      readonly freshGeneration: number;
+      readonly priorRevision: string;
+      readonly requestedRevision: string;
+      readonly reasons: import("sheet-workflow-contracts").WorkflowRecreationDiagnostic["reasons"];
+      readonly recovery?: import("sheet-workflow-contracts").WorkflowRecreationRecovery;
+    };
+    readonly workflowTransitionPhases?: import("sheet-workflow-contracts").WorkflowTransitionPhaseFacts;
     readonly allocations?: {
       readonly reservations: readonly {
         readonly dimension: string;
@@ -417,6 +429,7 @@ export type ProcessStarter = (
 ) => Promise<RunningProcess>;
 
 export interface LauncherOptions {
+  readonly clock?: import("effect/Clock").Clock;
   readonly executor?: ProcessExecutor;
   readonly portChecker?: PortChecker;
   readonly accessChecker?: AccessChecker;
@@ -429,6 +442,8 @@ export interface LauncherOptions {
   readonly previewGateway?: import("./preview-gateway").PreviewGatewayApi;
   readonly previewRelayProvider?: import("./preview-relay-provider").PreviewRelayProviderApi;
   readonly previewWebRuntime?: import("./preview-web-runtime").PreviewWebRuntimeApi;
+  readonly workflowPreviewRuntime?: import("./connected-preview").ConnectedWorkflowPreviewRuntimeApi;
+  readonly workflowPreviewUnavailableReason?: string;
   readonly previewSupervisorScheduler?: (
     sessionId: string,
     supervisor: import("effect/Effect").Effect<
