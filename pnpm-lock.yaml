@@ -58,6 +58,7 @@ overrides:
   vitest: 4.1.9
 
 patchedDependencies:
+  '@tanstack/start-plugin-core@1.162.4': 004bb0c1f55ca38ef314572f298d34079d02e9a8dc7d88ef7c2aa166a308ebf1
   better-auth@1.6.16: 671e30c789cac6d2dae636c6b5783d75eb31f8ab6ef2403ea7c3a6c4eac4adb7
   dfx@1.0.13: d2d63ef2f91fa9f885b2a2ce357428e84f7439f3279a1d81b1ce49398f583b89
 
@@ -1252,6 +1253,9 @@ importers:
 
   packages/tooling-config:
     dependencies:
+      '@tanstack/router-generator':
+        specifier: 1.162.2
+        version: 1.162.2
       glob:
         specifier: ^11.0.3
         version: 11.0.3
@@ -1261,6 +1265,10 @@ importers:
       vite-plus:
         specifier: 'catalog:'
         version: '@tiara-stack/vite-plus@0.2.4(@opentelemetry/api@1.9.0)(@tiara-stack/vite-plus@0.2.4)(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.22.3)(typescript@5.9.3)(vite@8.1.4(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(yaml@2.9.0))(yaml@2.9.0)'
+    devDependencies:
+      oxlint:
+        specifier: 1.72.0
+        version: 1.72.0(@tiara-stack/vite-plus@0.2.4)(oxlint-tsgolint@0.24.0)
 
   packages/typhoon-core:
     dependencies:
@@ -11520,7 +11528,7 @@ snapshots:
       '@tanstack/react-start-server': 1.162.4(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4)
       '@tanstack/router-utils': 1.161.4
       '@tanstack/start-client-core': 1.162.2
-      '@tanstack/start-plugin-core': 1.162.4(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))
+      '@tanstack/start-plugin-core': 1.162.4(patch_hash=004bb0c1f55ca38ef314572f298d34079d02e9a8dc7d88ef7c2aa166a308ebf1)(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))
       '@tanstack/start-server-core': 1.162.2(crossws@0.4.5(srvx@0.11.15))
       pathe: 2.0.3
       react: 19.2.4
@@ -11540,7 +11548,7 @@ snapshots:
       '@tanstack/react-start-server': 1.162.4(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.3.0-canary-98ce535f-20260226))(react@19.3.0-canary-98ce535f-20260226)
       '@tanstack/router-utils': 1.161.4
       '@tanstack/start-client-core': 1.162.2
-      '@tanstack/start-plugin-core': 1.162.4(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.3.0-canary-98ce535f-20260226))(react@19.3.0-canary-98ce535f-20260226))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))
+      '@tanstack/start-plugin-core': 1.162.4(patch_hash=004bb0c1f55ca38ef314572f298d34079d02e9a8dc7d88ef7c2aa166a308ebf1)(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.3.0-canary-98ce535f-20260226))(react@19.3.0-canary-98ce535f-20260226))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))
       '@tanstack/start-server-core': 1.162.2(crossws@0.4.5(srvx@0.11.15))
       pathe: 2.0.3
       react: 19.3.0-canary-98ce535f-20260226
@@ -11685,7 +11693,7 @@ snapshots:
 
   '@tanstack/start-fn-stubs@1.161.4': {}
 
-  '@tanstack/start-plugin-core@1.162.4(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))':
+  '@tanstack/start-plugin-core@1.162.4(patch_hash=004bb0c1f55ca38ef314572f298d34079d02e9a8dc7d88ef7c2aa166a308ebf1)(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))':
     dependencies:
       '@babel/code-frame': 7.27.1
       '@babel/core': 7.29.0
@@ -11717,7 +11725,7 @@ snapshots:
       - vite-plugin-solid
       - webpack
 
-  '@tanstack/start-plugin-core@1.162.4(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.3.0-canary-98ce535f-20260226))(react@19.3.0-canary-98ce535f-20260226))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))':
+  '@tanstack/start-plugin-core@1.162.4(patch_hash=004bb0c1f55ca38ef314572f298d34079d02e9a8dc7d88ef7c2aa166a308ebf1)(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.3.0-canary-98ce535f-20260226))(react@19.3.0-canary-98ce535f-20260226))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))':
     dependencies:
       '@babel/code-frame': 7.27.1
       '@babel/core': 7.29.0

@@ -2,16 +2,20 @@ import { globSync } from "glob";
 import path from "pathe";
 import { fileURLToPath } from "node:url";
 import { defineConfig, type UserConfig } from "vite-plus";
+import { lintPolicy } from "./lint-policy.ts";
 
 type PackConfig = Exclude<NonNullable<UserConfig["pack"]>, readonly unknown[]>;
 
 const lint = {
+  jsPlugins: [fileURLToPath(new URL("./oxlint-plugins/effect-policy.mjs", import.meta.url))],
   ignorePatterns: [".output", ".ts-out", "dist"],
   env: {
     es2022: true,
   },
   plugins: ["unicorn", "typescript", "oxc"],
+  ...lintPolicy,
   rules: {
+    ...lintPolicy.rules,
     "no-unused-vars": [
       "error",
       {
@@ -24,10 +28,6 @@ const lint = {
         ignoreRestSiblings: true,
       },
     ],
-  },
-  options: {
-    typeAware: true,
-    typeCheck: true,
   },
 } satisfies NonNullable<UserConfig["lint"]>;
 

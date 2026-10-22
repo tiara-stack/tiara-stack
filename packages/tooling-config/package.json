@@ -4,11 +4,20 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./generated-route-adoption": "./src/generated-route-adoption.ts",
     "./vite": "./src/vite.ts"
   },
+  "scripts": {
+    "lint": "vp lint src test",
+    "test": "vp exec vitest run"
+  },
   "dependencies": {
+    "@tanstack/router-generator": "1.162.2",
     "glob": "^11.0.3",
     "pathe": "^2.0.3",
     "vite-plus": "catalog:"
+  },
+  "devDependencies": {
+    "oxlint": "1.72.0"
   }
 }
