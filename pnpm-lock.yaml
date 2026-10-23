@@ -42,6 +42,9 @@ catalogs:
     vite-plus:
       specifier: npm:@tiara-stack/vite-plus@0.2.4
       version: 0.2.4
+    vitest:
+      specifier: 4.1.9
+      version: 4.1.9
     yaml:
       specifier: 2.9.0
       version: 2.9.0
@@ -58,6 +61,7 @@ overrides:
   vitest: 4.1.9
 
 patchedDependencies:
+  '@tanstack/start-plugin-core@1.162.4': 004bb0c1f55ca38ef314572f298d34079d02e9a8dc7d88ef7c2aa166a308ebf1
   better-auth@1.6.16: 671e30c789cac6d2dae636c6b5783d75eb31f8ab6ef2403ea7c3a6c4eac4adb7
   dfx@1.0.13: d2d63ef2f91fa9f885b2a2ce357428e84f7439f3279a1d81b1ce49398f583b89
 
@@ -89,6 +93,9 @@ importers:
       vite-plus:
         specifier: 'catalog:'
         version: '@tiara-stack/vite-plus@0.2.4(@opentelemetry/api@1.9.0)(@tiara-stack/vite-plus@0.2.4)(@types/node@24.10.9)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(esbuild@0.28.1)(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0)'
+      vitest:
+        specifier: 4.1.9
+        version: 4.1.9(@opentelemetry/api@1.9.0)(@types/node@24.10.9)(@vitest/browser-preview@4.1.9)(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(jsdom@27.4.0(@noble/hashes@2.0.1))
       yaml:
         specifier: 'catalog:'
         version: 2.9.0
@@ -1252,6 +1259,9 @@ importers:
 
   packages/tooling-config:
     dependencies:
+      '@tanstack/router-generator':
+        specifier: 1.162.2
+        version: 1.162.2
       glob:
         specifier: ^11.0.3
         version: 11.0.3
@@ -1261,6 +1271,10 @@ importers:
       vite-plus:
         specifier: 'catalog:'
         version: '@tiara-stack/vite-plus@0.2.4(@opentelemetry/api@1.9.0)(@tiara-stack/vite-plus@0.2.4)(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(jsdom@27.4.0(@noble/hashes@2.0.1))(tsx@4.22.3)(typescript@5.9.3)(vite@8.1.4(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(yaml@2.9.0))(yaml@2.9.0)'
+    devDependencies:
+      oxlint:
+        specifier: 1.72.0
+        version: 1.72.0(@tiara-stack/vite-plus@0.2.4)(oxlint-tsgolint@0.24.0)
 
   packages/typhoon-core:
     dependencies:
@@ -4884,40 +4898,47 @@ packages:
     resolution: {integrity: sha512-xhM6mCZ94kx7L5D4fJEVqqeXS4eGAz+ngWhbM2y7r8Ix2Lc43j6Osyw4KGGTQi1XTy3MKgs6x5DaCe1vw0i3tQ==}
     cpu: [arm64]
     os: [darwin]
+    deprecated: yuku-analyzer runs on yuku-core since 0.14
 
   '@yuku-analyzer/binding-darwin-x64@0.6.4':
     resolution: {integrity: sha512-y2uohdKpLzpT9hQyAbdNngeUiUXc9AtF05vyiPS4RmA03+HGCM7BG+bvU1nRIbNcQzf0moU7fasH1RBkoGIjjg==}
     cpu: [x64]
     os: [darwin]
+    deprecated: yuku-analyzer runs on yuku-core since 0.14
 
   '@yuku-analyzer/binding-freebsd-x64@0.6.4':
     resolution: {integrity: sha512-O9lh8SUb+jfQ/unwTHhicqMcMZiziB1j9uh4/LDjipFS/H5JeI7QEDq0bPg5ufRXAmLj8eFb0cA6NKeam8rnYA==}
     cpu: [x64]
     os: [freebsd]
+    deprecated: yuku-analyzer runs on yuku-core since 0.14
 
   '@yuku-analyzer/binding-linux-arm-gnu@0.6.4':
     resolution: {integrity: sha512-0mBy8yD3heZycZtJtINwnMFlxt3k7FF8T8ZHgHwW/q7YpC0IAKca8W3ozlZnZJhLZ0DLorIdyiQpcLdcRy74BA==}
     cpu: [arm]
     os: [linux]
     libc: [glibc]
+    deprecated: yuku-analyzer runs on yuku-core since 0.14
 
   '@yuku-analyzer/binding-linux-arm-musl@0.6.4':
     resolution: {integrity: sha512-XSmsvd2J0QqZn+792b417zoF6qSl001pPFgZxcuqHWnefnnU75rmv4GhvgouH4AEn/b9T5uYxUzQwj6XQOXPuA==}
     cpu: [arm]
     os: [linux]
     libc: [musl]
+    deprecated: yuku-analyzer runs on yuku-core since 0.14
 
   '@yuku-analyzer/binding-linux-arm64-gnu@0.6.4':
     resolution: {integrity: sha512-tGuTry4bjDwoTVZglNtvOlA5WFh4O49LieTuwF2K/DYTQbx1ej7giXsTj7qCT7vikn3G6eddtrCS90jt0ZGmcw==}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
+    deprecated: yuku-analyzer runs on yuku-core since 0.14
 
   '@yuku-analyzer/binding-linux-arm64-musl@0.6.4':
     resolution: {integrity: sha512-0aKQC3ypiBdNEj8F34dAttkbJxe+Xtvt+LGY1c1kPTtvUw1p0CQpjRgw6AtWVPDlHnNzGKIJhDNHCqKulD2umg==}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
+    deprecated: yuku-analyzer runs on yuku-core since 0.14
 
   '@yuku-analyzer/binding-linux-x64-gnu@0.6.4':
     resolution: {integrity: sha512-UeA7WWPRW7JsTNUbXKOzkCsEsd+LmK6q/hyZN4qR01kSqI+0VhSFIEKh1At89Nga6dUVPY9lyij9PNw3TTYq4Q==}
@@ -4930,16 +4951,19 @@ packages:
     cpu: [x64]
     os: [linux]
     libc: [musl]
+    deprecated: yuku-analyzer runs on yuku-core since 0.14
 
   '@yuku-analyzer/binding-win32-arm64@0.6.4':
     resolution: {integrity: sha512-4Uy1fZH+vGZE1jjZLj67kHUotQmxWYYoouZ5Bn9SrpH0N0j4dDQxF96Nc5Lu/7UwDk4SqysvsA3xylp/3ybzgw==}
     cpu: [arm64]
     os: [win32]
+    deprecated: yuku-analyzer runs on yuku-core since 0.14
 
   '@yuku-analyzer/binding-win32-x64@0.6.4':
     resolution: {integrity: sha512-0AVv8l/lq7WEXvVhafYJiyJQhGVsNCgvYBaRw/cWSoxCoPAW2QJ9SnVFYohKl8NPsGC8KOAeE8tsSGVOeA+O3w==}
     cpu: [x64]
     os: [win32]
+    deprecated: yuku-analyzer runs on yuku-core since 0.14
 
   '@yuku-toolchain/types@0.5.43':
     resolution: {integrity: sha512-kSpvPntnXw5+lYjO71ffBEnQ5ycQ74KGIYknh0TS4xeyCuBkOqxyJumxZkMhLBBUCLjDAbx2+Icnr3Zh4ftjpQ==}
@@ -11520,7 +11544,7 @@ snapshots:
       '@tanstack/react-start-server': 1.162.4(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4)
       '@tanstack/router-utils': 1.161.4
       '@tanstack/start-client-core': 1.162.2
-      '@tanstack/start-plugin-core': 1.162.4(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))
+      '@tanstack/start-plugin-core': 1.162.4(patch_hash=004bb0c1f55ca38ef314572f298d34079d02e9a8dc7d88ef7c2aa166a308ebf1)(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))
       '@tanstack/start-server-core': 1.162.2(crossws@0.4.5(srvx@0.11.15))
       pathe: 2.0.3
       react: 19.2.4
@@ -11540,7 +11564,7 @@ snapshots:
       '@tanstack/react-start-server': 1.162.4(crossws@0.4.5(srvx@0.11.15))(react-dom@19.3.0-canary-98ce535f-20260226(react@19.3.0-canary-98ce535f-20260226))(react@19.3.0-canary-98ce535f-20260226)
       '@tanstack/router-utils': 1.161.4
       '@tanstack/start-client-core': 1.162.2
-      '@tanstack/start-plugin-core': 1.162.4(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.3.0-canary-98ce535f-20260226))(react@19.3.0-canary-98ce535f-20260226))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))
+      '@tanstack/start-plugin-core': 1.162.4(patch_hash=004bb0c1f55ca38ef314572f298d34079d02e9a8dc7d88ef7c2aa166a308ebf1)(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.3.0-canary-98ce535f-20260226))(react@19.3.0-canary-98ce535f-20260226))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))
       '@tanstack/start-server-core': 1.162.2(crossws@0.4.5(srvx@0.11.15))
       pathe: 2.0.3
       react: 19.3.0-canary-98ce535f-20260226
@@ -11685,7 +11709,7 @@ snapshots:
 
   '@tanstack/start-fn-stubs@1.161.4': {}
 
-  '@tanstack/start-plugin-core@1.162.4(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))':
+  '@tanstack/start-plugin-core@1.162.4(patch_hash=004bb0c1f55ca38ef314572f298d34079d02e9a8dc7d88ef7c2aa166a308ebf1)(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.2.4))(react@19.2.4))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))':
     dependencies:
       '@babel/code-frame': 7.27.1
       '@babel/core': 7.29.0
@@ -11717,7 +11741,7 @@ snapshots:
       - vite-plugin-solid
       - webpack
 
-  '@tanstack/start-plugin-core@1.162.4(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.3.0-canary-98ce535f-20260226))(react@19.3.0-canary-98ce535f-20260226))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))':
+  '@tanstack/start-plugin-core@1.162.4(patch_hash=004bb0c1f55ca38ef314572f298d34079d02e9a8dc7d88ef7c2aa166a308ebf1)(@tanstack/react-router@1.162.4(react-dom@19.3.0-canary-98ce535f-20260226(react@19.3.0-canary-98ce535f-20260226))(react@19.3.0-canary-98ce535f-20260226))(@voidzero-dev/vite-plus-core@0.2.2(@types/node@24.10.9)(esbuild@0.28.1)(jiti@2.6.1)(tsx@4.22.3)(typescript@5.9.3)(yaml@2.9.0))(crossws@0.4.5(srvx@0.11.15))':
     dependencies:
       '@babel/code-frame': 7.27.1
       '@babel/core': 7.29.0

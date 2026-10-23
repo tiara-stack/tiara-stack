@@ -40,6 +40,7 @@ overrides:
   vite: "catalog:"
   vitest: "catalog:"
 patchedDependencies:
+  "@tanstack/start-plugin-core@1.162.4": patches/@tanstack__start-plugin-core@1.162.4.patch
   better-auth@1.6.16: patches/better-auth@1.6.16.patch
   dfx@1.0.13: patches/dfx@1.0.13.patch
 peerDependencyRules:

@@ -10,6 +10,17 @@
     "deploy/compose/scripts/seed.ts",
     "packages/typhoon-core/src/error/index.ts"
   ],
+  "framework": [
+    {
+      "name": "tiara-test-entrypoints",
+      "enablers": ["vite-plus"],
+      "entryPoints": [
+        "packages/tooling-config/test/effect-policy.test.mjs",
+        "packages/tooling-config/test/generated-route-adoption.test.mjs"
+      ],
+      "entryPointRole": "test"
+    }
+  ],
   "ignorePatterns": [
     "packages/*/effect-sql-migrations/**",
     "packages/sheet-zero-api/src/schema.ts"
