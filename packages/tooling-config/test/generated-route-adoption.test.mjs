@@ -106,7 +106,10 @@ describe("TanStack Start generator plugin composition", () => {
         root: temporaryRoot,
         plugins: tanstackStart({
           srcDirectory: "src",
-          router: { plugins: callerPlugins },
+          router: {
+            tmpDir: path.join(temporaryRoot, ".tanstack", "tmp"),
+            plugins: callerPlugins,
+          },
         }),
         server: { middlewareMode: true },
       });
@@ -234,6 +237,7 @@ describe("TanStack Start generator plugin composition", () => {
         plugins: tanstackStart({
           srcDirectory: "src",
           router: {
+            tmpDir: path.join(temporaryRoot, ".tanstack", "tmp"),
             plugins: [
               probePlugin,
               createGeneratedRouteAdoptionPlugin({
