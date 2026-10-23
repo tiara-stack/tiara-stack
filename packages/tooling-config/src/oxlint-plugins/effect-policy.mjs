@@ -3808,7 +3808,7 @@ const controlledTimeouts = {
       const scope = nearestBindingScope(node, read(node, "name"));
       return scope ? bindingIdentifierInScope(scope, read(node, "name")) : undefined;
     };
-    const booleanAssignmentValue = (statement, declaration) => {
+    const assignmentValueForDeclarator = (statement, declaration, resolveValue) => {
       const assignment = read(statement, "expression");
       if (
         !allOf([
@@ -3818,8 +3818,10 @@ const controlledTimeouts = {
         ])
       )
         return undefined;
-      return staticBooleanValue(read(assignment, "right"));
+      return resolveValue(read(assignment, "right"));
     };
+    const booleanAssignmentValue = (statement, declaration) =>
+      assignmentValueForDeclarator(statement, declaration, staticBooleanValue);
     const lastBooleanAssignmentBefore = (statements, limit, declaration, initial) => {
       let value = initial;
       for (const statement of statements.slice(0, limit)) {
@@ -3851,18 +3853,8 @@ const controlledTimeouts = {
     const containsDeferredMake = (node) =>
       firstReachableExecutionNode(node, (current) => deferredMethodCall(current, "make")) !==
       undefined;
-    const deferredAssignmentValue = (statement, declaration) => {
-      const assignment = read(statement, "expression");
-      if (
-        !allOf([
-          isType(assignment, "AssignmentExpression"),
-          read(assignment, "operator") === "=",
-          identifierReferencesDeclarator(read(assignment, "left"), declaration),
-        ])
-      )
-        return undefined;
-      return containsDeferredMake(read(assignment, "right"));
-    };
+    const deferredAssignmentValue = (statement, declaration) =>
+      assignmentValueForDeclarator(statement, declaration, containsDeferredMake);
     const lastDeferredAssignmentBefore = (statements, limit, declaration, initial) => {
       let initialized = initial;
       for (const statement of statements.slice(0, limit)) {
@@ -4363,26 +4355,20 @@ const controlledTimeouts = {
       if (allOf([isType(specifier, "ImportSpecifier"), imported === "Duration"]))
         durationNamespaces.add(local);
     };
-    const registerDeferredSpecifier = (statement, specifier) => {
+    const registerNamedEffectSpecifier = (statement, specifier, importedName, target) => {
       if (
         allOf([
           read(read(statement, "source"), "value") === "effect",
           isType(specifier, "ImportSpecifier"),
-          read(read(specifier, "imported"), "name") === "Deferred",
+          read(read(specifier, "imported"), "name") === importedName,
         ])
       )
-        deferredNamespaces.add(read(read(specifier, "local"), "name"));
+        target.add(read(read(specifier, "local"), "name"));
     };
-    const registerFiberSpecifier = (statement, specifier) => {
-      if (
-        allOf([
-          read(read(statement, "source"), "value") === "effect",
-          isType(specifier, "ImportSpecifier"),
-          read(read(specifier, "imported"), "name") === "Fiber",
-        ])
-      )
-        fiberNamespaces.add(read(read(specifier, "local"), "name"));
-    };
+    const registerDeferredSpecifier = (statement, specifier) =>
+      registerNamedEffectSpecifier(statement, specifier, "Deferred", deferredNamespaces);
+    const registerFiberSpecifier = (statement, specifier) =>
+      registerNamedEffectSpecifier(statement, specifier, "Fiber", fiberNamespaces);
     const registerEffectImports = (node) =>
       read(node, "specifiers").forEach((specifier) => {
         registerEffectSpecifier(node, specifier);
@@ -5170,26 +5156,28 @@ const preserveUnknownEvidence = {
     const isNullLiteral = (node) =>
       isType(node, "NullLiteral") || allOf([isType(node, "Literal"), literal(node) === null]);
     const staticBooleanValueForEvidence = (node) => staticBooleanValueForStableConst(node);
-    const nullComparedIdentifier = (test) => {
+    const comparedIdentifier = (test, resolveIdentifier) => {
       if (!isType(test, "BinaryExpression")) return undefined;
       if (!["==", "===", "!=", "!=="].includes(read(test, "operator"))) return undefined;
       const left = read(test, "left");
       const right = read(test, "right");
+      return resolveIdentifier(left, right);
+    };
+    const nullComparisonIdentifier = (left, right) => {
       if (isNullLiteral(left) && isType(right, "Identifier")) return right;
       if (isNullLiteral(right) && isType(left, "Identifier")) return left;
       return undefined;
     };
-    const booleanComparedIdentifier = (test) => {
-      if (!isType(test, "BinaryExpression")) return undefined;
-      if (!["==", "===", "!=", "!=="].includes(read(test, "operator"))) return undefined;
-      const left = read(test, "left");
-      const right = read(test, "right");
+    const booleanComparisonIdentifier = (left, right) => {
       if (isType(left, "Identifier") && typeof staticBooleanValueForEvidence(right) === "boolean")
         return left;
       if (isType(right, "Identifier") && typeof staticBooleanValueForEvidence(left) === "boolean")
         return right;
       return undefined;
     };
+    const nullComparedIdentifier = (test) => comparedIdentifier(test, nullComparisonIdentifier);
+    const booleanComparedIdentifier = (test) =>
+      comparedIdentifier(test, booleanComparisonIdentifier);
     const isGlobalBooleanCall = (value) => {
       if (!isType(value, "CallExpression")) return false;
       const callee = read(value, "callee");
@@ -5751,13 +5739,7 @@ const builtinSiteAdoption = {
     const entries = baseline.$builtins?.[file] ?? [];
     const remaining = countBuiltinEntries(entries);
     const candidateSites = [];
-    const consume = (key) => {
-      const count = remaining.get(key) ?? 0;
-      if (count <= 0) return false;
-      if (count === 1) remaining.delete(key);
-      else remaining.set(key, count - 1);
-      return true;
-    };
+    const consume = (key) => consumeBaselineSite(remaining, key);
     const candidateIdentityNode = (candidate) => candidate.identityNode ?? candidate.node;
     const siteKeyForCandidate = (rule, candidate) =>
       JSON.stringify([
