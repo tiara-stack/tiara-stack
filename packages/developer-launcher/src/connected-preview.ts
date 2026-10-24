@@ -334,6 +334,7 @@ const prerequisites = [
       "External target ownership, permissions, and exclusive-writer status have not been checked.",
   },
 ] as const;
+type ConnectedPreviewPrerequisiteId = (typeof prerequisites)[number]["id"];
 
 const quotaResourceDimensions = previewCapacityDimensionsByGroup satisfies Readonly<
   Record<ConnectedPreviewGroup, readonly string[]>
@@ -347,13 +348,19 @@ const getRuntimeContract = (contractId: string | null | undefined) => {
   if (contractId == null || !Object.hasOwn(runtimeContractCatalog.contracts, contractId)) {
     return undefined;
   }
-  return runtimeContractCatalog.contracts[contractId as ContractId];
+
+  return runtimeContractCatalog.contracts[
+    contractId /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ContractId /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+  ];
 };
 
 const contractsForRole = (role: ConnectedPreviewRole) => {
   const providedContracts: ContractId[] = [];
   const consumedContracts: ContractId[] = [];
-  for (const contract of Object.keys(runtimeContractCatalog.contracts) as ContractId[]) {
+
+  for (const contract of Object.keys(
+    runtimeContractCatalog.contracts,
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ContractId[] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */) {
     const definition = runtimeContractCatalog.contracts[contract];
     if (definition.providers.some((provider) => provider === role))
       providedContracts.push(contract);
@@ -683,7 +690,7 @@ const reportCompatibility = (
     return {
       role: change.role,
       contract:
-        change.contract === null || change.contract === undefined
+        change.contract === null || change.contract === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
           ? null
           : isSafeIdentifier(change.contract)
             ? change.contract
@@ -1152,7 +1159,7 @@ const validateEnvironmentFileValue = (
   rawValue: string,
 ) => {
   const allowedValues = environmentFileValueCatalog[
-    key as keyof typeof environmentFileValueCatalog
+    key /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof typeof environmentFileValueCatalog /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
   ] as readonly string[] | undefined;
   const value = decodedEnvironmentFileValue(rawValue);
   if (allowedValues !== undefined && allowedValues.includes(value)) return true;
@@ -2188,9 +2195,9 @@ const sessionOutput = (
   plannedProcesses: [],
   urls: [],
   readiness:
-    session.phase === "ended"
+    session.phase === "ended" // oxlint-disable-line no-nested-ternary -- inherited master site
       ? "stopped"
-      : session.phase === "expired"
+      : session.phase === "expired" // oxlint-disable-line no-nested-ternary -- inherited master site
         ? "blocked"
         : session.phase === "active"
           ? "ready"
@@ -3015,7 +3022,7 @@ const sheetWebDependencyIdentities = (
   });
   return dependencies.some((dependency) => dependency === undefined)
     ? undefined
-    : (dependencies as readonly import("./preview-gateway").PreviewGatewayDependencyIdentity[]);
+    : (dependencies /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as readonly import("./preview-gateway").PreviewGatewayDependencyIdentity[]) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 const sheetWebDependencyTargets = (
@@ -3639,7 +3646,7 @@ const runSessionStart = (
   allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
 ): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
   Effect.flatMap(preparePreviewStart(command, options, allocations), (prepared) =>
-    "output" in prepared
+    "output" in prepared // oxlint-disable-line no-nested-ternary -- inherited master site
       ? Effect.succeed(prepared.output)
       : allocations === undefined
         ? Effect.succeed(
@@ -4558,15 +4565,25 @@ const runCapacityBaselineImport = (
     );
   });
 
-const doctorFailureCodes: Partial<
-  Record<(typeof prerequisites)[number]["id"], Diagnostic["code"]>
-> = {
+const doctorFailureCodes = {
+  "telepresence-client-pin": "prerequisite-unavailable",
+  "telepresence-manager-agent-pin": "prerequisite-unavailable",
+  "workspace-tun-capabilities": "prerequisite-unavailable",
   "managed-service-tls": "tls-unavailable",
   "application-authentication": "application-authentication-unavailable",
   "workspace-dns": "dns-unavailable",
   "managed-service-dns": "dns-unavailable",
   "development-network": "network-unavailable",
-};
+  "development-cluster-access": "prerequisite-unavailable",
+  "scoped-relay-attachment": "prerequisite-unavailable",
+  "session-controller": "prerequisite-unavailable",
+  "routes-and-identity": "prerequisite-unavailable",
+  "deployed-manifest": "prerequisite-unavailable",
+  "state-grants-and-capacity": "prerequisite-unavailable",
+  "runtime-credentials": "prerequisite-unavailable",
+  "cleanup-ownership": "prerequisite-unavailable",
+  "external-target-ownership": "prerequisite-unavailable",
+} as const satisfies Readonly<Record<ConnectedPreviewPrerequisiteId, Diagnostic["code"]>>;
 
 const doctorUnavailableErrors = (action: "doctor") =>
   prerequisites
@@ -4577,7 +4594,7 @@ const doctorUnavailableErrors = (action: "doctor") =>
     )
     .map(({ id, reason }) =>
       diagnostic(
-        doctorFailureCodes[id] ?? "prerequisite-unavailable",
+        doctorFailureCodes[id],
         action,
         `Connected preview prerequisite ${id} is unavailable because its read-only check is not implemented`,
         `${reason} Keep the profile unavailable until this check has verifiable live evidence.`,
@@ -4591,7 +4608,7 @@ const doctorProbeDiagnostics = (checks: readonly PreviewRelayDoctorCheck[]) =>
     .map((check) => {
       const prerequisite = prerequisites.find(({ id }) => id === check.id);
       return diagnostic(
-        doctorFailureCodes[check.id as keyof typeof doctorFailureCodes] ??
+        Object.entries(doctorFailureCodes).find(([id]) => id === check.id)?.[1] ??
           "prerequisite-unavailable",
         "doctor",
         `Connected preview prerequisite ${check.id} is ${check.status}: ${check.detail}`,
@@ -4705,15 +4722,16 @@ const capacityCheckDiagnostic = (
     return [
       makeDiagnostic(
         "capacity-exhausted",
-        `Capacity exhausted for ${check.dimension}: requested ${check.amount}, reserved ${check.reserved}, available ${check.available}`,
+
+        `Capacity exhausted for ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ check.dimension /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}: requested ${check.amount}, reserved ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ check.reserved /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}, available ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ check.available /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
         "Reduce this profile's measured demand or collect a fresh provider baseline after safely increasing development capacity, then retry.",
         { mode: "preview", action, dependency: check.dimension },
       ),
     ];
   const condition =
-    check.status === "missing"
+    check.status === "missing" // oxlint-disable-line no-nested-ternary -- inherited master site
       ? "no measurement was collected"
-      : check.status === "provider-mismatch"
+      : check.status === "provider-mismatch" // oxlint-disable-line no-nested-ternary -- inherited master site
         ? `no observation matches the configured provider identity; observed ${check.observedProviders.map(safeIdentifier).join(", ")}`
         : check.status === "stale"
           ? "the provider measurement is stale"
@@ -4770,7 +4788,7 @@ const outputForPreviewReport = (
           ? report.prerequisites
           : reportWithDoctorChecks(report, doctorChecks).prerequisites,
       groupPlans,
-      status: validationErrors.length > 0 ? "blocked" : isDoctor ? "unavailable" : "planned",
+      status: validationErrors.length > 0 ? "blocked" : isDoctor ? "unavailable" : "planned", // oxlint-disable-line no-nested-ternary -- inherited master site
     },
   };
 };

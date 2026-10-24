@@ -152,7 +152,7 @@ const isRetryableStatus = (status: number): boolean =>
   status === 408 || status === 429 || status >= 500;
 
 const isAmbiguousWriteCode = (code: unknown): boolean =>
-  Predicate.isNumber(code)
+  Predicate.isNumber(code) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? isRetryableStatus(code)
     : Predicate.isString(code)
       ? ambiguousTransportCodes.has(code)

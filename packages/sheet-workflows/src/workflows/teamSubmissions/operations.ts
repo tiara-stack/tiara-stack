@@ -238,7 +238,7 @@ const processResultMessage = (
   return {
     embeds: [
       {
-        title: hasReadyEntries
+        title: hasReadyEntries // oxlint-disable-line no-nested-ternary -- inherited master site
           ? "Teams ready to add"
           : hasSkippedEntries
             ? "Teams skipped"
@@ -428,7 +428,7 @@ const updateForMapping = (
 ): ReadonlyArray<SheetValueUpdate> => {
   const splitTeamName = entry.teamName.split(/\s+(?:or|\/or)\s+|;\s*/i)[0] ?? entry.teamName;
   const isvValues =
-    mapping.isvRanges.length <= 1
+    mapping.isvRanges.length <= 1 // oxlint-disable-line no-nested-ternary -- inherited master site
       ? mapping.isvRanges.length === 1
         ? [entry.teamName]
         : []
@@ -1275,9 +1275,9 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
               teamName: entry.teamName,
               teamType: entry.teamType,
               reason:
-                selected === null
+                selected === null // oxlint-disable-line no-nested-ternary -- inherited master site
                   ? "No usable team config matched this team; check its tags and player-name range"
-                  : playerNameRange === undefined || playerNameRange.length === 0
+                  : playerNameRange === undefined || playerNameRange.length === 0 // oxlint-disable-line no-nested-ternary -- inherited master site
                     ? "The matched team config is missing a player-name range"
                     : teamNameRange === undefined || teamNameRange.length === 0
                       ? "The matched team config is missing a team-name mapping; use an explicit range or auto"
@@ -1316,7 +1316,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
             oshi,
           });
           registeredMappings.push(
-            existingMapping === undefined
+            existingMapping === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
               ? {
                   stableKey: entry.stableKey,
                   playerNameRange: ranges.playerNameRange,
@@ -1332,7 +1332,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
         }
 
         const status: (typeof MessageTeamSubmission.Type)["status"] =
-          registered.length === 0
+          registered.length === 0 // oxlint-disable-line no-nested-ternary -- inherited master site
             ? "empty"
             : existing?.status === "applying"
               ? "applying"
@@ -1427,7 +1427,7 @@ export const teamSubmissionsWorkflowOperationsLayer = Layer.effect(
         Effect.timeout("30 seconds"),
         Effect.exit,
         Effect.flatMap((exit) =>
-          Exit.isSuccess(exit)
+          Exit.isSuccess(exit) // oxlint-disable-line no-nested-ternary -- inherited master site
             ? Effect.succeed(Option.some(exit.value))
             : Cause.hasInterruptsOnly(exit.cause)
               ? Effect.interrupt

@@ -191,7 +191,7 @@ export const zeroContextFromToken = (
     ),
     Match.when("publicRuns", () => (isService ? serviceContext(token) : publicRunsContext(token))),
     Match.when("runs", () =>
-      isService
+      isService // oxlint-disable-line no-nested-ternary -- inherited master site
         ? serviceContext(token)
         : token.scopes.has("workflow.dispatch")
           ? accountContext(token)
@@ -206,7 +206,7 @@ export const zeroContextFromToken = (
       Effect.fail(unauthorized("Workflow observations cannot be mixed with other procedures")),
     ),
     Match.when("domain", () =>
-      isService
+      isService // oxlint-disable-line no-nested-ternary -- inherited master site
         ? serviceContext(token)
         : token.scopes.has("zero.read") &&
             (procedureNames.every((procedure) => !isMutatorProcedure(procedure)) ||

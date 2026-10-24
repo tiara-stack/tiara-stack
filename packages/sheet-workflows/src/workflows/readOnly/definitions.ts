@@ -88,7 +88,13 @@ const makeDefinition = <Contract extends AnyWorkflowContract>(
             ),
           );
         return yield* preserveDeclaredFailure(
-          read(dataSource, { ...execution, input } as ReadOnlyExecution<Contract>),
+          read(
+            dataSource,
+            {
+              ...execution,
+              input,
+            } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReadOnlyExecution<Contract> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ),
           contract.declaredFailure,
         );
       }),

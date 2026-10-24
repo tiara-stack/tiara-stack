@@ -76,7 +76,11 @@ it.live("kills a one-shot process group after its leader exits", () =>
         process.kill(-processGroupId, 0);
         groupAlive = true;
       } catch (error) {
-        groupAlive = (error as NodeJS.ErrnoException).code !== "ESRCH";
+        groupAlive =
+          (
+            error /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as NodeJS.ErrnoException
+          ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+            .code !== "ESRCH";
       }
       expect(groupAlive).toBe(false);
     } finally {
@@ -176,7 +180,11 @@ it.live("waits for a signaled process group after its leader exits", () =>
       try {
         process.kill(-processGroupId!, 0);
       } catch (error) {
-        groupAlive = (error as NodeJS.ErrnoException).code !== "ESRCH";
+        groupAlive =
+          (
+            error /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as NodeJS.ErrnoException
+          ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+            .code !== "ESRCH";
       }
       expect(groupAlive).toBe(false);
     } finally {
@@ -214,13 +222,18 @@ it.live("does not signal a process group after the leader and group have exited"
 
     const originalKill = process.kill.bind(process);
     const signals: NodeJS.Signals[] = [];
+
     process.kill = ((pid: number, signal?: NodeJS.Signals | number | null) => {
       if (pid === -processGroupId && signal !== undefined && signal !== null && signal !== 0)
-        signals.push(String(signal) as NodeJS.Signals);
+        signals.push(
+          String(
+            signal,
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as NodeJS.Signals /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        );
       return signal === undefined || signal === null
         ? originalKill(pid)
         : originalKill(pid, signal);
-    }) as typeof process.kill;
+    }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof process.kill /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     try {
       yield* Effect.promise(() => child.kill());
       expect(signals).toEqual([]);

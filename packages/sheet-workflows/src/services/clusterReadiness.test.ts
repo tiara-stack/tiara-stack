@@ -25,7 +25,7 @@ const fakeSql = (
     queries.push(strings.join("?"));
     parameterSets.push(parameters);
     return Effect.succeed(rows);
-  }) as unknown as SqlClient.SqlClient;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SqlClient.SqlClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const runReadiness = (
   effect: Effect.Effect<boolean, unknown, SqlClient.SqlClient>,

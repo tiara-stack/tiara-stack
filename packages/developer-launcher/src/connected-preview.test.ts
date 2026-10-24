@@ -168,7 +168,10 @@ const makeRelayProviderWithAttachmentStatus = (
 };
 
 const contractsForPreviewRole = (role: string) => {
-  const definition = previewRoleContracts[role as keyof typeof previewRoleContracts];
+  const definition =
+    previewRoleContracts[
+      role /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof typeof previewRoleContracts /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+    ];
   return definition === undefined ? [] : [...definition.provided, ...definition.consumed];
 };
 
@@ -200,7 +203,12 @@ interface PreviewFixtureOptions {
 const connectedPreviewGroupsFor = (roles: readonly string[], overrides: PreviewFixtureOptions) => {
   const groupIds = [
     ...new Set(
-      roles.flatMap((role) => previewRoleGroups[role as keyof typeof previewRoleGroups] ?? []),
+      roles.flatMap(
+        (role) =>
+          previewRoleGroups[
+            role /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof typeof previewRoleGroups /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          ] ?? [],
+      ),
     ),
   ].filter((group) => !(overrides.omittedGroups ?? []).includes(group));
   const groups = groupIds.map((id) => {
@@ -242,8 +250,10 @@ const connectedPreviewCredentialReferencesFor = (
     roles.map((role) => [
       role,
       overrides.credentialOverrides?.[role] ?? {
-        [previewRoleCredentialNames[role as keyof typeof previewRoleCredentialNames]?.[0] ?? ""]:
-          `secret://tiara-stack-dev/${role}/${previewRoleCredentialNames[role as keyof typeof previewRoleCredentialNames]?.[0] ?? ""}`,
+        [previewRoleCredentialNames[
+          role /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof typeof previewRoleCredentialNames /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+        ]?.[0] ?? ""]:
+          `secret://tiara-stack-dev/${role}/${previewRoleCredentialNames[role /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof typeof previewRoleCredentialNames /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */]?.[0] ?? ""}`,
       },
     ]),
   );
@@ -334,6 +344,7 @@ const runConnectedPreviewConfig = (
     readonly executor?: ProcessExecutor;
     readonly environmentFileContents?: Readonly<Record<string, string>>;
     readonly env?: NodeJS.ProcessEnv;
+    readonly previewRelayProvider?: LauncherOptions["previewRelayProvider"];
   } = {},
 ) => {
   const output = options.output ?? "json";
@@ -355,6 +366,9 @@ const runConnectedPreviewConfig = (
               cwd,
               env: options.env ?? {},
               ...(options.executor === undefined ? {} : { executor: options.executor }),
+              ...(options.previewRelayProvider === undefined
+                ? {}
+                : { previewRelayProvider: options.previewRelayProvider }),
             },
           ),
         catch: (cause) => cause,
@@ -520,7 +534,10 @@ liveTest("plans all seven selected roles and explicit groups without starting re
       }),
     };
     const result = results.json;
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly schemaVersion: number;
       readonly mode: string;
       readonly action: string;
@@ -577,7 +594,7 @@ liveTest("plans all seven selected roles and explicit groups without starting re
         readonly role: string;
         readonly names: readonly string[];
       }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode, result.stdout).toBe(0);
     expect(output).toEqual(
@@ -713,7 +730,10 @@ liveTest("keeps reported roles, contracts, and incompatible callers aligned", ()
       "plan",
       createConnectedPreviewConfig({ changeOverrides }),
     );
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly connectedPreview: {
         readonly roleCatalog: readonly {
           readonly role: string;
@@ -728,15 +748,20 @@ liveTest("keeps reported roles, contracts, and incompatible callers aligned", ()
           readonly requiredCallers: readonly string[];
         }[];
       };
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     const reportedConsumers = new Map<string, string[]>();
 
     for (const role of output.connectedPreview.roleCatalog) {
-      const expected = previewRoleContracts[role.role as keyof typeof previewRoleContracts];
+      const expected =
+        previewRoleContracts[
+          role.role /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof typeof previewRoleContracts /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+        ];
       expect(role.providedContracts).toEqual(expected.provided);
       expect(role.consumedContracts).toEqual(expected.consumed);
       expect(role.credentialNames).toEqual(
-        previewRoleCredentialNames[role.role as keyof typeof previewRoleCredentialNames],
+        previewRoleCredentialNames[
+          role.role /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof typeof previewRoleCredentialNames /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+        ],
       );
       expect(role.environmentKeys).toEqual(previewEnvironmentKeys);
       for (const contract of role.consumedContracts) {
@@ -771,14 +796,17 @@ liveTest("accepts an explicit contract-free implementation-only declaration", ()
         },
       }),
     );
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly connectedPreview: {
         readonly compatibility: readonly {
           readonly contract: string | null;
           readonly classification: string;
         }[];
       };
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(0);
     expect(output.connectedPreview.compatibility).toContainEqual({
@@ -837,7 +865,10 @@ liveTest("redacts unapproved credential names from reports and diagnostics", () 
         },
       }),
     );
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly connectedPreview: {
         readonly credentialReferences: readonly {
           readonly role: string;
@@ -845,7 +876,7 @@ liveTest("redacts unapproved credential names from reports and diagnostics", () 
           readonly status: string;
         }[];
       };
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.connectedPreview.credentialReferences).toContainEqual({
@@ -893,9 +924,12 @@ liveTest("requires owned workflow execution for an acknowledged bot handoff", ()
         configOverrides: { sharedExecution: "producer-only" },
       }),
     );
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly errors: readonly { readonly code: string; readonly dependency: string | null }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.errors).toContainEqual(
@@ -928,12 +962,15 @@ liveTest("plans explicit producer-only shared execution as intent without starti
         },
       },
     );
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly connectedPreview: {
         readonly declaredIntent: { readonly sharedExecution: string };
         readonly requiredGroups: readonly { readonly id: string; readonly ownership: string }[];
       };
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(0);
     expect(output.connectedPreview.declaredIntent.sharedExecution).toBe("producer-only");
@@ -1008,14 +1045,17 @@ liveTest("keeps planning JSON Lines on lifecycle version 1", () =>
       createConnectedPreviewConfig({ roles: ["sheet-auth"] }),
       { output: "json-stream" },
     );
-    const event = JSON.parse(result.stdout) as {
+
+    const event = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly format: string;
       readonly eventVersion: number;
       readonly sequence: number;
       readonly type: string;
       readonly mode: string;
       readonly connectedPreview: { readonly executionAvailable: boolean };
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(event).toEqual(
       expect.objectContaining({
@@ -1042,7 +1082,10 @@ liveTest(
       });
       const result = yield* runConnectedPreviewConfig("plan", config);
       const human = yield* runConnectedPreviewConfig("plan", config, { output: "human" });
-      const output = JSON.parse(result.stdout) as {
+
+      const output = JSON.parse(
+        result.stdout,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
         readonly selectedServices: readonly string[];
         readonly errors: readonly { readonly code: string }[];
         readonly connectedPreview: {
@@ -1055,7 +1098,7 @@ liveTest(
             readonly requiredCallers: readonly string[];
           }[];
         };
-      };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(result.exitCode).toBe(2);
       expect(output.selectedServices).toEqual(["sheet-db-server"]);
@@ -1093,13 +1136,16 @@ liveTest("requires explicit workflow callers for an owned group", () =>
       "plan",
       createConnectedPreviewConfig({ roles: ["sheet-web"] }),
     );
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly connectedPreview: {
         readonly missingRoles: readonly string[];
         readonly requiredGroups: readonly { readonly id: string; readonly ownership: string }[];
       };
       readonly errors: readonly { readonly code: string }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.connectedPreview.missingRoles).toEqual([
@@ -1280,9 +1326,12 @@ for (const [name, options, expectedCode] of invalidPreviewInputs) {
         "plan",
         createConnectedPreviewConfig({ roles: ["sheet-auth"], ...options }),
       );
-      const output = JSON.parse(result.stdout) as {
+
+      const output = JSON.parse(
+        result.stdout,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
         readonly errors: readonly { readonly code: string }[];
-      };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(result.exitCode).toBe(2);
       expect(output.errors.some(({ code }) => code === expectedCode)).toBe(true);
@@ -1439,10 +1488,13 @@ liveTest("warns about ambient credentials without exposing their values", () =>
         },
       },
     );
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly errors: readonly { readonly code: string }[];
       readonly warnings: readonly { readonly code: string }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(0);
     expect(output.errors).toEqual([]);
@@ -1469,7 +1521,10 @@ liveTest("reports unimplemented doctor checks as unavailable and performs no pro
         },
       },
     );
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly readiness: string;
       readonly plannedProcesses: readonly unknown[];
       readonly errors: readonly { readonly code: string }[];
@@ -1477,7 +1532,7 @@ liveTest("reports unimplemented doctor checks as unavailable and performs no pro
         readonly status: string;
         readonly prerequisites: readonly { readonly status: string }[];
       };
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.readiness).toBe("blocked");
@@ -1496,15 +1551,56 @@ liveTest("reports unimplemented doctor checks as unavailable and performs no pro
   }),
 );
 
+liveTest("maps an unknown doctor provider check to the generic unavailable diagnostic", () =>
+  Effect.gen(function* () {
+    const provider: NonNullable<LauncherOptions["previewRelayProvider"]> = {
+      ...PreviewRelayProviderUnavailable(),
+      configured: true,
+      checkPreparedWorkspace: () =>
+        Effect.succeed([
+          {
+            id: "future-provider-check",
+            status: "failed",
+            detail: "The provider reported a check unknown to this launcher version.",
+          },
+        ]),
+    };
+    const result = yield* runConnectedPreviewConfig(
+      "doctor",
+      createConnectedPreviewConfig({ roles: ["sheet-auth"] }),
+      { previewRelayProvider: provider },
+    );
+    const parsed: unknown = JSON.parse(result.stdout);
+    const errors =
+      typeof parsed === "object" &&
+      parsed !== null &&
+      "errors" in parsed &&
+      Array.isArray(parsed.errors)
+        ? parsed.errors
+        : [];
+
+    expect(result.exitCode).toBe(2);
+    expect(errors).toContainEqual(
+      expect.objectContaining({
+        code: "prerequisite-unavailable",
+        dependency: "future-provider-check",
+      }),
+    );
+  }),
+);
+
 liveTest("deduplicates missing capacity dimensions shared by owned groups", () =>
   Effect.gen(function* () {
     const result = yield* runConnectedPreviewConfig(
       "doctor",
       createConnectedPreviewConfig({ roles: ["sheet-db-server"] }),
     );
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly errors: readonly { readonly message: string }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     const dimensionDiagnostics = output.errors
       .map(({ message }) => /^Capacity dimension ([^ ]+)/.exec(message)?.[1])
       .filter((dimension): dimension is string => dimension !== undefined);
@@ -1674,7 +1770,7 @@ liveTest("keeps sheet-web allocation unavailable until its host runtime is wired
                     input.ownedGroups.flatMap(
                       (group) =>
                         previewCapacityDimensionsByGroup[
-                          group as keyof typeof previewCapacityDimensionsByGroup
+                          group /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof typeof previewCapacityDimensionsByGroup /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
                         ] ?? [],
                     ),
                   ),
@@ -1857,7 +1953,14 @@ liveTest("stops and exposes the allocation ledger when public preview start is i
         const rows = yield* sql`SELECT id FROM preview_sessions`;
         expect(rows).toHaveLength(1);
         yield* verifyInterruptedPreviewIsRecoverable(
-          String((rows[0] as Record<string, unknown>).id),
+          String(
+            (
+              rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+                string,
+                unknown
+              >
+            ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.id,
+          ),
           fixture.options,
           fixture.sessions,
           fixture.allocations,
@@ -1911,12 +2014,15 @@ for (const [action, args] of blockedPreviewActions) {
           return { exitCode: 0 };
         },
       });
-      const output = JSON.parse(result.stdout) as {
+
+      const output = JSON.parse(
+        result.stdout,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
         readonly mode: string;
         readonly action: string;
         readonly readiness: string;
         readonly errors: readonly { readonly code: string }[];
-      };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(result.exitCode).toBe(2);
       expect(output).toEqual(
@@ -2178,7 +2284,10 @@ it.live(
               catch: (cause) => cause,
             });
             expect(start.exitCode, start.stdout).toBe(0);
-            const created = JSON.parse(start.stdout) as {
+
+            const created = JSON.parse(
+              start.stdout,
+            ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
               readonly previewSession: {
                 readonly id: string;
                 readonly generation: number;
@@ -2191,7 +2300,7 @@ it.live(
               };
               readonly plannedProcesses: readonly unknown[];
               readonly readiness: string;
-            };
+            } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
             const id = created.previewSession.id;
             expect(created.previewSession.generation).toBe(1);
             expect(created.readiness).toBe("planned");
@@ -2235,10 +2344,13 @@ it.live(
             const storedIdentity = yield* identityStore.readFileString(
               `${sessionDatabase}.credentials/${id}`,
             );
-            const credentials = JSON.parse(storedIdentity) as {
+
+            const credentials = JSON.parse(
+              storedIdentity,
+            ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
               readonly ownerIdentity: string;
               readonly supervisorIdentity: string;
-            };
+            } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
             expect(start.stdout).not.toContain(credentials.ownerIdentity);
             expect(start.stdout).not.toContain(credentials.supervisorIdentity);
 
@@ -2251,14 +2363,17 @@ it.live(
                 runLauncher(["preview", "status", "--session", id, "--json"], sessionOnlyOptions),
               catch: (cause) => cause,
             });
-            const beforeHeartbeat = JSON.parse(status.stdout) as {
+
+            const beforeHeartbeat = JSON.parse(
+              status.stdout,
+            ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
               readonly previewSession: {
                 readonly lastRenewedAt: number;
                 readonly allocations?: { readonly resources: readonly unknown[] };
               };
               readonly readiness: string;
               readonly errors: readonly { readonly message: string }[];
-            };
+            } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
             expect(status.exitCode).toBe(2);
             expect(beforeHeartbeat.readiness).toBe("blocked");
             expect(beforeHeartbeat.previewSession.allocations).toBeUndefined();
@@ -2285,12 +2400,15 @@ it.live(
               try: () => runLauncher(["preview", "status", "--session", id, "--json"], options),
               catch: (cause) => cause,
             });
-            const fullStatusOutput = JSON.parse(fullStatus.stdout) as {
+
+            const fullStatusOutput = JSON.parse(
+              fullStatus.stdout,
+            ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
               readonly previewSession: {
                 readonly lastRenewedAt: number;
                 readonly allocations: { readonly resources: readonly unknown[] };
               };
-            };
+            } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
             expect(beforeHeartbeat.previewSession.lastRenewedAt).toBe(clock.value);
             expect(fullStatusOutput.previewSession.allocations.resources).toHaveLength(3);
             const liveCleanup = yield* Effect.tryPromise({
@@ -2355,10 +2473,13 @@ it.live(
               catch: (cause) => cause,
             });
             expect(waitingCleanup.exitCode).toBe(2);
-            const waitingCleanupOutput = JSON.parse(waitingCleanup.stdout) as {
+
+            const waitingCleanupOutput = JSON.parse(
+              waitingCleanup.stdout,
+            ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
               previewSession: { allocations: { cleanup: string } };
               errors: readonly { readonly message: string; readonly remediation: string }[];
-            };
+            } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
             expect(waitingCleanupOutput.previewSession.allocations.cleanup).toBe("quarantined");
             expect(waitingCleanupOutput.errors[0]?.remediation).toContain(
               "preview resolve --session",
@@ -2373,13 +2494,16 @@ it.live(
               catch: (cause) => cause,
             });
             expect(resolved.exitCode).toBe(0);
-            const resolvedOutput = JSON.parse(resolved.stdout) as {
+
+            const resolvedOutput = JSON.parse(
+              resolved.stdout,
+            ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
               readonly ok: boolean;
               readonly readiness: string;
               readonly previewSession: { readonly allocations: { readonly cleanup: string } };
               readonly errors: readonly unknown[];
               readonly warnings: readonly { readonly message: string }[];
-            };
+            } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
             expect(resolvedOutput.ok).toBe(true);
             expect(resolvedOutput.readiness).toBe("completed");
             expect(resolvedOutput.previewSession.allocations.cleanup).toBe("waiting");
@@ -2388,10 +2512,26 @@ it.live(
             const resolution =
               yield* sql`SELECT provider_resource_id, outcome FROM preview_allocation_resolutions WHERE session_id=${id} AND resource='auth'`;
             expect(resolution).toHaveLength(1);
-            expect((resolution[0] as Record<string, unknown>).provider_resource_id).toBe(
-              resourcePath,
-            );
-            expect((resolution[0] as Record<string, unknown>).outcome).toBe("found");
+
+            expect(
+              (
+                resolution[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+                  string,
+                  unknown
+                >
+              ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+                .provider_resource_id,
+            ).toBe(resourcePath);
+
+            expect(
+              (
+                resolution[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+                  string,
+                  unknown
+                >
+              ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+                .outcome,
+            ).toBe("found");
             clock.value += 5 * 60_000;
             const cleaned = yield* Effect.tryPromise({
               try: () => runLauncher(["preview", "cleanup", "--session", id, "--json"], options),
@@ -2588,9 +2728,12 @@ it.live("stops a newly created session when owner credentials cannot be persiste
               previewRelayProvider: makeRelayProviderWithAttachmentStatus("ready"),
             },
           );
-          const output = JSON.parse(result.stdout) as {
+
+          const output = JSON.parse(
+            result.stdout,
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
             readonly previewSession: { readonly id: string; readonly phase: string };
-          };
+          } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
           expect(result.exitCode).toBe(2);
           expect(output.previewSession.phase).toBe("ended");
           expect((yield* controller.status(output.previewSession.id)).phase).toBe("ended");

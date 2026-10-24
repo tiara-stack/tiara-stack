@@ -136,7 +136,9 @@ const makeResolutionOperations = () => {
     authorizeRoomOrdersSend: () => Effect.die("unused"),
     workspaceCapabilities: () => Effect.die("unused"),
   };
-  const bot = {} as SheetBotHttpClient;
+
+  const bot =
+    {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   return MemberKickWorkflowOperations.pipe(
     Effect.provide(memberKickWorkflowOperationsLayer),
     Effect.provideService(TrustedSheetPersistence, persistence),
@@ -480,13 +482,14 @@ describe("member cleanup Sheets provider", () => {
   it.effect("preserves the original cause for event-configuration read failures", () =>
     Effect.gen(function* () {
       const cause = new Error("sheets unavailable");
+
       const client = {
         spreadsheets: {
           values: {
             batchGet: () => Promise.reject(cause),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       const error = yield* Effect.flip(makeMemberKickProvider(client).loadEventStart("sheet-1"));
 
@@ -554,6 +557,7 @@ describe("member cleanup Sheets provider", () => {
         ],
       ] as const;
       let request = 0;
+
       const client = {
         spreadsheets: {
           values: {
@@ -563,7 +567,7 @@ describe("member cleanup Sheets provider", () => {
             },
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(yield* makeMemberKickProvider(client).loadSchedule("sheet-1", "alpha", 3)).toEqual({
         scheduleFound: true,

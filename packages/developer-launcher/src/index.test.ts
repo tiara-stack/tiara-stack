@@ -92,9 +92,12 @@ describe("developer launcher command boundary", () => {
       env: {},
       portChecker: async () => ({ available: true }),
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly diagnostics: readonly { readonly code: string; readonly message: string }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.diagnostics).toEqual([
@@ -185,7 +188,10 @@ describe("developer launcher command boundary", () => {
       env: {},
       portChecker: async () => ({ available: true }),
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly mode: string;
       readonly action: string;
       readonly readiness: string;
@@ -197,7 +203,7 @@ describe("developer launcher command boundary", () => {
         readonly environment: Readonly<Record<string, string>>;
       }[];
       readonly urls: readonly { readonly name: string; readonly url: string }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(0);
     expect(output.mode).toBe("fast");
@@ -237,7 +243,10 @@ describe("developer launcher command boundary", () => {
       },
       portChecker: async () => ({ available: true }),
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly selectedServices: readonly string[];
       readonly urls: readonly { readonly name: string; readonly url: string }[];
       readonly plannedProcesses: readonly {
@@ -246,7 +255,7 @@ describe("developer launcher command boundary", () => {
         readonly args: readonly string[];
         readonly environment: Readonly<Record<string, string>>;
       }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(0);
     expect(output.selectedServices).toEqual(["sheet-auth"]);
@@ -280,13 +289,16 @@ describe("developer launcher command boundary", () => {
       },
       portChecker: async () => ({ available: true }),
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly selectedServices: readonly string[];
       readonly plannedProcesses: readonly {
         readonly args: readonly string[];
         readonly environment: Readonly<Record<string, string>>;
       }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(0);
     expect(output.selectedServices).toEqual(["sheet-bot"]);
@@ -316,9 +328,12 @@ describe("developer launcher command boundary", () => {
       },
       portChecker: async () => ({ available: true }),
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly errors: readonly { readonly code: string }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.errors.map(({ code }) => code)).toContain("unsafe-credential");
@@ -365,7 +380,10 @@ describe("developer launcher command boundary", () => {
       },
       portChecker: async () => ({ available: true }),
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly selectedServices: readonly string[];
       readonly plannedProcesses: readonly {
         readonly id: string;
@@ -373,7 +391,7 @@ describe("developer launcher command boundary", () => {
         readonly args: readonly string[];
         readonly environment: Readonly<Record<string, string>>;
       }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(0);
     expect(output.selectedServices).toEqual(["sheet-workflows"]);
@@ -403,10 +421,13 @@ describe("developer launcher command boundary", () => {
         SHEET_WORKFLOWS_ROLE: "browser-runner",
       },
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly errors: readonly { readonly code: string }[];
       readonly plannedProcesses: readonly unknown[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.errors.map(({ code }) => code)).toContain("invalid-environment");
@@ -426,11 +447,14 @@ describe("developer launcher command boundary", () => {
       },
       portChecker: async () => ({ available: true }),
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly plannedProcesses: readonly {
         readonly environment: Readonly<Record<string, string>>;
       }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(0);
     expect(output.plannedProcesses[0]?.environment).toEqual(
@@ -446,9 +470,12 @@ describe("developer launcher command boundary", () => {
       // fallow-ignore-next-line code-duplication
       env: { POSTGRES_URL: "postgres://tiara:password@postgres:5432/tiara" },
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly errors: readonly { readonly code: string }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.errors.map(({ code }) => code)).toContain("unsafe-origin");
@@ -463,9 +490,12 @@ describe("developer launcher command boundary", () => {
         POSTGRES_URL: `postgres://user:${secret}@production.example/tiara`,
       },
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly errors: readonly { readonly code: string }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.errors.map(({ code }) => code)).toEqual(["unsafe-credential", "unsafe-origin"]);
@@ -475,9 +505,12 @@ describe("developer launcher command boundary", () => {
   // fallow-ignore-next-line code-duplication
   it("requires explicit confirmation for a Compose reset", async () => {
     const result = await runLauncher(["compose", "reset", "--json"], { env: {} });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly errors: readonly { readonly code: string }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.errors[0]?.code).toBe("confirmation-required");
@@ -488,13 +521,16 @@ describe("developer launcher command boundary", () => {
       env: {},
       portChecker: async () => ({ available: false }),
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly plannedProcesses: readonly unknown[];
       readonly errors: readonly {
         readonly code: string;
         readonly port: number | null;
       }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.errors).toEqual([
@@ -510,10 +546,13 @@ describe("developer launcher command boundary", () => {
       env: { DEV_SHEET_WEB_PORT: "3011" },
       portChecker: async (port) => ({ available: port === 3011 }),
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly urls: readonly { readonly name: string; readonly url: string }[];
       readonly plannedProcesses: readonly { readonly args: readonly string[] }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(0);
     expect(output.urls[0]).toEqual({ name: "app", url: "http://localhost:3011" });
@@ -539,12 +578,15 @@ describe("developer launcher command boundary", () => {
         env: {},
         portChecker: async () => ({ available: true }),
       });
-      const output = JSON.parse(result.stdout) as {
+
+      const output = JSON.parse(
+        result.stdout,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
         readonly errors: readonly unknown[];
         readonly plannedProcesses: readonly {
           readonly environment: Readonly<Record<string, string>>;
         }[];
-      };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(result.exitCode).toBe(2);
       expect(output.errors).toEqual([expect.objectContaining({ code: "unsafe-credential" })]);
@@ -562,9 +604,12 @@ describe("developer launcher command boundary", () => {
         env: { [key]: "must-not-be-used" },
         portChecker: async () => ({ available: true }),
       });
-      const output = JSON.parse(result.stdout) as {
+
+      const output = JSON.parse(
+        result.stdout,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
         readonly errors: readonly { readonly code: string }[];
-      };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(result.exitCode).toBe(2);
       expect(output.errors.map(({ code }) => code)).toContain("unsafe-credential");
@@ -577,9 +622,12 @@ describe("developer launcher command boundary", () => {
       env: { DEV_SHEET_WEB_PORT: "0" },
       portChecker: async () => ({ available: true }),
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly errors: readonly { readonly code: string; readonly port: number | null }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.errors).toEqual([expect.objectContaining({ code: "invalid-port", port: 0 })]);
@@ -598,14 +646,17 @@ describe("developer launcher command boundary", () => {
         },
       },
     );
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly plannedProcesses: readonly {
         readonly id: string;
         readonly command: string;
         readonly args: readonly string[];
         readonly environment: Readonly<Record<string, string>>;
       }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(0);
     expect(output.plannedProcesses.find(({ id }) => id === "kubernetes-preview")).toEqual(
@@ -723,9 +774,12 @@ describe("developer launcher command boundary", () => {
         env: {},
         portChecker: async () => ({ available: true }),
       });
-      const output = JSON.parse(result.stdout) as {
+
+      const output = JSON.parse(
+        result.stdout,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
         readonly plannedProcesses: readonly { readonly id: string }[];
-      };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(result.exitCode).toBe(0);
       expect(output.plannedProcesses.map(({ id }) => id)).toEqual([
@@ -734,12 +788,15 @@ describe("developer launcher command boundary", () => {
         "compose-migrations",
         "compose-applications",
       ]);
-      const planned = JSON.parse(result.stdout) as {
+
+      const planned = JSON.parse(
+        result.stdout,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
         readonly checkoutState: string | null;
         readonly plannedProcesses: readonly {
           readonly args: readonly string[];
         }[];
-      };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       expect(planned.checkoutState).toMatch(/^Checkout State tiara-/);
       expect(planned.plannedProcesses[1]?.args).toEqual(
         expect.arrayContaining(["--project-name", composeProjectName(repository)]),
@@ -772,9 +829,12 @@ describe("developer launcher command boundary", () => {
         cwd: repository,
         env: {},
       });
-      const output = JSON.parse(result.stdout) as {
+
+      const output = JSON.parse(
+        result.stdout,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
         readonly plannedProcesses: readonly { readonly id: string }[];
-      };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       expect(result.exitCode).toBe(0);
       expect(output.plannedProcesses.map(({ id }) => id)).toEqual([
         "compose-build-artifact-sheet-auth",
@@ -791,10 +851,13 @@ describe("developer launcher command boundary", () => {
 
   it("plans Compose setup as local credential preparation", async () => {
     const result = await runLauncher(["setup", "compose", "--json"], { env: {} });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly readiness: string;
       readonly plannedProcesses: readonly { readonly args: readonly string[] }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     expect(result.exitCode).toBe(0);
     expect(output.readiness).toBe("planned");
     expect(output.plannedProcesses[0]?.args).toEqual(["compose:generate-secrets"]);
@@ -851,12 +914,15 @@ describe("developer launcher command boundary", () => {
         portChecker,
         accessChecker,
       });
-      const output = JSON.parse(result.stdout) as {
+
+      const output = JSON.parse(
+        result.stdout,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
         readonly ok: boolean;
         readonly readiness: string;
         readonly errors: readonly unknown[];
         readonly warnings: readonly { readonly code: string }[];
-      };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(result.exitCode).toBe(0);
       expect(output.ok).toBe(true);
@@ -885,7 +951,10 @@ describe("developer launcher command boundary", () => {
       portChecker,
       accessChecker,
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly readiness: string;
       readonly errors: readonly {
         readonly code: string;
@@ -894,7 +963,7 @@ describe("developer launcher command boundary", () => {
         readonly port: number | null;
         readonly remediation: string;
       }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.readiness).toBe("blocked");
@@ -923,9 +992,12 @@ describe("developer launcher command boundary", () => {
       portChecker: async () => ({ available: true }),
       accessChecker: async () => ({ reachable: true }),
     });
-    const output = JSON.parse(result.stdout) as {
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
       readonly errors: readonly { readonly dependency: string | null }[];
-    };
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(output.errors).toEqual(
       expect.arrayContaining([
@@ -946,7 +1018,12 @@ describe("developer launcher command boundary", () => {
 
     // fallow-ignore-next-line code-duplication
     const result = await runLauncher(args, { executor });
-    const output = JSON.parse(result.stdout) as { errors: readonly { code: string }[] };
+
+    const output = JSON.parse(
+      result.stdout,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+      errors: readonly { code: string }[];
+    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(result.exitCode).toBe(2);
     expect(output.errors[0]?.code).toBe(code);

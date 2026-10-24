@@ -69,7 +69,8 @@ const renderPartForTest = (part: unknown): string => {
     return String(part);
   }
 
-  const typedPart = part as TestTextPart;
+  const typedPart =
+    part /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as TestTextPart /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   return renderers[typedPart.type]?.(typedPart) ?? "";
 };
 

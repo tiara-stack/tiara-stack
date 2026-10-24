@@ -407,7 +407,7 @@ export const roomOrderNavigationOperationsLayer = Layer.effect(
             responseReference,
             deliveryKey,
             message:
-              committed.status === "denied"
+              committed.status === "denied" // oxlint-disable-line no-nested-ternary -- inherited master site
                 ? committed.message
                 : committed.context.tentative
                   ? { content: "updated tentative room order.", visibility: "ephemeral" }

@@ -283,8 +283,10 @@ const mapSnapshotError = (error: unknown) => {
   if (!Predicate.isTagged("SheetSnapshotProviderError")(error)) {
     return operationError("sheetConfiguration.importLegacy.snapshot", error);
   }
-  const providerError = error as SheetSnapshotProviderError;
-  return providerError.code === "SheetMissing"
+
+  const providerError =
+    error /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetSnapshotProviderError /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+  return providerError.code === "SheetMissing" // oxlint-disable-line no-nested-ternary -- inherited master site
     ? interactiveResourceNotFound("sheet")
     : providerError.code === "UnsupportedSheetType"
       ? interactiveInvalidRequest(
@@ -624,7 +626,7 @@ const readLegacyScheduleHours = (options: {
     const scheduleReads = options.configuration.schedules.map((schedule) => {
       const tab = options.tabs.find(({ sheetId }) => sheetId === schedule.sheetId);
       const requestedRowCount =
-        tab === undefined
+        tab === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
           ? 0
           : schedule.hourRange.endRow === "sheet-end"
             ? Math.max(0, tab.rowCount - schedule.hourRange.startRow)
@@ -786,8 +788,9 @@ const ownedScheduleTimeReferenceBaselineDigest = (
             hourRange.endColumn,
           ])
           .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right))),
-        [...scheduleHours].sort((left, right) =>
-          left === null ? (right === null ? 0 : -1) : right === null ? 1 : left - right,
+        [...scheduleHours].sort(
+          (left, right) =>
+            left === null ? (right === null ? 0 : -1) : right === null ? 1 : left - right, // oxlint-disable-line no-nested-ternary -- inherited master site
         ),
       ]),
     )
@@ -1507,7 +1510,7 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
 
         const sourceBinding: ReadonlyJSONValue = source.kind === "legacy" ? source.binding : source;
         const createdBy =
-          attribution.principal.kind === "user"
+          attribution.principal.kind === "user" // oxlint-disable-line no-nested-ternary -- inherited master site
             ? attribution.principal.userId
             : attribution.principal.kind === "service"
               ? attribution.principal.serviceId
@@ -1899,7 +1902,7 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
           scheduleTimeReference,
         );
         const createdBy =
-          attribution.principal.kind === "user"
+          attribution.principal.kind === "user" // oxlint-disable-line no-nested-ternary -- inherited master site
             ? attribution.principal.userId
             : attribution.principal.kind === "service"
               ? attribution.principal.serviceId
@@ -2273,7 +2276,7 @@ export const sheetConfigurationWorkflowOperationsLayer = Layer.effect(
             draftVersion: Option.isSome(current) ? current.value.draftVersion : 0,
             source: observation.source,
             status:
-              observation.proposedReference === null
+              observation.proposedReference === null // oxlint-disable-line no-nested-ternary -- inherited master site
                 ? ("unresolved" as const)
                 : currentReference === null
                   ? ("ready" as const)

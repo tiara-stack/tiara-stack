@@ -338,7 +338,7 @@ type ActivityFixture = Map<number, Record<string, unknown>>;
 const backendTypeCapabilityResult = (query: string) =>
   query.includes("pg_attribute") ? [{ supported: true }] : undefined;
 const backendOwnershipResult = (query: string) =>
-  query.includes("FROM pg_roles")
+  query.includes("FROM pg_roles") // oxlint-disable-line no-nested-ternary -- inherited master site
     ? [{ marker }]
     : query.includes("shobj_description")
       ? [database]

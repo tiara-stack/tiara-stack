@@ -71,7 +71,10 @@ const makeBot = (
       readonly message: unknown;
     };
   }) => Effect.Effect<unknown, unknown>,
-): SheetBotHttpClient => ({ delivery: { respond } }) as unknown as SheetBotHttpClient;
+): SheetBotHttpClient =>
+  ({
+    delivery: { respond },
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeOperations = (
   execute: (
@@ -335,7 +338,7 @@ describe("service-status delivery Workflow Definition slice", () => {
             () =>
               Effect.sleep("20 millis").pipe(
                 Effect.andThen(
-                  request.url.includes("sheet-bot-service")
+                  request.url.includes("sheet-bot-service") // oxlint-disable-line no-nested-ternary -- inherited master site
                     ? Effect.succeed(response(request, 503))
                     : request.url.includes("sheet-web-service")
                       ? Effect.fail(new Error("connection refused"))

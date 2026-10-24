@@ -208,7 +208,7 @@ const isCommandHelperError = (error: unknown): error is { readonly message: stri
   Predicate.isString(error.message);
 
 const sourceLabel = (source: typeof SheetConfigurationSource.Type) =>
-  source.kind === "legacy"
+  source.kind === "legacy" // oxlint-disable-line no-nested-ternary -- inherited master site
     ? `legacy (${source.binding.expectedTitle})`
     : source.revisionId === null
       ? "owned (unconfigured)"
@@ -439,9 +439,12 @@ const workflowErrorMessages = {
 type WorkflowErrorTag = keyof typeof workflowErrorMessages;
 
 const isWorkflowError = (error: unknown): error is { readonly _tag: WorkflowErrorTag } =>
-  (Object.keys(workflowErrorMessages) as ReadonlyArray<WorkflowErrorTag>).some((tag) =>
-    Predicate.isTagged(tag)(error),
-  );
+  (
+    Object.keys(
+      workflowErrorMessages,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReadonlyArray<WorkflowErrorTag>
+  ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+    .some((tag) => Predicate.isTagged(tag)(error));
 
 const errorMessage = (error: unknown): string =>
   Match.value(error).pipe(
@@ -1201,7 +1204,7 @@ const makeEntryEditSubCommand = Effect.gen(function* () {
           const collectionLength = configuration[collection].length;
           const rawEntryId = Option.getOrUndefined(command.optionValueOptional("entry_id"));
           const entryId =
-            rawEntryId === undefined
+            rawEntryId === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
               ? action === "add"
                 ? yield* Random.nextUUIDv4
                 : yield* Effect.fail(

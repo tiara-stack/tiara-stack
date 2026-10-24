@@ -117,7 +117,13 @@ const terminateProcessTree = (
     process.kill(-child.pid, signal);
     return Promise.resolve(true);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ESRCH") return Promise.resolve(false);
+    if (
+      (
+        error /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as NodeJS.ErrnoException
+      ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.code ===
+      "ESRCH"
+    )
+      return Promise.resolve(false);
     try {
       child.kill(signal);
       return Promise.resolve(true);
@@ -139,7 +145,12 @@ const processGroupAlive = (child: ReturnType<typeof spawn>) => {
     process.kill(-child.pid, 0);
     return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== "ESRCH";
+    return (
+      (
+        error /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as NodeJS.ErrnoException
+      ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.code !==
+      "ESRCH"
+    );
   }
 };
 

@@ -393,7 +393,7 @@ const composePrefix = (projectName: string, envFile: string | null) => [
 ];
 
 const parseExitCode = (value: unknown) => {
-  const parsed = Predicate.isNumber(value)
+  const parsed = Predicate.isNumber(value) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? value
     : Predicate.isString(value) && value !== ""
       ? Number(value)
@@ -434,7 +434,7 @@ const containerState = (value: unknown): ComposeContainerState | undefined => {
   const state = normalizeContainerState(rawState);
   const name = property("Name") ?? property("name");
   const oneOffValue = property("IsOneOff") ?? property("isOneOff");
-  const oneOff = Predicate.isBoolean(oneOffValue)
+  const oneOff = Predicate.isBoolean(oneOffValue) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? oneOffValue
     : Predicate.isString(oneOffValue)
       ? oneOffValue.toLowerCase() === "true"
@@ -533,7 +533,7 @@ export const makeComposeStateAdapter = (
       reachable:
         isSuccessfulProcess(result) && status !== undefined && status >= 200 && status < 300,
       ...(status === undefined ? {} : { status }),
-      ...(result.timedOut
+      ...(result.timedOut // oxlint-disable-line no-nested-ternary -- inherited master site
         ? { timedOut: true, reason: "in-container readiness probe timed out" }
         : isSuccessfulProcess(result)
           ? {}
@@ -1472,7 +1472,7 @@ const resultForComposePhase = (
         context,
         state,
         status,
-        status === "stopped" ? (signal === "SIGINT" ? 130 : 143) : 2,
+        status === "stopped" ? (signal === "SIGINT" ? 130 : 143) : 2, // oxlint-disable-line no-nested-ternary -- inherited master site
         undefined,
         cleanupFailure,
         readyOutputFor(context, state),
@@ -1727,7 +1727,7 @@ const executeComposeEffect = (
           context,
           state,
           cleanupDiagnostic === undefined ? "stopped" : "failed",
-          cleanupDiagnostic === undefined ? (signal === "SIGINT" ? 130 : 143) : 2,
+          cleanupDiagnostic === undefined ? (signal === "SIGINT" ? 130 : 143) : 2, // oxlint-disable-line no-nested-ternary -- inherited master site
           undefined,
           cleanupDiagnostic,
           readyOutputFor(context, state),

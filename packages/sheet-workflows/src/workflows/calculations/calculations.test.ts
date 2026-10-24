@@ -637,7 +637,7 @@ describe("sheet recalculation workflow", () => {
     const unrequestedDuplicateSnapshot = {
       ...snapshot,
       sourceRanges: snapshot.sourceRanges.map((sourceRange) =>
-        sourceRange.range === "Users!A2:A"
+        sourceRange.range === "Users!A2:A" // oxlint-disable-line no-nested-ternary -- inherited master site
           ? {
               ...sourceRange,
               rows: [["p1"], ["p2"], ["p3"], ["p4"], ["p5"], ["p6"], ["p7"]],

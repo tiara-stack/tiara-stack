@@ -79,7 +79,12 @@ type FakeKubernetesCall = {
 
 const labelsInKubernetesBody = (body: unknown) => {
   if (typeof body !== "object" || body === null || !("metadata" in body)) return {};
-  const metadata = (body as { metadata?: { labels?: Record<string, string> } }).metadata;
+
+  const metadata = (
+    body /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+      metadata?: { labels?: Record<string, string> };
+    }
+  ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.metadata;
   return metadata?.labels ?? {};
 };
 
@@ -144,7 +149,12 @@ const shouldFailDeploymentCreate = (
 const fakeKubernetesResourceUid = (resource: unknown) => {
   if (typeof resource !== "object" || resource === null || !("metadata" in resource))
     return undefined;
-  const uid = (resource as { metadata?: { uid?: unknown } }).metadata?.uid;
+
+  const uid = (
+    resource /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+      metadata?: { uid?: unknown };
+    }
+  ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.metadata?.uid;
   return typeof uid === "string" ? uid : undefined;
 };
 
@@ -153,8 +163,11 @@ const deleteFakeKubernetesResource = (
   resources: Map<string, unknown>,
 ): Effect.Effect<void, PreviewRelayProviderError> => {
   const expectedUid = (
-    input.body as { readonly preconditions?: { readonly uid?: string } } | undefined
-  )?.preconditions?.uid;
+    input.body /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as
+      | { readonly preconditions?: { readonly uid?: string } }
+      | undefined
+  ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */?.preconditions
+    ?.uid;
   const currentUid = fakeKubernetesResourceUid(resources.get(input.url));
   if (expectedUid !== undefined && expectedUid !== currentUid)
     return Effect.fail(new PreviewRelayProviderError({ reason: "listener-collision" }));
@@ -167,13 +180,19 @@ const storeFakeKubernetesResource = (
   input: FakeKubernetesCall,
   resources: Map<string, unknown>,
 ) => {
-  const resourceBody = input.body as { metadata?: { name?: string } } | undefined;
+  const resourceBody =
+    input.body /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as
+      | { metadata?: { name?: string } }
+      | undefined /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   const name = resourceBody?.metadata?.name;
   const metadata = resourceBody?.metadata;
   if (name === undefined || metadata === undefined) return undefined;
   const resourceUrl = `${input.url}/${name}`;
   const stored = {
-    ...(input.body as Record<string, unknown>),
+    ...(input.body /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+      string,
+      unknown
+    >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     metadata: { ...metadata, uid: `fake-uid-${name}` },
   };
   resources.set(resourceUrl, stored);
@@ -197,12 +216,19 @@ const createFakeLease = (
   input: FakeKubernetesCall,
   resources: Map<string, unknown>,
 ): Effect.Effect<unknown, PreviewRelayProviderError> => {
-  const metadata = (input.body as { metadata: { name: string } }).metadata;
+  const metadata = (
+    input.body /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+      metadata: { name: string };
+    }
+  ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.metadata;
   const resourceUrl = `${input.url}/${metadata.name}`;
   if (resources.has(resourceUrl))
     return Effect.fail(new PreviewRelayProviderError({ reason: "listener-collision" }));
   const stored = {
-    ...(input.body as Record<string, unknown>),
+    ...(input.body /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+      string,
+      unknown
+    >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     metadata: { ...metadata, uid: `fake-uid-${metadata.name}` },
   };
   resources.set(resourceUrl, stored);
@@ -352,7 +378,7 @@ it.effect("recovers only exact owner-labeled unknown relay allocations", () =>
       kind: "attachment",
     });
     expect(attachment?.providerResourceId).toBe(
-      `${providerConfig.namespace}/attachment/${fixture.service.serviceName}/${fixture.listener.port}/${fixture.reservation.reservationId.split("/lease/")[1]}`,
+      `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ providerConfig.namespace /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}/attachment/${fixture.service.serviceName}/${fixture.listener.port}/${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ fixture.reservation.reservationId.split("/lease/")[1] /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
     );
     expect(attachment?.processId).toBe(fixture.identity.processId);
     const wrongOwner = yield* Effect.result(
@@ -758,7 +784,11 @@ it.effect("uses a Kubernetes UID precondition when deleting an exact-owned relay
         if (input.url !== serviceUrl || replaced) return;
         const current = store.get(serviceUrl);
         if (typeof current !== "object" || current === null || !("metadata" in current)) return;
-        const resource = current as { metadata?: Record<string, unknown> };
+
+        const resource =
+          current /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+            metadata?: Record<string, unknown>;
+          } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
         store.set(serviceUrl, {
           ...current,
           metadata: { ...resource.metadata, uid: "replacement-uid" },
@@ -855,12 +885,13 @@ it.effect(
           if (input.method === "GET" && input.url.includes("networkpolicies"))
             return Effect.succeed(fakeKubernetesGetResponse(input.url, calls));
           if (input.method === "POST") {
-            const attributes = (
-              input.body as {
+            const attributes =
+              input.body /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
                 spec: { resourceAttributes: { namespace: string; name: string } };
-              }
-            ).spec.resourceAttributes;
-            const allowed = attributes.namespace === "preview-relays" || allowSharedWorkload;
+              } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+            const resourceAttributes = attributes.spec.resourceAttributes;
+            const allowed =
+              resourceAttributes.namespace === "preview-relays" || allowSharedWorkload;
             return Effect.succeed({ status: { allowed } });
           }
           return Effect.fail(
@@ -1565,7 +1596,9 @@ it.live("routes two host dependency probes through an injected loopback HTTP cli
       try: () => new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve)),
       catch: () => new Error("loopback test server failed to start"),
     });
-    const address = server.address() as AddressInfo;
+
+    const address =
+      server.address() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as AddressInfo /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     const fake = makeFakePlatformClient(address.port);
     const provider = makePreviewRelayProvider(providerConfig, fake.client);
     try {
@@ -1668,8 +1701,18 @@ it.live(
         metadata: { kind: "preview-relay-attachment", ...target },
         priorResources: { [serviceKey]: serviceRef },
       });
-      const serviceEntry = JSON.parse(serviceRef) as { readonly providerResourceId: string };
-      const attachmentEntry = JSON.parse(attachmentRef) as { readonly providerResourceId: string };
+
+      const serviceEntry = JSON.parse(
+        serviceRef,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+        readonly providerResourceId: string;
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
+      const attachmentEntry = JSON.parse(
+        attachmentRef,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+        readonly providerResourceId: string;
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       expect(fake.services.has(serviceEntry.providerResourceId)).toBe(true);
       expect(fake.attachments.has(attachmentEntry.providerResourceId)).toBe(true);
 
@@ -1694,12 +1737,16 @@ it.live(
 const readPolicyManifest = async (name: string) => {
   const { readFile } = await import("node:fs/promises");
   const { fileURLToPath } = await import("node:url");
+
   return JSON.parse(
     await readFile(
       fileURLToPath(new URL(`../../../deploy/kubernetes/preview-relays/${name}`, import.meta.url)),
       "utf8",
     ),
-  ) as Record<string, unknown>;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+    string,
+    unknown
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 it.live("ships the operator policy contract consumed by the configured API adapter", () =>

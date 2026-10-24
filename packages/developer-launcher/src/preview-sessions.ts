@@ -403,11 +403,25 @@ const decodeRow = (row: Record<string, unknown>): PreviewSession => ({
   id: String(row.id),
   owner: String(row.owner),
   checkout: String(row.checkout),
-  resources: JSON.parse(String(row.resource_ids)) as Record<string, string>,
-  manifests: JSON.parse(String(row.manifests)) as Record<string, string>,
+
+  resources: JSON.parse(
+    String(row.resource_ids),
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+    string,
+    string
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+
+  manifests: JSON.parse(
+    String(row.manifests),
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+    string,
+    string
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   requestedRevision: String(row.requested_revision),
   activeRevision: typeof row.active_revision === "string" ? row.active_revision : null,
-  phase: row.phase as PreviewSessionPhase,
+
+  phase:
+    row.phase /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as PreviewSessionPhase /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   generation: Number(row.generation),
   leaseDeadline: Number(row.lease_deadline),
   lastRenewedAt: Number(row.last_renewed_at),
@@ -569,7 +583,13 @@ export const makePreviewSessionController = (now: () => number) =>
             AND generation=${generation} AND phase='active' AND ended_at IS NULL
             AND lease_deadline > ${time} RETURNING *`;
         if (rows.length === 0) return yield* Effect.fail(sessionError("stale-supervisor"));
-        return decodeRow(rows[0] as Record<string, unknown>);
+
+        return decodeRow(
+          rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+            string,
+            unknown
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        );
       });
     const prepareResumeIdentity = (
       current: PreviewSession,
@@ -608,7 +628,12 @@ export const makePreviewSessionController = (now: () => number) =>
         if (rows.length === 0) return yield* Effect.fail(sessionError("resume-raced-or-expired"));
         yield* fenceSession(id);
         return {
-          session: decodeRow(rows[0] as Record<string, unknown>),
+          session: decodeRow(
+            rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+              string,
+              unknown
+            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ),
           supervisorIdentity,
         };
       });
@@ -712,7 +737,13 @@ export const makePreviewSessionController = (now: () => number) =>
           const rows =
             yield* sql`UPDATE preview_sessions SET lease_deadline=${time + previewSessionLeaseMs}, supervisor_lease_until=${time + previewSupervisorLeaseMs}, last_renewed_at=${time} WHERE id=${id} AND supervisor_identity_digest=${digestIdentity(supervisorIdentity)} AND generation=${generation} AND ended_at IS NULL AND lease_deadline > ${time} RETURNING *`;
           if (rows.length === 0) return yield* Effect.fail(sessionError("lease-expired-or-fenced"));
-          return decodeRow(rows[0] as Record<string, unknown>);
+
+          return decodeRow(
+            rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+              string,
+              unknown
+            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          );
         }),
       resume: (id, ownerIdentity, previousSupervisorIdentity) =>
         Effect.gen(function* () {
@@ -778,7 +809,13 @@ export const makePreviewSessionController = (now: () => number) =>
           const rows =
             yield* sql`UPDATE preview_sessions SET phase='active', active_revision=${activeRevision}, supervisor_lease_until=${time + previewSupervisorLeaseMs} WHERE id=${id} AND supervisor_identity_digest=${digestIdentity(supervisorIdentity)} AND generation=${generation} AND phase IN ('pending','starting') AND ended_at IS NULL AND lease_deadline > ${time} RETURNING *`;
           if (rows.length === 0) return yield* Effect.fail(sessionError("stale-supervisor"));
-          return decodeRow(rows[0] as Record<string, unknown>);
+
+          return decodeRow(
+            rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+              string,
+              unknown
+            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          );
         }),
       stop: (id, ownerIdentity) =>
         Effect.gen(function* () {
@@ -792,7 +829,13 @@ export const makePreviewSessionController = (now: () => number) =>
             yield* sql`UPDATE preview_sessions SET phase='ended', supervisor_lease_until=0, ended_at=${time} WHERE id=${id} AND identity_digest=${digestIdentity(ownerIdentity)} AND ended_at IS NULL RETURNING *`;
           yield* fenceSession(id);
           if (rows.length === 0) return yield* valid(id, ownerIdentity, undefined, true);
-          return decodeRow(rows[0] as Record<string, unknown>);
+
+          return decodeRow(
+            rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+              string,
+              unknown
+            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          );
         }),
       stopSupervised: (id, supervisorIdentity, generation) =>
         Effect.gen(function* () {
@@ -805,7 +848,13 @@ export const makePreviewSessionController = (now: () => number) =>
               AND generation=${generation} AND ended_at IS NULL RETURNING *`;
           if (rows.length === 0) return yield* Effect.fail(sessionError("stale-supervisor"));
           yield* fenceSession(id);
-          return decodeRow(rows[0] as Record<string, unknown>);
+
+          return decodeRow(
+            rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+              string,
+              unknown
+            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          );
         }),
       admit: (id, generation) =>
         sql.withTransaction(
@@ -817,7 +866,13 @@ export const makePreviewSessionController = (now: () => number) =>
             if (rows.length === 0)
               return yield* Effect.fail(sessionError("session-not-active-or-expired"));
             yield* sql`INSERT INTO preview_session_admissions (session_id, generation, outstanding) VALUES (${id}, ${generation}, 1) ON CONFLICT(session_id, generation) DO UPDATE SET outstanding=outstanding+1`;
-            return decodeRow(rows[0] as Record<string, unknown>);
+
+            return decodeRow(
+              rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+                string,
+                unknown
+              > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+            );
           }),
         ),
       authorizeCredential: (id, generation, role) =>
@@ -865,7 +920,11 @@ export const makePreviewSessionController = (now: () => number) =>
             const existing =
               yield* sql`SELECT credential_name, service_account, oauth_client_id, credential_file FROM preview_session_workload_identities WHERE session_id=${id} AND generation=${generation} AND role=${role}`;
             if (existing.length > 0) {
-              const row = existing[0] as Record<string, unknown>;
+              const row =
+                existing[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+                  string,
+                  unknown
+                > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
               if (
                 row.credential_name !== credentialName ||
                 row.service_account !== serviceAccount ||

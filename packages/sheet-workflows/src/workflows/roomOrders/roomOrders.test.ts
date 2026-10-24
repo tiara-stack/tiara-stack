@@ -132,7 +132,7 @@ const makeDeliveryBot = (delivery: Record<string, unknown> = {}): SheetBotHttpCl
       get: (target, method: string) =>
         method in target ? target[method] : () => Effect.die(`Unexpected delivery call: ${method}`),
     }),
-  }) as unknown as SheetBotHttpClient;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeOperations = (
   persistence: TrustedSheetPersistenceShape,
@@ -812,6 +812,7 @@ describe("room-order navigation Workflow Definition slice", () => {
       };
       expect(principal.discordAccount).toBeDefined();
       const accountId = Option.getOrThrow(Option.fromNullishOr(principal.discordAccount)).accountId;
+
       const bot = {
         cache: {
           getApplication: () => Effect.succeed({ ownerId: "application-owner" }),
@@ -829,7 +830,7 @@ describe("room-order navigation Workflow Definition slice", () => {
             }),
           listRoles: () => Effect.succeed([]),
         },
-      } as unknown as SheetBotHttpClient;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const authorization = yield* ReadOnlyWorkflowAuthorization.pipe(
         Effect.provide(readOnlyWorkflowAuthorizationLayer),
         Effect.provide(SheetBotCacheClient.testLayer({ get: () => bot })),

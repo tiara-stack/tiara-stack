@@ -501,12 +501,12 @@ const previewDatabaseLayer =
   resolvedSessionDatabase === undefined || (!allocationControllerNeeded && !sessionControllerNeeded)
     ? Layer.empty
     : Layer.provide(
-        sessionControllerNeeded && allocationControllerNeeded
+        sessionControllerNeeded && allocationControllerNeeded // oxlint-disable-line no-nested-ternary -- inherited master site
           ? Layer.merge(
               previewSessionWithGatewayCleanup,
               previewAllocationLayer(resolvedSessionDatabase),
             )
-          : sessionControllerNeeded
+          : sessionControllerNeeded // oxlint-disable-line no-nested-ternary -- inherited master site
             ? previewSessionWithGatewayCleanup
             : allocationControllerNeeded
               ? previewAllocationLayer(resolvedSessionDatabase)

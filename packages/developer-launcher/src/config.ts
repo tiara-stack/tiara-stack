@@ -254,7 +254,9 @@ const isDisallowedEnvironmentKey = (
         service === "sheet-workflows" ||
         service === "sheet-bot",
     ) &&
-    fastHostEnvironmentKeys.includes(normalizedKey as (typeof fastHostEnvironmentKeys)[number]) &&
+    fastHostEnvironmentKeys.includes(
+      normalizedKey /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (typeof fastHostEnvironmentKeys)[number] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+    ) &&
     isFastHostKeyOwnedBySelection(normalizedKey, selectedServices)
   ) {
     return false;
@@ -579,7 +581,9 @@ const validateEnvironmentKeys = (
   for (const key of Object.keys(values)) {
     if (
       mode === "fast" &&
-      fastHostEnvironmentKeys.includes(key as (typeof fastHostEnvironmentKeys)[number]) &&
+      fastHostEnvironmentKeys.includes(
+        key /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (typeof fastHostEnvironmentKeys)[number] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+      ) &&
       !isDisallowedEnvironmentKey(mode, key, selectedServices) &&
       !isFastHostKeyOwnedBySelection(key, selectedServices)
     ) {
@@ -1574,7 +1578,8 @@ const validateCompose = (
       errors.push(
         makeDiagnostic(
           "unsafe-credential",
-          `${key} is required for Compose ${input.action}`,
+
+          `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ key /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */} is required for Compose ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ input.action /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
           "Fill the dedicated local development credential in deploy/compose/.env.",
           { mode: input.mode, action: input.action },
         ),
@@ -1707,7 +1712,7 @@ export const validateModeConfig = (input: ConfigInput): ModeConfigValidation => 
     input.selectedServices,
   );
   const validated =
-    input.mode === "fast"
+    input.mode === "fast" // oxlint-disable-line no-nested-ternary -- inherited master site
       ? validateFast(input, loaded.values, loaded.filePath)
       : input.mode === "compose"
         ? validateCompose(input, loaded.values, loaded.filePath)

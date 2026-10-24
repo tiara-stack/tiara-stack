@@ -293,7 +293,7 @@ export const makeMembersKickSerializedWorkflowBody = <
             status: Exit.isSuccess(exit) ? "confirmed" : "failed",
             ...(Exit.isFailure(exit) ? { failureTag: failureFrom(exit)?._tag ?? "Defect" } : {}),
           })),
-          responseStatus: !response.attempted
+          responseStatus: !response.attempted // oxlint-disable-line no-nested-ternary -- inherited master site
             ? "not-applicable"
             : Exit.isSuccess(response.exit)
               ? "confirmed"

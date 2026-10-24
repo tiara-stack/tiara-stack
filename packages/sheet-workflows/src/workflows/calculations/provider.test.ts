@@ -24,6 +24,7 @@ describe("sheet recalculation provider", () => {
   it.effect("groups target, configuration, projection, and team source reads", () =>
     Effect.gen(function* () {
       const valueCalls: Array<ReadonlyArray<string>> = [];
+
       const client = {
         spreadsheets: {
           get: () =>
@@ -70,7 +71,7 @@ describe("sheet recalculation provider", () => {
             },
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const provider = makeCalculationProvider(client);
       const snapshot = yield* provider.load({
         spreadsheetId: "spreadsheet-1",
@@ -106,6 +107,7 @@ describe("sheet recalculation provider", () => {
   it.effect("atomically replaces row 30 and clears every stale trailing cell", () =>
     Effect.gen(function* () {
       let captured: unknown;
+
       const client = {
         spreadsheets: {
           get: () =>
@@ -123,7 +125,7 @@ describe("sheet recalculation provider", () => {
               }),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const provider = makeCalculationProvider(client);
       yield* provider.replaceProjection({
         spreadsheetId: "spreadsheet-1",
@@ -155,15 +157,17 @@ describe("sheet recalculation provider", () => {
           ],
         },
       });
-      const request = captured as {
-        readonly requestBody: {
-          readonly requests: ReadonlyArray<{
-            readonly updateCells: {
-              readonly rows: ReadonlyArray<{ readonly values: ReadonlyArray<unknown> }>;
-            };
-          }>;
-        };
-      };
+
+      const request =
+        captured /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+          readonly requestBody: {
+            readonly requests: ReadonlyArray<{
+              readonly updateCells: {
+                readonly rows: ReadonlyArray<{ readonly values: ReadonlyArray<unknown> }>;
+              };
+            }>;
+          };
+        } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const rows = request.requestBody.requests[0]!.updateCells.rows;
       expect(rows).toHaveLength(4);
       expect(rows.every(({ values }) => values.length === 32)).toBe(true);
@@ -184,6 +188,7 @@ describe("sheet recalculation provider", () => {
   it.effect("rejects a changed sheet identity before issuing a write", () =>
     Effect.gen(function* () {
       let writes = 0;
+
       const client = {
         spreadsheets: {
           get: () =>
@@ -198,7 +203,7 @@ describe("sheet recalculation provider", () => {
             batchGet: () => Promise.resolve({ data: { valueRanges: [{ values: [[6]] }] } }),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const exit = yield* Effect.exit(
         makeCalculationProvider(client).replaceProjection({
           spreadsheetId: "spreadsheet-1",
@@ -237,7 +242,7 @@ describe("sheet recalculation provider", () => {
             batchGet: () => Promise.resolve({ data: { valueRanges: [{}] } }),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const provider = makeCalculationProvider(client);
       const exit = yield* Effect.exit(
         provider.replaceProjection({
@@ -291,7 +296,7 @@ describe("sheet recalculation provider", () => {
               batchGet: () => Promise.resolve({ data: { valueRanges: [{}] } }),
             },
           },
-        } as unknown as sheets_v4.Sheets;
+        } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
         const exit = yield* Effect.exit(
           makeCalculationProvider(client).replaceProjection({
             spreadsheetId: "spreadsheet-1",
@@ -327,7 +332,7 @@ describe("sheet recalculation provider", () => {
               batchGet: () => Promise.resolve({ data: { valueRanges: [{}] } }),
             },
           },
-        } as unknown as sheets_v4.Sheets;
+        } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
         const exit = yield* Effect.exit(
           makeCalculationProvider(client).replaceProjection({
             spreadsheetId: "spreadsheet-1",
@@ -351,6 +356,7 @@ describe("sheet recalculation provider", () => {
   it.effect("rejects a changed live projection before issuing a write", () =>
     Effect.gen(function* () {
       let writes = 0;
+
       const client = {
         spreadsheets: {
           get: () =>
@@ -365,7 +371,7 @@ describe("sheet recalculation provider", () => {
             batchGet: () => Promise.resolve({ data: { valueRanges: [{ values: [[9]] }] } }),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const provider = makeCalculationProvider(client);
       const exit = yield* Effect.exit(
         provider.replaceProjection({
@@ -393,6 +399,7 @@ describe("sheet recalculation provider", () => {
   it.effect("rejects desired rows wider than the projection range", () =>
     Effect.gen(function* () {
       let writes = 0;
+
       const client = {
         spreadsheets: {
           get: () =>
@@ -407,7 +414,7 @@ describe("sheet recalculation provider", () => {
             batchGet: () => Promise.resolve({ data: { valueRanges: [{ values: [[9]] }] } }),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const provider = makeCalculationProvider(client);
       const exit = yield* Effect.exit(
         provider.replaceProjection({
@@ -427,7 +434,13 @@ describe("sheet recalculation provider", () => {
           _tag: "CalculationProjectionWriteError",
           ambiguous: false,
         });
-        expect((error as CalculationProjectionWriteError).conflicting).toBeUndefined();
+
+        expect(
+          (
+            error /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as CalculationProjectionWriteError
+          ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+            .conflicting,
+        ).toBeUndefined();
       }
     }),
   );
@@ -435,6 +448,7 @@ describe("sheet recalculation provider", () => {
   it.effect("rejects desired rows beyond the persisted row limit", () =>
     Effect.gen(function* () {
       let writes = 0;
+
       const client = {
         spreadsheets: {
           get: () =>
@@ -449,7 +463,7 @@ describe("sheet recalculation provider", () => {
             batchGet: () => Promise.resolve({ data: { valueRanges: [{ values: [[]] }] } }),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const exit = yield* Effect.exit(
         makeCalculationProvider(client).replaceProjection({
           spreadsheetId: "spreadsheet-1",
@@ -476,6 +490,7 @@ describe("sheet recalculation provider", () => {
   it.effect("rejects pre-write rows beyond the persisted cell limit", () =>
     Effect.gen(function* () {
       let writes = 0;
+
       const client = {
         spreadsheets: {
           get: () =>
@@ -490,7 +505,7 @@ describe("sheet recalculation provider", () => {
             batchGet: () => Promise.resolve({ data: { valueRanges: [{ values: [[]] }] } }),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const exit = yield* Effect.exit(
         makeCalculationProvider(client).replaceProjection({
           spreadsheetId: "spreadsheet-1",
@@ -518,6 +533,7 @@ describe("sheet recalculation provider", () => {
   it.effect("classifies a pre-write projection read failure as non-ambiguous", () =>
     Effect.gen(function* () {
       let writes = 0;
+
       const client = {
         spreadsheets: {
           get: () =>
@@ -532,7 +548,7 @@ describe("sheet recalculation provider", () => {
             batchGet: () => Promise.reject(new Error("projection read failed")),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const exit = yield* Effect.exit(
         makeCalculationProvider(client).replaceProjection({
           spreadsheetId: "spreadsheet-1",

@@ -93,7 +93,9 @@ const sheetTextPartRenderers = {
 };
 
 const renderSheetTextPart = (part: BotTextPart): string =>
-  sheetTextPartRenderers[part.type](part as never);
+  sheetTextPartRenderers[part.type](
+    part /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 
 const renderSheetText = (text: BotText): string =>
   Predicate.isString(text) ? text : text.map(renderSheetTextPart).join("");
@@ -150,6 +152,6 @@ export const toDiscordMessagePayload = (message: BotOutboundMessage) =>
           fail_if_not_exists: message.messageReference.failIfNotExists,
         }
       : undefined,
-  }) as Discord.MessageCreateRequest &
+  }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Discord.MessageCreateRequest &
     Discord.MessageEditRequestPartial &
-    Discord.IncomingWebhookUpdateRequestPartial;
+    Discord.IncomingWebhookUpdateRequestPartial /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;

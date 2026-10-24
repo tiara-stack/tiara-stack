@@ -97,7 +97,7 @@ const makeBot = (overrides: BotOverrides): SheetBotHttpClient =>
     delivery: {
       sendMessage: overrides.sendMessage ?? (() => Effect.die("unexpected welcome delivery")),
     },
-  }) as unknown as SheetBotHttpClient;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeOperations = (bot: SheetBotHttpClient, config: Record<string, unknown> = {}) =>
   WorkspaceWelcomeWorkflowOperations.pipe(

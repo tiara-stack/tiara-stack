@@ -135,7 +135,9 @@ export const makeWorkflowInvocationStore = (
           idempotencyKey: invocation.fingerprint.invocationId,
           visibilityKey: invocation.ownerKey,
           principal: Schema.decodeUnknownSync(Schema.Json)(invocation.principal),
-          payload: replayStablePayload as unknown as WorkflowJson,
+
+          payload:
+            replayStablePayload as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WorkflowJson /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         })
         .pipe(
           Effect.tap(() => recordEnqueue("accepted")),
@@ -329,7 +331,8 @@ const addWorkflowEnqueueRoute = <E, R>(
 ) =>
   HttpRouter.add(
     "POST",
-    path as HttpRouter.PathInput,
+
+    path /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as HttpRouter.PathInput /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       return yield* Effect.gen(function* () {
@@ -381,7 +384,7 @@ const decodeWorkflowListFilter = HttpServerRequest.schemaSearchParams(WorkflowHt
       return Effect.fail(invalidObservationRequest());
     }
 
-    const states = Predicate.isUndefined(state)
+    const states = Predicate.isUndefined(state) // oxlint-disable-line no-nested-ternary -- inherited master site
       ? undefined
       : Array.isArray(state)
         ? state
@@ -463,7 +466,8 @@ const addWorkflowObservationRoute = <
 ) =>
   HttpRouter.add(
     "GET",
-    path as HttpRouter.PathInput,
+
+    path /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as HttpRouter.PathInput /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       return yield* Effect.gen(function* () {

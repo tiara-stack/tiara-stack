@@ -30,7 +30,14 @@ const getInteractionMessage = Effect.gen(function* () {
   const interactionMessage = yield* Interaction.message();
   return pipe(
     interactionMessage,
-    Option.map((message) => message as { id: string; channel_id: string }),
+
+    Option.map(
+      (message) =>
+        message /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+          id: string;
+          channel_id: string;
+        } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+    ),
   );
 });
 
@@ -86,7 +93,10 @@ const makeCheckinButtonHandler = Effect.gen(function* () {
 const makeCheckinButton = Effect.gen(function* () {
   const button = yield* makeCheckinButtonHandler;
 
-  return makeMessageComponent(button.data, button.handler as never);
+  return makeMessageComponent(
+    button.data,
+    button.handler /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 });
 
 export const checkinButtonLayer = Layer.effectDiscard(

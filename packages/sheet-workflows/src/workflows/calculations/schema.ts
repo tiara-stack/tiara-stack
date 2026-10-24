@@ -21,9 +21,9 @@ export const maximumPersistedCalculationPayloadBytes = 16 * 1024 * 1024;
 const persistedCalculationTextEncoder = new TextEncoder();
 // This is a conservative upper-bound estimate for the serialized payload size.
 const persistedCalculationCellByteLength = (cell: CalculationCell): number =>
-  Predicate.isNull(cell)
+  Predicate.isNull(cell) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? 4
-    : Predicate.isBoolean(cell)
+    : Predicate.isBoolean(cell) // oxlint-disable-line no-nested-ternary -- inherited master site
       ? cell
         ? 4
         : 5

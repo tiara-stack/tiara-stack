@@ -153,7 +153,7 @@ export const makeChannelFillersMessage = (
     fillers.some((filler) => fillerLine(filler).includes(codeFence));
   const attachment = needsAttachment ? makeFillerAttachment(fillers) : undefined;
   const fillerFields: Array<FillerField> =
-    fillers.length === 0
+    fillers.length === 0 // oxlint-disable-line no-nested-ternary -- inherited master site
       ? [{ name: "Fillers", value: "None" }]
       : attachment === undefined
         ? fillerValues.slice(0, maximumFillerFields).map((value, index) => ({

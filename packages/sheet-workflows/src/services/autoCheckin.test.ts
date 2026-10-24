@@ -104,7 +104,7 @@ const makePersistence = (
               ),
           },
         }),
-  }) as unknown as TrustedSheetPersistence["Service"];
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as TrustedSheetPersistence["Service"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeProvider = (
   eventStartEpochMs: number,
@@ -746,6 +746,7 @@ describe("AutonomousTriggerService", () => {
     Effect.gen(function* () {
       let attempts = 0;
       let acceptedInput: unknown;
+
       const store = {
         enqueue: (input: { readonly runId: string; readonly payload: unknown }) =>
           Effect.suspend(() => {
@@ -762,10 +763,11 @@ describe("AutonomousTriggerService", () => {
             acceptedInput = input;
             return Effect.succeed({ runId: input.runId, executionId: "execution-1" });
           }),
-      } as unknown as typeof WorkflowStore.Service;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof WorkflowStore.Service /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
       const authorization = {
         authorize: () => Effect.void,
-      } as unknown as typeof ReadOnlyWorkflowAuthorization.Service;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof ReadOnlyWorkflowAuthorization.Service /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const enqueuer = yield* AutonomousWorkflowEnqueuer.make.pipe(
         Effect.provideService(WorkflowStore, store),
         Effect.provideService(ReadOnlyWorkflowAuthorization, authorization),
@@ -826,6 +828,7 @@ describe("AutonomousTriggerService", () => {
         input,
         principal,
       });
+
       const store = {
         enqueue: () =>
           Effect.fail(
@@ -850,10 +853,11 @@ describe("AutonomousTriggerService", () => {
               updatedAt: new Date(0),
             };
           }),
-      } as unknown as typeof WorkflowStore.Service;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof WorkflowStore.Service /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
       const authorization = {
         authorize: () => Effect.void,
-      } as unknown as typeof ReadOnlyWorkflowAuthorization.Service;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof ReadOnlyWorkflowAuthorization.Service /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const enqueuer = yield* AutonomousWorkflowEnqueuer.make.pipe(
         Effect.provideService(WorkflowStore, store),
         Effect.provideService(ReadOnlyWorkflowAuthorization, authorization),
@@ -868,6 +872,7 @@ describe("AutonomousTriggerService", () => {
   it.live("does not retry deterministic workflow acceptance failures", () =>
     Effect.gen(function* () {
       let attempts = 0;
+
       const store = {
         enqueue: () =>
           Effect.suspend(() => {
@@ -882,10 +887,11 @@ describe("AutonomousTriggerService", () => {
             );
           }),
         getRun: () => Effect.succeed(undefined),
-      } as unknown as typeof WorkflowStore.Service;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof WorkflowStore.Service /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
       const authorization = {
         authorize: () => Effect.void,
-      } as unknown as typeof ReadOnlyWorkflowAuthorization.Service;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof ReadOnlyWorkflowAuthorization.Service /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const enqueuer = yield* AutonomousWorkflowEnqueuer.make.pipe(
         Effect.provideService(WorkflowStore, store),
         Effect.provideService(ReadOnlyWorkflowAuthorization, authorization),

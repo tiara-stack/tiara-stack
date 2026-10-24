@@ -757,8 +757,19 @@ describe("BotCapabilityStore", () => {
         { discard: true },
       );
       const pages = [
-        { cursor: "next", keys: [`${unresolvedDeliveryStoragePrefix}${keys[0]}`] },
-        { cursor: "0", keys: [`${unresolvedDeliveryStoragePrefix}${keys[1]}`] },
+        {
+          cursor: "next",
+          keys: [
+            `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ unresolvedDeliveryStoragePrefix /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ keys[0] /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
+          ],
+        },
+
+        {
+          cursor: "0",
+          keys: [
+            `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ unresolvedDeliveryStoragePrefix /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ keys[1] /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
+          ],
+        },
       ] as const;
       let pageIndex = 0;
       const store = yield* makeStore.pipe(

@@ -267,7 +267,7 @@ export type PreviewWebProcessTreeSampler = (
 const cpuTimeMilliseconds = (input: string) => {
   const pieces = input.split(":").map(Number);
   const seconds =
-    pieces.length === 3
+    pieces.length === 3 // oxlint-disable-line no-nested-ternary -- inherited master site
       ? (pieces[0] ?? 0) * 3600 + (pieces[1] ?? 0) * 60 + (pieces[2] ?? 0)
       : pieces.length === 2
         ? (pieces[0] ?? 0) * 60 + (pieces[1] ?? 0)
@@ -451,7 +451,9 @@ const processGroupExists = (processGroupId: number) =>
       globalThis.process.kill(-processGroupId, 0);
       return true;
     },
-    catch: (cause) => cause as NodeJS.ErrnoException,
+
+    catch: (cause) =>
+      cause /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as NodeJS.ErrnoException /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   }).pipe(
     Effect.catchIf(
       (error) => error.code === "ESRCH",
@@ -467,7 +469,9 @@ const processGroupExists = (processGroupId: number) =>
 const signalProcessGroup = (processGroupId: number, signal: "SIGTERM" | "SIGKILL") =>
   Effect.try({
     try: () => globalThis.process.kill(-processGroupId, signal),
-    catch: (cause) => cause as NodeJS.ErrnoException,
+
+    catch: (cause) =>
+      cause /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as NodeJS.ErrnoException /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   }).pipe(
     Effect.catchIf(
       (error) => error.code === "ESRCH",
@@ -1041,7 +1045,11 @@ export const makePreviewWebRuntime = (options: {
       };
       const server: Server = createServer((request, response) => {
         const requestPath = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
-        const route = routes[requestPath as keyof typeof routes];
+
+        const route =
+          routes[
+            requestPath /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof typeof routes /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          ];
         if (
           route === undefined ||
           request.method !== route.method ||
