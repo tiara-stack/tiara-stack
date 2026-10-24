@@ -41,7 +41,11 @@ export abstract class AppsScriptHttpIncomingMessage<E>
   }
 
   get headers() {
-    const headerArray = this.source.getAllHeaders() as Record<string, string | string[]>;
+    const headerArray =
+      this.source.getAllHeaders() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+        string,
+        string | string[]
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     const headers: Record<string, string | string[]> = {};
     for (const key in headerArray) {
       const value = headerArray[key];

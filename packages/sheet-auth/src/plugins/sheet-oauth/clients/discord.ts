@@ -43,7 +43,7 @@ const isDiscordCredentialError = (error: unknown) => {
 };
 
 const accessTokenExpiresSoon = (account: DiscordOAuthAccount) => {
-  const expiresAt = Predicate.isDate(account.accessTokenExpiresAt)
+  const expiresAt = Predicate.isDate(account.accessTokenExpiresAt) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? account.accessTokenExpiresAt
     : account.accessTokenExpiresAt
       ? new Date(account.accessTokenExpiresAt)

@@ -71,7 +71,7 @@ abstract class SharedBuilderToJSON<
   abstract readonly builder: BaseBuilderType<BuilderT>;
 
   toJSON(): InnerType {
-    return this.builder.toJSON() as InnerType;
+    return this.builder.toJSON() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as InnerType /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 }
 
@@ -101,58 +101,65 @@ export class ButtonBuilder<
 
   setStyle<const Style extends ButtonStyle>(style: Style) {
     this.builder.setStyle(style);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "style", Style>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setURL<const Url extends string>(url: Url) {
     this.builder.setURL(url);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "url", Url>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setCustomId<const CustomId extends string>(customId: CustomId) {
     this.builder.setCustomId(customId);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "custom_id", CustomId>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setSKUId<const SKUId extends Snowflake>(skuId: SKUId) {
     this.builder.setSKUId(skuId);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "sku_id", SKUId>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setEmoji<const Emoji extends APIMessageComponentEmoji>(emoji: Emoji) {
     this.builder.setEmoji(emoji);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "emoji", Emoji>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setDisabled<const Disabled extends boolean>(disabled: Disabled) {
     this.builder.setDisabled(disabled);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "disabled", Disabled>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setLabel<const Label extends string>(label: Label) {
     this.builder.setLabel(label);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       ButtonBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "label", Label>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 }
 
@@ -178,10 +185,11 @@ export class ActionRowBuilder<
     AppendAllKey<A, "components", BuilderInnerTypes<Components>>
   > {
     this.builder.addComponents(components.map((c) => c.builder));
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       ActionRowBuilderTypeLambda<ComponentBuilderType>,
       AppendAllKey<A, "components", BuilderInnerTypes<Components>>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setComponents<const Components extends ReadonlyArray<ComponentBuilderType>>(
@@ -191,9 +199,10 @@ export class ActionRowBuilder<
     ReplaceKey<A, "components", BuilderInnerTypes<Components>>
   > {
     this.builder.setComponents(components.map((c) => c.builder));
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       ActionRowBuilderTypeLambda<ComponentBuilderType>,
       ReplaceKey<A, "components", BuilderInnerTypes<Components>>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 }

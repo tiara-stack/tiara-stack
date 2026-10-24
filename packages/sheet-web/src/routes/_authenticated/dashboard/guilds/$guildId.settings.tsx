@@ -215,7 +215,7 @@ function GuildSettings() {
   const channelsSettingsPath = `/dashboard/guilds/${guildId}/settings/channels`;
   const checkinMessagesSettingsPath = `/dashboard/guilds/${guildId}/settings/checkin-messages`;
   const section =
-    isPath(pathname, checkinMessagesSettingsPath) ||
+    isPath(pathname, checkinMessagesSettingsPath) || // oxlint-disable-line no-nested-ternary -- inherited master site
     pathname.startsWith(`${checkinMessagesSettingsPath}/`)
       ? "checkin-messages"
       : isPath(pathname, channelsSettingsPath) || pathname.startsWith(`${channelsSettingsPath}/`)
@@ -886,7 +886,7 @@ export function ChannelsSection({
       </aside>
 
       <div className="bg-[#0a100f]">
-        {selected ? (
+        {selected ? ( // oxlint-disable-line no-nested-ternary -- inherited master site
           canManage ? (
             <ManagerChannelEditor guildId={guildId} channel={selected} channels={channels} />
           ) : (

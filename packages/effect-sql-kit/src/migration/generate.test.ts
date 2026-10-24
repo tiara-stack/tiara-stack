@@ -97,7 +97,13 @@ describe("generateMigration", () => {
       name: "initial",
     });
 
-    const migration = await readFile(join(out, `${result.tag}.ts`), "utf8");
+    const migration = await readFile(
+      join(
+        out,
+        `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ result.tag /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}.ts`,
+      ),
+      "utf8",
+    );
     expect(migration).toContain('create table "app_users"');
     expect(migration).toContain('create index "app_users_email_idx"');
   });
@@ -127,7 +133,13 @@ describe("generateMigration", () => {
       }).pipe(Effect.provide(NodeServices.layer));
 
       const migration = yield* Effect.promise(() =>
-        readFile(join(out, `${result.tag}.ts`), "utf8"),
+        readFile(
+          join(
+            out,
+            `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ result.tag /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}.ts`,
+          ),
+          "utf8",
+        ),
       );
       expect(migration).toContain('create table "canonical_users"');
     }),
@@ -160,7 +172,13 @@ describe("generateMigration", () => {
       name: "initial",
     });
 
-    const migration = await readFile(join(out, `${result.tag}.ts`), "utf8");
+    const migration = await readFile(
+      join(
+        out,
+        `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ result.tag /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}.ts`,
+      ),
+      "utf8",
+    );
     expect(migration).toContain('create table "app_users"');
     expect(migration).toContain('create index "app_users_email_idx"');
   });
@@ -294,7 +312,11 @@ describe("generateMigration", () => {
               _tag: "EffectSqlKitMigrationExtension",
               name: "invalid-extension",
               generate: () => ({
-                statements: [{ sql: 123 as never }],
+                statements: [
+                  {
+                    sql: 123 /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+                  },
+                ],
                 snapshot: null,
               }),
             },

@@ -177,7 +177,10 @@ const makeQueryMethod = (
     Stream.unwrap(streamEffect(...args)),
   );
 
-  return method as QueryClientMethod<unknown, unknown>;
+  return method /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as QueryClientMethod<
+    unknown,
+    unknown
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 const makeMutatorMethod = (
@@ -206,7 +209,7 @@ const makeMutatorMethod = (
 
   defineMethodProperty(method, "mutate", mutate);
 
-  return method as MutatorClientMethod<unknown>;
+  return method /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as MutatorClientMethod<unknown> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 const requireRegistryMethod = (
@@ -234,11 +237,23 @@ const makeClientEndpoint = (
     Match.discriminatorsExhaustive("kind")({
       query: (queryEndpoint) => {
         const registryMethod = requireRegistryMethod(queries, group, queryEndpoint);
-        return makeQueryMethod(zeroClient, registryMethod as any, group, queryEndpoint);
+
+        return makeQueryMethod(
+          zeroClient,
+          registryMethod /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          group,
+          queryEndpoint,
+        );
       },
       mutator: (mutatorEndpoint) => {
         const registryMethod = requireRegistryMethod(mutators, group, mutatorEndpoint);
-        return makeMutatorMethod(zeroClient, registryMethod as any, group, mutatorEndpoint);
+
+        return makeMutatorMethod(
+          zeroClient,
+          registryMethod /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          group,
+          mutatorEndpoint,
+        );
       },
     }),
   );
@@ -250,12 +265,27 @@ const makeClient = <Api extends ZeroApi.Any, Visibility extends ZeroApiEndpoint.
   registryOptions?: ClientRegistryOptions<Api, Visibility>,
 ): Client<Api, Visibility> => {
   const queries = (registryOptions?.queries ??
-    ZeroApiRegistry.toQueries(api, { visibilities })) as Record<string, Record<string, unknown>>;
+    ZeroApiRegistry.toQueries(api, {
+      visibilities,
+    })) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+    string,
+    Record<string, unknown>
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
   const mutators = (registryOptions?.mutators ??
-    ZeroApiRegistry.toMutators(api, { visibilities })) as Record<string, Record<string, unknown>>;
+    ZeroApiRegistry.toMutators(api, {
+      visibilities,
+    })) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+    string,
+    Record<string, unknown>
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
   return collectVisibleByGroup(api, visibilities, (group, endpoint) =>
     makeClientEndpoint(zeroClient, queries, mutators, group, endpoint),
-  ) as Client<Api, Visibility>;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Client<
+    Api,
+    Visibility
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 const publicVisibilities = ["public"] as const;
@@ -358,37 +388,72 @@ export const makeFunctionClient = <
     call: (registered: unknown, args: OptionalArgs<unknown>) => Effect.Effect<A, E, never>,
   ): Effect.Effect<A, E, never> =>
     method(reference).pipe(
-      Effect.flatMap((registered) => call(registered, args as OptionalArgs<unknown>)),
+      Effect.flatMap((registered) =>
+        call(
+          registered,
+          args /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as OptionalArgs<unknown> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ),
+      ),
     );
 
   const client = {
     query: (reference: ZeroFunctionReference.AnyQueryReference, ...args: readonly unknown[]) =>
       invoke(reference, args, (registered, optionalArgs) =>
-        (registered as QueryClientMethod<unknown, unknown>).query(...optionalArgs),
+        (
+          registered /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as QueryClientMethod<
+            unknown,
+            unknown
+          >
+        ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          .query(...optionalArgs),
       ),
     fetch: (reference: ZeroFunctionReference.AnyQueryReference, ...args: readonly unknown[]) =>
       invoke(reference, args, (registered, optionalArgs) =>
-        (registered as QueryClientMethod<unknown, unknown>)(...optionalArgs),
+        (
+          registered /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as QueryClientMethod<
+            unknown,
+            unknown
+          >
+        )(
+          /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */ ...optionalArgs,
+        ),
       ) as Effect.Effect<any, QueryError>,
     stream: (reference: ZeroFunctionReference.AnyQueryReference, ...args: readonly unknown[]) =>
       Stream.unwrap(
         invoke(reference, args, (registered, optionalArgs) =>
           Effect.succeed(
-            (registered as QueryClientMethod<unknown, unknown>).stream(...optionalArgs),
+            (
+              registered /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as QueryClientMethod<
+                unknown,
+                unknown
+              >
+            ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+              .stream(...optionalArgs),
           ),
         ),
       ) as Stream.Stream<any, QueryError>,
     mutate: (reference: ZeroFunctionReference.AnyMutatorReference, ...args: readonly unknown[]) =>
       invoke(reference, args, (registered, optionalArgs) =>
-        (registered as MutatorClientMethod<unknown>).mutate(...optionalArgs),
+        (
+          registered /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as MutatorClientMethod<unknown>
+        ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          .mutate(...optionalArgs),
       ),
     execute: (reference: ZeroFunctionReference.AnyMutatorReference, ...args: readonly unknown[]) =>
       invoke(reference, args, (registered, optionalArgs) =>
-        (registered as MutatorClientMethod<unknown>)(...optionalArgs),
+        (
+          registered /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as MutatorClientMethod<unknown>
+        )(
+          /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */ ...optionalArgs,
+        ),
       ),
     grouped,
   };
-  return client as FunctionClient<Api, Visibility>;
+
+  return client /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FunctionClient<
+    Api,
+    Visibility
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 export const makeFunctions = <Api extends ZeroApi.Any>(

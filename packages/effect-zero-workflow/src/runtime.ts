@@ -88,7 +88,8 @@ const asRunnableWorkflow = (workflow: WorkflowDefinition): RunnableWorkflow => {
       throw new Error(`Workflow ${workflow.name} is missing operation: ${operationName}`);
     }
   }
-  return workflow as RunnableWorkflow;
+
+  return workflow /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as RunnableWorkflow /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 export const makeWorkflowRuntime = (options: WorkflowRuntimeOptions): WorkflowRuntimeService => {

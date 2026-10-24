@@ -689,7 +689,8 @@ const humanizeDiffSegment = (segment: string): string => {
   const indexed = /^(.+?) ([0-9]+)$/u.exec(segment);
   if (indexed !== null) {
     const label = diffSegmentLabels[indexed[1] ?? ""] ?? indexed[1] ?? "Entry";
-    return `${label} ${indexed[2]}`;
+
+    return `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ label /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */} ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ indexed[2] /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`;
   }
   if (diffSegmentLabels[segment] !== undefined) return diffSegmentLabels[segment];
   const spaced = segment.replace(/([a-z])([A-Z])/gu, "$1 $2").replaceAll("_", " ");
@@ -733,7 +734,7 @@ const configurationDiffs = (
         before: formatDiffValue(path, beforeValue),
         after: formatDiffValue(path, afterValue),
         kind:
-          beforeValue === undefined
+          beforeValue === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
             ? ("added" as const)
             : afterValue === undefined
               ? ("removed" as const)
@@ -965,7 +966,12 @@ const updateConfigurationRange = (
         isv: { kind: "combined", range: localRange },
       };
     } else if (field.startsWith("isv.") && team.isv.kind === "split") {
-      const key = field.slice("isv.".length) as "lead" | "backline" | "talent";
+      const key = field.slice(
+        "isv.".length,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as
+        | "lead"
+        | "backline"
+        | "talent" /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       teams[index] = {
         ...team,
         sheetId: range.sheetId,
@@ -983,7 +989,9 @@ const updateConfigurationRange = (
   const scheduleMatch = /^schedules\[([0-9]+)\]\.(.+)$/u.exec(path);
   if (scheduleMatch !== null) {
     const index = Number(scheduleMatch[1]);
-    const field = (scheduleMatch[2] ?? "") as keyof Configuration["schedules"][number];
+
+    const field = (scheduleMatch[2] ??
+      "") /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof Configuration["schedules"][number] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     const schedule = configuration.schedules[index];
     if (
       schedule === undefined ||
@@ -1862,7 +1870,12 @@ function StudioLoaded({
                 id="sheet-configuration-section"
                 className="studioInput w-full"
                 value={section}
-                onChange={(event) => navigateToSection(event.target.value as StudioSection)}
+                onChange={(event) =>
+                  navigateToSection(
+                    event.target
+                      .value /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as StudioSection /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+                  )
+                }
               >
                 <option value="overview">Overview</option>
                 <option value="users">Users</option>
@@ -1917,7 +1930,7 @@ function StudioLoaded({
           </aside>
 
           <div className="min-w-0 bg-[#0b1210]">
-            {section === "overview" ? (
+            {section === "overview" ? ( // oxlint-disable-line no-nested-ternary -- inherited master site
               <OverviewSection
                 state={displayState}
                 establishedScheduleTimeReference={establishedScheduleTimeReference}
@@ -1994,13 +2007,13 @@ function StudioLoaded({
                 />
                 <span className="truncate text-white/65">
                   {pendingInputError ??
-                    (pendingRangeState.invalid
+                    (pendingRangeState.invalid // oxlint-disable-line no-nested-ternary -- inherited master site
                       ? "Pending range edit is invalid · fix or revert it"
-                      : pendingRangeState.dirty
+                      : pendingRangeState.dirty // oxlint-disable-line no-nested-ternary -- inherited master site
                         ? "Pending range edit · apply it in the editor"
-                        : dirty
+                        : dirty // oxlint-disable-line no-nested-ternary -- inherited master site
                           ? "Draft in progress · save draft"
-                          : draftIsActive
+                          : draftIsActive // oxlint-disable-line no-nested-ternary -- inherited master site
                             ? "Active · no changes to publish"
                             : hasDraft
                               ? "Saved draft · review activation"
@@ -2137,7 +2150,7 @@ function ActivationReview({
     const frame = window.requestAnimationFrame(() => reviewHeadingRef.current?.focus());
     return () => window.cancelAnimationFrame(frame);
   }, []);
-  const sourceMessage = isLegacy
+  const sourceMessage = isLegacy // oxlint-disable-line no-nested-ternary -- inherited master site
     ? "The legacy Settings tab stays current until you activate this draft."
     : activeRevisionId === null
       ? "No active web revision exists yet. This draft will be the first one."
@@ -2195,7 +2208,7 @@ function ActivationReview({
               CURRENT SOURCE
             </dt>
             <dd className="mt-1 break-words text-xs font-bold text-white/75">
-              {isLegacy
+              {isLegacy // oxlint-disable-line no-nested-ternary -- inherited master site
                 ? "Legacy Settings tab"
                 : activeRevisionId === null
                   ? "No active web revision"
@@ -2215,9 +2228,9 @@ function ActivationReview({
               SAMPLE CHECK
             </dt>
             <dd className="mt-1 break-words text-xs font-bold text-white/75">
-              {changes.length === 0
+              {changes.length === 0 // oxlint-disable-line no-nested-ternary -- inherited master site
                 ? "No changed mappings"
-                : sampleTargetCount === 0
+                : sampleTargetCount === 0 // oxlint-disable-line no-nested-ternary -- inherited master site
                   ? "No changed mapping has a current range"
                   : sampleTargetCount > activationSampleInitialTargetLimit
                     ? `${initialSampleTargetCount} of ${sampleTargetCount} changed mappings sampled initially`
@@ -2282,7 +2295,7 @@ function ActivationReview({
                             {change.label}
                           </span>
                           <span className="mt-1 block text-[10px] text-white/40">
-                            {change.kind === "added"
+                            {change.kind === "added" // oxlint-disable-line no-nested-ternary -- inherited master site
                               ? "New value"
                               : change.kind === "removed"
                                 ? "Removed value"
@@ -2398,7 +2411,11 @@ function activationSampleTargetsFor(
     changes.some((change) => {
       if (configurationPathsRelated(change.path, target.path)) return true;
       const entryMatch = /^(teams|schedules)\[([0-9]+)\]/u.exec(change.path);
-      const targetEntry = entryMatch === null ? undefined : `${entryMatch[1]}[${entryMatch[2]}]`;
+
+      const targetEntry =
+        entryMatch === null
+          ? undefined
+          : `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ entryMatch[1] /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}[${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ entryMatch[2] /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}]`;
       if (targetEntry !== undefined && target.path.startsWith(`${targetEntry}.`)) {
         return change.path.endsWith(".sheetId");
       }
@@ -2450,7 +2467,7 @@ const activationSampleStatusTextFor = (
   previewLoading: boolean,
   hasSnapshot: boolean,
 ): string =>
-  previewFailure
+  previewFailure // oxlint-disable-line no-nested-ternary -- inherited master site
     ? hasSnapshot
       ? "LAST AVAILABLE"
       : "UNAVAILABLE"
@@ -2466,7 +2483,7 @@ const activationSampleLoadingFor = (
 ): boolean => !previewFailure && (tabsWaiting || snapshotWaiting || !hasSnapshot);
 
 const activationSampleCoverageLabelFor = (sampleTargets: ReadonlyArray<RangeTarget>): string =>
-  sampleTargets.length === 0
+  sampleTargets.length === 0 // oxlint-disable-line no-nested-ternary -- inherited master site
     ? "No changed mapping has a current candidate range."
     : sampleTargets.length <= activationSampleInitialTargetLimit
       ? `${sampleTargets.length} changed ${sampleTargets.length === 1 ? "mapping is" : "mappings are"} sampled below.`
@@ -2677,7 +2694,7 @@ function ActivationSampleSnapshotList({
   const remainingTargetCount = sampleTargets.length - visibleSampleTargets.length;
   const previewFailure = AsyncResult.isFailure(tabsResult);
   const previewLoading = tabsResult.waiting || !resultValue(tabsResult);
-  const statusText = previewFailure
+  const statusText = previewFailure // oxlint-disable-line no-nested-ternary -- inherited master site
     ? "UNAVAILABLE"
     : previewLoading
       ? "READING MAPPINGS"
@@ -3285,24 +3302,24 @@ function SourceBadge({
   const sourceNeedsRebind = isLegacy && legacySourceChanged;
   return (
     <div
-      className={`flex items-center gap-2 border px-3 py-2 font-mono text-[10px] font-black tracking-[0.12em] ${sourceNeedsRebind ? "border-[#ff7b72]/40 bg-[#ff7b72]/10 text-[#ffb5ae]" : isLegacy ? "border-[#ffb86c]/30 bg-[#ffb86c]/10 text-[#ffcf91]" : "border-[#33ccbb]/30 bg-[#33ccbb]/10 text-[#73e9dc]"}`}
+      className={`flex items-center gap-2 border px-3 py-2 font-mono text-[10px] font-black tracking-[0.12em] ${sourceNeedsRebind ? "border-[#ff7b72]/40 bg-[#ff7b72]/10 text-[#ffb5ae]" : isLegacy ? "border-[#ffb86c]/30 bg-[#ffb86c]/10 text-[#ffcf91]" : "border-[#33ccbb]/30 bg-[#33ccbb]/10 text-[#73e9dc]"}`} // oxlint-disable-line no-nested-ternary -- inherited master site
     >
       <span
-        className={`h-2 w-2 ${sourceNeedsRebind ? "bg-[#ff7b72]" : isLegacy ? "bg-[#ffb86c]" : "bg-[#33ccbb]"}`}
+        className={`h-2 w-2 ${sourceNeedsRebind ? "bg-[#ff7b72]" : isLegacy ? "bg-[#ffb86c]" : "bg-[#33ccbb]"}`} // oxlint-disable-line no-nested-ternary -- inherited master site
       />
       <span className="sm:hidden">
-        {sourceNeedsRebind
+        {sourceNeedsRebind // oxlint-disable-line no-nested-ternary -- inherited master site
           ? "LEGACY · REBIND"
-          : isLegacy
+          : isLegacy // oxlint-disable-line no-nested-ternary -- inherited master site
             ? "CURRENT · LEGACY"
             : revisionId
               ? "ACTIVE"
               : "SAVED DRAFT"}
       </span>
       <span className="hidden sm:inline">
-        {sourceNeedsRebind
+        {sourceNeedsRebind // oxlint-disable-line no-nested-ternary -- inherited master site
           ? "LEGACY SOURCE · REBIND REQUIRED"
-          : isLegacy
+          : isLegacy // oxlint-disable-line no-nested-ternary -- inherited master site
             ? "CURRENT SOURCE · LEGACY SETTINGS"
             : revisionId
               ? `ACTIVE · ${revisionId.slice(0, 8)}`
@@ -3351,7 +3368,7 @@ function OnboardingStepper({
   const currentStage = editorLifecycleStageFor({ hasDraft, dirty, draftIsActive: false });
   const currentStageIndex = editorLifecycleStageIndexFor(currentStage);
   const nextAction = {
-    current: isLegacy
+    current: isLegacy // oxlint-disable-line no-nested-ternary -- inherited master site
       ? legacySourceChanged
         ? "Rebind the missing legacy Settings tab, then refresh and import the current source."
         : "Import the current Settings tab to create an editable draft."
@@ -3608,8 +3625,8 @@ function OverviewSection({
             </div>
           </div>
           <p className="mt-3 max-w-2xl text-sm leading-relaxed text-white/55">
-            {isLegacy
-              ? legacySourceChanged
+            {isLegacy // oxlint-disable-line no-nested-ternary -- inherited master site
+              ? legacySourceChanged // oxlint-disable-line no-nested-ternary -- inherited master site
                 ? "The bound legacy Settings tab is unavailable. Rebind it before importing the current source."
                 : hasDraft
                   ? "This draft was imported from the legacy Settings tab. Update its ranges, save the draft, then review it before it becomes the live configuration."
@@ -3708,14 +3725,14 @@ function OverviewSection({
           <h2 className="text-lg font-black">Activation history</h2>
           <FileClock className="h-5 w-5 text-white/35" />
         </div>
-        {revisionsUnavailable ? (
+        {revisionsUnavailable ? ( // oxlint-disable-line no-nested-ternary -- inherited master site
           <DataStatusNotice
             kind="warning"
             message="Activation history could not be loaded. Retry before relying on rollback details."
             actionLabel="RETRY HISTORY"
             onAction={refreshRevisions}
           />
-        ) : revisionsLoading ? (
+        ) : revisionsLoading ? ( // oxlint-disable-line no-nested-ternary -- inherited master site
           <p className="flex items-center gap-2 px-5 py-6 text-sm text-white/45" role="status">
             <LoaderCircle className="h-4 w-4 animate-spin text-[#33ccbb] motion-reduce:animate-none" />
             Loading activation history…
@@ -4349,7 +4366,7 @@ function ConfigurationFields({
     refreshKey: tabsRefreshKey,
   });
   const tabs = resultValue(tabsResult)?.tabs ?? [];
-  const tabsStatus: SheetTabsStatus = AsyncResult.isFailure(tabsResult)
+  const tabsStatus: SheetTabsStatus = AsyncResult.isFailure(tabsResult) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? "error"
     : tabsResult.waiting && tabs.length === 0
       ? "loading"
@@ -4745,7 +4762,7 @@ function SheetSelect({
       disabled
     >
       <option value={value}>
-        {status === "loading"
+        {status === "loading" // oxlint-disable-line no-nested-ternary -- inherited master site
           ? "Loading sheet tabs…"
           : status === "error"
             ? "Sheet tabs unavailable"
@@ -4913,7 +4930,7 @@ function TeamFields({
           onChange={(event) =>
             update({
               teamName:
-                event.target.value === "auto"
+                event.target.value === "auto" // oxlint-disable-line no-nested-ternary -- inherited master site
                   ? "auto"
                   : team.teamName === "auto"
                     ? makeLocalRange(0, 0, 1, 1)
@@ -5086,7 +5103,12 @@ function ScheduleFields({
           data-configuration-path={`schedules[${index}].encoding`}
           className="studioInput mt-1 w-full"
           value={schedule.encoding}
-          onChange={(event) => update({ encoding: event.target.value as Schedule["encoding"] })}
+          onChange={(event) =>
+            update({
+              encoding: event.target
+                .value /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Schedule["encoding"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+            })
+          }
         >
           <option value="none">None</option>
           <option value="regex">Regex</option>
@@ -5110,7 +5132,7 @@ function ScheduleFields({
           onChange={(event) =>
             update({
               breakRange:
-                event.target.value === "auto"
+                event.target.value === "auto" // oxlint-disable-line no-nested-ternary -- inherited master site
                   ? "auto"
                   : schedule.breakRange === "auto"
                     ? rangeForOptional()
@@ -5126,7 +5148,7 @@ function ScheduleFields({
         <OptionalRangeToggle
           key={key}
           label={
-            key === "monitorRange"
+            key === "monitorRange" // oxlint-disable-line no-nested-ternary -- inherited master site
               ? "Monitor range"
               : key === "screenshotRange"
                 ? "Screenshot range"
@@ -5330,7 +5352,7 @@ function RangeSection({
     refreshKey: tabsRefreshKey,
   });
   const tabs = resultValue(tabsResult)?.tabs ?? [];
-  const tabsStatus: SheetTabsStatus = AsyncResult.isFailure(tabsResult)
+  const tabsStatus: SheetTabsStatus = AsyncResult.isFailure(tabsResult) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? "error"
     : tabsResult.waiting && tabs.length === 0
       ? "loading"
@@ -5489,7 +5511,7 @@ function RangeSection({
           </button>
         </div>
         <p className="px-1 pt-2 text-[11px] leading-relaxed text-[#8fbab4]">
-          {active === undefined
+          {active === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
             ? "Choose a mapping to inspect, or open the section settings below."
             : mobileStep === "fields"
               ? "Choose a mapping to inspect. Step 2 opens its A1 and grid controls."
@@ -6031,23 +6053,23 @@ function RangeCanvas({
   };
   const hasPreviewFailure =
     AsyncResult.isFailure(tabsResult) || AsyncResult.isFailure(snapshotResult);
-  const tabsStatus: SheetTabsStatus = AsyncResult.isFailure(tabsResult)
+  const tabsStatus: SheetTabsStatus = AsyncResult.isFailure(tabsResult) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? "error"
     : tabsResult.waiting && tabs.length === 0
       ? "loading"
       : "ready";
   const hasPreviewData = tabs.length > 0 && snapshot !== undefined;
-  const previewStatus = hasPreviewFailure
+  const previewStatus = hasPreviewFailure // oxlint-disable-line no-nested-ternary -- inherited master site
     ? "error"
     : tabsResult.waiting || snapshotResult.waiting || !hasPreviewData
       ? "loading"
       : "ready";
   const previewMessage =
-    AsyncResult.isFailure(tabsResult) && tabs.length === 0
+    AsyncResult.isFailure(tabsResult) && tabs.length === 0 // oxlint-disable-line no-nested-ternary -- inherited master site
       ? "Could not load the sheet tabs. Confirm the spreadsheet is accessible, then retry."
-      : AsyncResult.isFailure(snapshotResult) && snapshot === undefined
+      : AsyncResult.isFailure(snapshotResult) && snapshot === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
         ? "Could not load cells for this tab. Choose another tab or retry."
-        : hasPreviewFailure
+        : hasPreviewFailure // oxlint-disable-line no-nested-ternary -- inherited master site
           ? "Showing the last available preview. Retry to fetch current cells."
           : previewStatus === "loading"
             ? "Loading the read-only sheet preview…"
@@ -6069,7 +6091,7 @@ function RangeCanvas({
           </p>
         </div>
         <div className="flex min-w-0 max-w-full shrink-0 flex-wrap items-center justify-end gap-2 text-right">
-          {previewStatus === "ready" ? (
+          {previewStatus === "ready" ? ( // oxlint-disable-line no-nested-ternary -- inherited master site
             <Eye className="h-4 w-4 text-[#33ccbb]" />
           ) : previewStatus === "error" ? (
             <CircleAlert className="h-4 w-4 text-[#ffb86c]" />
@@ -6077,7 +6099,7 @@ function RangeCanvas({
             <LoaderCircle className="h-4 w-4 animate-spin text-[#33ccbb] motion-reduce:animate-none" />
           )}
           <span
-            className={`min-w-0 max-w-full text-[11px] ${previewStatus === "error" ? "text-[#ffcf91]" : previewStatus === "ready" ? "text-[#9ef4e8]" : "text-[#8fbab4]"}`}
+            className={`min-w-0 max-w-full text-[11px] ${previewStatus === "error" ? "text-[#ffcf91]" : previewStatus === "ready" ? "text-[#9ef4e8]" : "text-[#8fbab4]"}`} // oxlint-disable-line no-nested-ternary -- inherited master site
             role={previewStatus === "error" ? "alert" : "status"}
             aria-live="polite"
           >
@@ -6337,7 +6359,7 @@ function RangeCanvas({
                         selectCell(absoluteRow, absoluteColumn, event.shiftKey);
                         gridRef.current?.focus({ preventScroll: true });
                       }}
-                      className={`min-h-11 touch-pan-x touch-pan-y overflow-hidden border-b border-r border-white/10 px-2 py-2 text-left text-[11px] transition motion-reduce:transition-none hover:bg-[#33ccbb]/15 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#73e9dc] ${inSelection ? "bg-[#33ccbb]/30 ring-1 ring-inset ring-[#33ccbb]" : mapped ? rangeTint(mapped.path) : "bg-transparent"}`}
+                      className={`min-h-11 touch-pan-x touch-pan-y overflow-hidden border-b border-r border-white/10 px-2 py-2 text-left text-[11px] transition motion-reduce:transition-none hover:bg-[#33ccbb]/15 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#73e9dc] ${inSelection ? "bg-[#33ccbb]/30 ring-1 ring-inset ring-[#33ccbb]" : mapped ? rangeTint(mapped.path) : "bg-transparent"}`} // oxlint-disable-line no-nested-ternary -- inherited master site
                       style={
                         focusedCell?.row === absoluteRow && focusedCell.column === absoluteColumn
                           ? { outline: "2px solid #73e9dc", outlineOffset: "-2px" }
@@ -6397,9 +6419,9 @@ const parseRangeInput = (
   const matchingTabs =
     title === undefined ? [] : tabs.filter((candidate) => candidate.title === title);
   const matchingTab =
-    title === undefined
+    title === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
       ? undefined
-      : tabs.length === 0
+      : tabs.length === 0 // oxlint-disable-line no-nested-ternary -- inherited master site
         ? tab?.title === title
           ? tab
           : { sheetId: target.range.sheetId, title }
@@ -6431,7 +6453,7 @@ function RangeTextInput({
   readonly onChange: (path: string, range: Range) => void;
 }) {
   const formatted =
-    target === undefined
+    target === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
       ? ""
       : tab === undefined
         ? formatDiffRange(target.range)
@@ -6510,11 +6532,11 @@ function RangeTextInput({
           </span>
         </div>
         <span className="font-mono text-[9px] font-black tracking-[0.14em] text-[#8fbab4]">
-          {metadataUnavailable
+          {metadataUnavailable // oxlint-disable-line no-nested-ternary -- inherited master site
             ? "UNAVAILABLE"
-            : invalid
+            : invalid // oxlint-disable-line no-nested-ternary -- inherited master site
               ? "INVALID"
-              : dirty
+              : dirty // oxlint-disable-line no-nested-ternary -- inherited master site
                 ? "STAGED EDIT"
                 : draftDirty
                   ? "DRAFT CHANGES"
@@ -6601,11 +6623,11 @@ function RangeTextInput({
       )}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-white/10 pt-3">
         <p className="text-[11px] text-[#8fbab4]">
-          {metadataUnavailable
+          {metadataUnavailable // oxlint-disable-line no-nested-ternary -- inherited master site
             ? "Retry the sheet preview to edit this range."
-            : invalid
+            : invalid // oxlint-disable-line no-nested-ternary -- inherited master site
               ? "Fix or revert this range before saving."
-              : dirty
+              : dirty // oxlint-disable-line no-nested-ternary -- inherited master site
                 ? "This range is pending. Apply it to the draft before saving."
                 : draftDirty
                   ? "This range is part of draft changes. Save the draft to persist it."
@@ -6652,9 +6674,9 @@ function RangeTextInput({
 }
 
 const rangeTint = (path: string) =>
-  path.startsWith("users")
+  path.startsWith("users") // oxlint-disable-line no-nested-ternary -- inherited master site
     ? "bg-[#33ccbb]/10"
-    : path.startsWith("teams")
+    : path.startsWith("teams") // oxlint-disable-line no-nested-ternary -- inherited master site
       ? "bg-[#c792ea]/10"
       : path.startsWith("schedules")
         ? "bg-[#ffb86c]/10"

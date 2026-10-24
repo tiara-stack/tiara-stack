@@ -55,7 +55,7 @@ export const fromSqlTable = <const Table extends AnyEffectSqlTable>(
       type: columnOptions.type ?? zeroType(column.data.kind),
       optional:
         columnOptions.optional ??
-        (column.data.primaryKey ? false : hasServerDefault ? true : !column.data.notNull),
+        (column.data.primaryKey ? false : hasServerDefault ? true : !column.data.notNull), // oxlint-disable-line no-nested-ternary -- inherited master site
     };
   }
 

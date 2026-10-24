@@ -198,7 +198,7 @@ function DailyPendingPage() {
                 <div
                   className={cn(
                     "h-4 rounded bg-[#33ccbb]/10",
-                    index === 0 ? "w-40" : index % 2 === 0 ? "w-28" : "w-32",
+                    index === 0 ? "w-40" : index % 2 === 0 ? "w-28" : "w-32", // oxlint-disable-line no-nested-ternary -- inherited master site
                   )}
                 />
               </div>
@@ -210,7 +210,7 @@ function DailyPendingPage() {
                       <div
                         className={cn(
                           "h-3 rounded bg-white/8",
-                          rowIndex % 3 === 0 ? "w-11/12" : rowIndex % 3 === 1 ? "w-3/4" : "w-5/6",
+                          rowIndex % 3 === 0 ? "w-11/12" : rowIndex % 3 === 1 ? "w-3/4" : "w-5/6", // oxlint-disable-line no-nested-ternary -- inherited master site
                         )}
                       />
                       <div
@@ -971,7 +971,7 @@ function DateBlock({
 
           const schedules = getDailyHourSchedules(
             hourSchedules,
-          ) as Array.NonEmptyReadonlyArray<Schedule.PopulatedSchedule>;
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array.NonEmptyReadonlyArray<Schedule.PopulatedSchedule> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
           return {
             type: "schedule",

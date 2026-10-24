@@ -247,8 +247,12 @@ describe("sheet Workflow Contract catalog", () => {
     const flattenIdentities = (node: object): ReadonlyArray<string> =>
       Object.values(node).flatMap((value) =>
         Predicate.hasProperty(value, "identity")
-          ? [value.identity as string]
-          : flattenIdentities(value as object),
+          ? [
+              value.identity /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as string /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+            ]
+          : flattenIdentities(
+              value /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as object /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+            ),
       );
 
     expect([...flattenIdentities(SheetWorkflowContracts)].sort()).toEqual(

@@ -429,7 +429,10 @@ export const materializeWorkflowRun = <Contract extends AnyWorkflowContract>(
       submittedAt,
       updatedAt,
     }).pipe(
-      Effect.map((run) => run as WorkflowRun<Contract>),
+      Effect.map(
+        (run) =>
+          run /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WorkflowRun<Contract> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+      ),
       Effect.mapError(
         () =>
           new WorkflowObservationInvalidData({
@@ -444,11 +447,15 @@ const decodeWorkflowContractInput = <Contract extends AnyWorkflowContract>(
   input: unknown,
 ): Effect.Effect<WorkflowContractInput<Contract>, Schema.SchemaError> =>
   Schema.is(contract.input)(input)
-    ? Effect.succeed(input as WorkflowContractInput<Contract>)
-    : (Schema.decodeUnknownEffect(contract.input)(input) as Effect.Effect<
+    ? Effect.succeed(
+        input /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WorkflowContractInput<Contract> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+      )
+    : (Schema.decodeUnknownEffect(contract.input)(
+        input,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
         WorkflowContractInput<Contract>,
         Schema.SchemaError
-      >);
+      >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 export const makeWorkflowTransportHandler = <
   Principal,
@@ -471,9 +478,11 @@ export const makeWorkflowTransportHandler = <
       options.registrations,
     );
     const registrationFor = <Contract extends AnyWorkflowContract>(contract: Contract) =>
-      registrations.get(workflowContractKey(contract)) as
+      registrations.get(
+        workflowContractKey(contract),
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as
         | ExecutableWorkflowContractRegistration<Contract, Context, Requirements>
-        | undefined;
+        | undefined /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     const requireRegistration = <Contract extends AnyWorkflowContract>(contract: Contract) => {
       const registration = registrationFor(contract);
       if (Predicate.isUndefined(registration)) {

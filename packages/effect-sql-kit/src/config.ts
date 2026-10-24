@@ -15,7 +15,7 @@ const parseConfigObjectEffect = (input: unknown) =>
 const withoutUndefined = <A extends Record<string, unknown>>(object: A): Partial<A> =>
   Object.fromEntries(
     Object.entries(object).filter(([, value]) => value !== undefined),
-  ) as Partial<A>;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Partial<A> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const normalizeOverrides = (
   overrides?: Partial<EffectSqlKitConfig>,
@@ -65,5 +65,6 @@ export const resolveConfigEffect = (
       extensions: merged.extensions ?? [],
     };
     const decoded = yield* Schema.decodeUnknownEffect(ResolvedConfigSchema)(resolved);
-    return decoded as ResolvedConfig;
+
+    return decoded /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ResolvedConfig /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   });

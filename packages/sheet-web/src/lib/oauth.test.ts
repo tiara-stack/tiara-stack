@@ -29,7 +29,8 @@ const startOAuthServer = (handler: RequestListener) =>
       const server = createServer(handler);
       server.once("error", reject);
       server.listen(0, "127.0.0.1", () => {
-        const { port } = server.address() as AddressInfo;
+        const { port } =
+          server.address() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as AddressInfo /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
         resolve({
           authBaseUrl: new URL(`http://127.0.0.1:${port}`),
           close: () =>

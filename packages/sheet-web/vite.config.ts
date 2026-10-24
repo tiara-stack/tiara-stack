@@ -13,6 +13,8 @@ import { browserApp } from "tooling-config/vite";
 import { Effect } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import type { Plugin } from "vite";
+import { fileURLToPath } from "node:url";
+import { createGeneratedRouteAdoptionPlugin } from "tooling-config/generated-route-adoption";
 import { makePreviewSourceRevisionReporter } from "./src/lib/preview-source-revision";
 
 const previewHmrPath = process.env.TIARA_PREVIEW_HMR_PATH;
@@ -20,6 +22,7 @@ const previewAppBaseUrl = process.env.APP_BASE_URL;
 const previewRevisionUrl = process.env.TIARA_PREVIEW_REVISION_URL;
 const previewRevisionToken = process.env.TIARA_PREVIEW_REVISION_TOKEN;
 const previewInitialRevision = process.env.TIARA_PREVIEW_SOURCE_REVISION;
+const generatedRouteTreePath = fileURLToPath(new URL("./src/routeTree.gen.ts", import.meta.url));
 const previewHmr =
   previewHmrPath === undefined
     ? undefined
@@ -88,7 +91,11 @@ const config = browserApp({
       traceDeps: ["tslib"],
     }),
     tailwindcss(),
-    tanstackStart(),
+    tanstackStart({
+      router: {
+        plugins: [createGeneratedRouteAdoptionPlugin({ generatedRouteTreePath })],
+      },
+    }),
     viteReact({
       babel: {
         plugins: ["babel-plugin-react-compiler"],

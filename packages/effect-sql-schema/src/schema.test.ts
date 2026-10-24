@@ -26,7 +26,11 @@ describe("effect-sql-schema", () => {
     expect(snapshot.tables.users?.columns.orgId?.name).toBe("org_id");
     expect(snapshot.tables.users?.indexes[0]?.name).toBe("users_org_id_idx");
     expect(
-      (User as unknown as { readonly fields: Record<string, unknown> }).fields.id,
+      (
+        User as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+          readonly fields: Record<string, unknown>;
+        }
+      ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.fields.id,
     ).toBeDefined();
     expectTypeOf(User.columns.id.data.fieldSchema).toEqualTypeOf<typeof UserId>();
     expectTypeOf(User.fields.id).toEqualTypeOf<typeof UserId>();
@@ -162,18 +166,25 @@ describe("effect-sql-schema", () => {
     const snapshot = snapshotSchema(schema({ users: User }));
     expect(snapshot.dialect).toBe("sqlite");
     expect(snapshot.tables.users?.columns.createdAt?.name).toBe("created_at");
-    expect((User as unknown as { readonly fields: Record<string, unknown> }).fields.active).toBe(
-      Schema.Boolean,
-    );
+
+    expect(
+      (
+        User as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+          readonly fields: Record<string, unknown>;
+        }
+      ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.fields
+        .active,
+    ).toBe(Schema.Boolean);
   });
 
   it("rejects raw Effect schemas in class fields", () => {
     expect(() =>
       pg.Class("User")({
         table: "users",
+
         fields: {
           id: Schema.String,
-        } as never,
+        } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       }),
     ).toThrow(/column/);
   });

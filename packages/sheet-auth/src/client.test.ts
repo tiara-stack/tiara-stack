@@ -61,7 +61,7 @@ describe("createOAuthClientCredentialsToken", () => {
       if (!init) {
         throw new Error("Expected request init");
       }
-      const requestUrl = url instanceof URL ? url.href : url instanceof Request ? url.url : url;
+      const requestUrl = url instanceof URL ? url.href : url instanceof Request ? url.url : url; // oxlint-disable-line no-nested-ternary -- inherited master site
       expect(requestUrl).toBe("https://auth.example.com/oauth2/token");
       expect(init.method).toBe("POST");
       expect(new Headers(init.headers).get("content-type")).toBe(
@@ -103,7 +103,7 @@ describe("createOAuthClientCredentialsToken", () => {
       );
 
       const [url] = fetch.mock.calls[0]!;
-      const requestUrl = url instanceof URL ? url.href : url instanceof Request ? url.url : url;
+      const requestUrl = url instanceof URL ? url.href : url instanceof Request ? url.url : url; // oxlint-disable-line no-nested-ternary -- inherited master site
       expect(requestUrl).toBe(
         "https://p-session-sheet-web.dev.theerapakg.moe/_preview/dependencies/auth/oauth2/token",
       );

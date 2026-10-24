@@ -37,10 +37,11 @@ export const user: () => Effect.Effect<InteractionUser, never, Ix.Interaction> =
   "interaction.user",
 )(function* () {
   const interaction = yield* Ix.Interaction;
+
   return Option.fromNullishOr(interaction.member?.user).pipe(
     Option.orElse(() => Option.fromNullishOr(interaction.user)),
     Option.getOrThrow,
-  ) as InteractionUser;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as InteractionUser /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 });
 
 export const member: () => Effect.Effect<Option.Option<InteractionMember>, never, Ix.Interaction> =

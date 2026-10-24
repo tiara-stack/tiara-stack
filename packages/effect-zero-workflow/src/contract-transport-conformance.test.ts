@@ -83,7 +83,10 @@ describe("Workflow Contract transport conformance", () => {
         enqueue: (contract, request) => {
           const decodeInput = Schema.decodeUnknownEffect(contract.input)(
             request.input,
-          ) as Effect.Effect<WorkflowContractInput<typeof contract>, Schema.SchemaError>;
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
+            WorkflowContractInput<typeof contract>,
+            Schema.SchemaError
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
           return decodeInput.pipe(
             Effect.mapError(
               () => new WorkflowInputRejected({ message: "Workflow input is invalid" }),

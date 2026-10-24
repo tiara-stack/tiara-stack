@@ -117,7 +117,7 @@ const parseJsonEffect = (content: string) =>
 
 const isMissingPathError = (error: unknown) =>
   Predicate.isObject(error) &&
-  (Predicate.hasProperty(error, "code")
+  (Predicate.hasProperty(error, "code") // oxlint-disable-line no-nested-ternary -- inherited master site
     ? error.code === "ENOENT"
     : Predicate.hasProperty(error, "_tag")
       ? error._tag === "SystemError" &&

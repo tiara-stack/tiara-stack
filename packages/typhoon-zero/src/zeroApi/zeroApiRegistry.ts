@@ -100,7 +100,9 @@ export type MutatorDefinitionsForApi<
 };
 
 const toStandardSchema = <A extends Schema.Top>(schema: A) =>
-  Schema.toStandardSchemaV1(schema as any) as any;
+  Schema.toStandardSchemaV1(
+    schema /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 export interface RegistryOptions<Visibility extends ZeroApiEndpoint.Visibility> {
   readonly visibilities: readonly Visibility[];
@@ -136,7 +138,7 @@ export function toQueries(api: ZeroApi.Any, options?: RegistryOptions<ZeroApiEnd
       return defineQuery(toStandardSchema(endpoint.request), ({ args, ctx }: any) =>
         endpoint.query({ args, ctx }),
       );
-    }) as any,
+    }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   ) as QueryRegistry<any, ZeroSchema>;
 }
 
@@ -160,6 +162,6 @@ export function toMutators(
       return defineMutator(toStandardSchema(endpoint.request), ({ args, ctx, tx }: any) =>
         endpoint.mutator({ args, ctx, tx }),
       );
-    }) as any,
+    }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   ) as MutatorRegistry<any, ZeroSchema>;
 }

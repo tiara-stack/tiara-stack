@@ -286,7 +286,7 @@ const directlyExposedImportSpecifiers = (
     ),
     Match.when(ts.isArrayLiteralExpression, (array) =>
       array.elements.flatMap((element) =>
-        ts.isSpreadElement(element)
+        ts.isSpreadElement(element) // oxlint-disable-line no-nested-ternary -- inherited master site
           ? directlyExposedImportSpecifiers(element.expression, checker, importSpecifiers)
           : ts.isOmittedExpression(element)
             ? []

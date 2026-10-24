@@ -37,13 +37,25 @@ describe("Discord interaction dispatch", () => {
             () => {
               throw new Error("component predicate failed");
             },
-            Effect.succeed({ type: 4 } as never),
+
+            Effect.succeed(
+              {
+                type: 4,
+              } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+            ),
           ),
         );
 
         const registryFiber = yield* runIx(() => Effect.void)(interactionBuilder).pipe(
-          Effect.provideService(DiscordGateway, gateway as never),
-          Effect.provideService(DiscordREST, rest as never),
+          Effect.provideService(
+            DiscordGateway,
+            gateway /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ),
+
+          Effect.provideService(
+            DiscordREST,
+            rest /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ),
           Effect.forkScoped,
         );
 
@@ -52,11 +64,13 @@ describe("Discord interaction dispatch", () => {
 
         const callbackExit = yield* Effect.exit(
           Effect.suspend(() =>
-            interactionHandler!({
-              id: "interaction-1",
-              type: 3,
-              data: { custom_id: "test" },
-            } as never),
+            interactionHandler!(
+              {
+                id: "interaction-1",
+                type: 3,
+                data: { custom_id: "test" },
+              } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+            ),
           ),
         );
 
@@ -98,8 +112,15 @@ describe("Discord interaction dispatch", () => {
         };
 
         const registryFiber = yield* runIx(() => Effect.void)(Ix.builder).pipe(
-          Effect.provideService(DiscordGateway, gateway as never),
-          Effect.provideService(DiscordREST, rest as never),
+          Effect.provideService(
+            DiscordGateway,
+            gateway /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ),
+
+          Effect.provideService(
+            DiscordREST,
+            rest /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ),
           Effect.forkScoped,
         );
 

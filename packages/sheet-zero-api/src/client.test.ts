@@ -75,6 +75,7 @@ describe("Sheet service client", () => {
       });
       const observer = yield* makeCheckinMessagesLoadZeroObserver({
         run: () => Effect.die("query execution is not used"),
+
         stream: (() =>
           Stream.make(null, {
             runId: invocationId,
@@ -84,7 +85,10 @@ describe("Sheet service client", () => {
             completedAt: 2,
             createdAt: 1,
             updatedAt: 2,
-          })) as ZeroClient.ZeroClientExecutor<SheetZeroSchema, unknown>["stream"],
+          })) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ZeroClient.ZeroClientExecutor<
+          SheetZeroSchema,
+          unknown
+        >["stream"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         mutate: () => Effect.die("observation must not mutate"),
       });
 
@@ -104,7 +108,12 @@ describe("Sheet service client", () => {
       const stream = vi.fn(() => Stream.die("invalid references must not query Zero"));
       const observer = yield* makeCheckinMessagesLoadZeroObserver({
         run: () => Effect.die("query execution is not used"),
-        stream: stream as ZeroClient.ZeroClientExecutor<SheetZeroSchema, unknown>["stream"],
+
+        stream:
+          stream /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ZeroClient.ZeroClientExecutor<
+            SheetZeroSchema,
+            unknown
+          >["stream"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         mutate: () => Effect.die("observation must not mutate"),
       });
       const invocationId = Schema.decodeUnknownSync(InvocationId)(
@@ -162,6 +171,7 @@ describe("Sheet service client", () => {
       const executor = (result: unknown) =>
         ({
           run: () => Effect.die("query execution is not used"),
+
           stream: (() =>
             Stream.make(null, {
               runId: invocationId,
@@ -171,7 +181,10 @@ describe("Sheet service client", () => {
               completedAt: 2,
               createdAt: 1,
               updatedAt: 2,
-            })) as ZeroClient.ZeroClientExecutor<SheetZeroSchema, unknown>["stream"],
+            })) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ZeroClient.ZeroClientExecutor<
+            SheetZeroSchema,
+            unknown
+          >["stream"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
           mutate: () => Effect.die("observation must not mutate"),
         }) satisfies ZeroClient.ZeroClientExecutor<SheetZeroSchema, unknown>;
 

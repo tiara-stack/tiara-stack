@@ -154,9 +154,12 @@ const registryNames = (registry: Record<string, unknown>) =>
   Object.entries(registry).flatMap(([group, definitions]) =>
     group === "~"
       ? []
-      : Object.keys(definitions as Record<string, unknown>).flatMap((name) =>
-          name === "~" ? [] : [`${group}.${name}`],
-        ),
+      : Object.keys(
+          definitions /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+            string,
+            unknown
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ).flatMap((name) => (name === "~" ? [] : [`${group}.${name}`])),
   );
 
 const catalogNames = (

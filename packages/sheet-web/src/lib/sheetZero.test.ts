@@ -326,7 +326,14 @@ describe("sheet Zero workflow observation", () => {
       const exit = yield* Fiber.join(fiber);
       const failure = failureOf(exit);
       expect(Predicate.isTagged("WorkflowTransportUnavailable")(failure)).toBe(true);
-      expect((failure as { message: string }).message).toContain("timed out");
+
+      expect(
+        (
+          failure /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+            message: string;
+          }
+        ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.message,
+      ).toContain("timed out");
     }),
   );
 

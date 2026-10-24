@@ -59,7 +59,7 @@ describe("migration journal effects", () => {
     expect(first.prefix).not.toBe(second.prefix);
   });
 
-  it.effect("reads valid journals", () =>
+  it.live("reads valid journals", () =>
     withJournal(
       JSON.stringify({
         version: 1,
@@ -83,7 +83,7 @@ describe("migration journal effects", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("reads latest snapshots for timestamp-style tags", () =>
+  it.live("reads latest snapshots for timestamp-style tags", () =>
     withJournal(
       JSON.stringify({
         version: 1,
@@ -199,7 +199,7 @@ describe("migration journal effects", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("persists extension snapshots", () =>
+  it.live("persists extension snapshots", () =>
     withJournal(
       JSON.stringify({
         version: 1,
@@ -236,7 +236,7 @@ describe("migration journal effects", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("fails invalid journals through the schema parser", () =>
+  it.live("fails invalid journals through the schema parser", () =>
     withJournal(
       JSON.stringify({
         version: 1,

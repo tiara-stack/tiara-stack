@@ -25,7 +25,7 @@ export const addSourceFilesFromTsConfigSafe = ({
     if (isFsPermissionError(error)) {
       const pathInfo = error.path ? ` while reading ${error.path}` : "";
       console.warn(
-        `effect-zero: Skipping ${tsConfigPath} due to a permission error${pathInfo} (${error.code}).`,
+        `effect-zero: Skipping ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ tsConfigPath /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */} due to a permission error${pathInfo} (${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ error.code /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}).`,
       );
       if (debug) {
         console.warn(error);

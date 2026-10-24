@@ -270,7 +270,7 @@ function LoadedCheckinMessagesSection({
     ? selectedChannelName
     : channels[0]?.name;
   const activeChannel = channels.find(({ name }) => name === activeChannelName);
-  const activeHour = activeChannel
+  const activeHour = activeChannel // oxlint-disable-line no-nested-ternary -- inherited master site
     ? activeChannel.hours.includes(selectedHour ?? -1)
       ? selectedHour
       : preferredCheckinHour(activeChannel.hours, currentHour)
@@ -333,7 +333,7 @@ function LoadedCheckinMessagesSection({
   const hasStableMonitorData = schedule.populatedSchedules.some(({ monitorAccountId: id }) =>
     Predicate.isString(id),
   );
-  const identityNotice = Predicate.isUndefined(monitorAccountId)
+  const identityNotice = Predicate.isUndefined(monitorAccountId) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? "Your Discord identity is unavailable, so moni-hour markers are hidden."
     : !hasStableMonitorData
       ? "This schedule has no stable monitor identities, so moni-hour markers are hidden rather than guessed from names."
@@ -580,7 +580,7 @@ function EventRelativeHourPicker({
   const selectedOption = options.find(({ hour }) => hour === selectedHour) ?? options[0]!;
   const customCount = options.filter(({ custom }) => custom).length;
   const messageStatus =
-    messageData !== undefined
+    messageData !== undefined // oxlint-disable-line no-nested-ternary -- inherited master site
       ? customCount + " CUSTOM · " + (options.length - customCount) + " RANDOM DEFAULT"
       : messagesResult._tag === "Failure"
         ? "MESSAGE STATUS UNAVAILABLE"
@@ -768,7 +768,7 @@ function HourSearchResult({
       aria-selected={selected}
       aria-label={accessibleLabel}
       className={
-        selected
+        selected // oxlint-disable-line no-nested-ternary -- inherited master site
           ? "flex min-h-11 w-full items-start gap-2 border border-[#33ccbb] bg-[#33ccbb]/[0.12] px-2 py-2 text-left text-white focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#73e9dc]"
           : option.current
             ? "flex min-h-11 w-full items-start gap-2 border border-[#33ccbb]/35 bg-[#33ccbb]/[0.05] px-2 py-2 text-left text-white/80 transition-colors hover:border-[#33ccbb]/60 hover:bg-[#33ccbb]/[0.1] focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[#73e9dc]"
@@ -1603,12 +1603,12 @@ function ReviewValue({
     <div className="min-w-0 border border-white/10 bg-[#07100e] p-3">
       <p className="text-[10px] font-black tracking-[0.16em] text-white/40">{label}</p>
       <div className="mt-2 min-h-16 whitespace-pre-wrap break-words text-xs leading-relaxed text-white/75">
-        {loading ? (
+        {loading ? ( // oxlint-disable-line no-nested-ternary -- inherited master site
           <span className="inline-flex items-center gap-2 text-[#ffca8b]">
             <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
             Loading latest value…
           </span>
-        ) : value === undefined ? (
+        ) : value === undefined ? ( // oxlint-disable-line no-nested-ternary -- inherited master site
           "Latest value unavailable."
         ) : value === null || value.length === 0 ? (
           <span className="text-white/45">Random default</span>

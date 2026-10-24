@@ -128,7 +128,8 @@ export const makeWithReverseLookup = Effect.fn("cache.makeWithReverseLookup")(
       onParentMiss,
       onResourceMiss,
       ops = Stream.empty,
-      readonly = false as ReadonlyValue,
+
+      readonly = false /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReadonlyValue /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     } = args;
 
     // In readonly mode, we still consume the ops stream but don't apply writes
@@ -166,8 +167,8 @@ export const makeWithReverseLookup = Effect.fn("cache.makeWithReverseLookup")(
       cursor: string | undefined,
       limit: ParentCachePageSize,
     ): ParentCachePage<A> => {
-      const ordered = [...entries].sort(([left], [right]) =>
-        left < right ? -1 : left > right ? 1 : 0,
+      const ordered = [...entries].sort(
+        ([left], [right]) => (left < right ? -1 : left > right ? 1 : 0), // oxlint-disable-line no-nested-ternary -- inherited master site
       );
       const start = Predicate.isUndefined(cursor) ? 0 : ordered.findIndex(([id]) => id > cursor);
       const available = start < 0 ? [] : ordered.slice(start, start + limit + 1);
@@ -181,10 +182,22 @@ export const makeWithReverseLookup = Effect.fn("cache.makeWithReverseLookup")(
       readonly
         ? (Effect.fail(
             new CacheReadonlyError({ message: "Cannot put in readonly cache" }),
-          ) as PutEffect<typeof readonly, EDriver, EMiss, EId>)
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as PutEffect<
+            typeof readonly,
+            EDriver,
+            EMiss,
+            EId
+          >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
         : Effect.flatMap(id(_), ([parentId, resourceId]) =>
             driver.set(parentId, resourceId, _),
-          )) as (_: A) => PutEffect<ReadonlyValue, EDriver, EMiss, EId>;
+          )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (
+      _: A,
+    ) => PutEffect<
+      ReadonlyValue,
+      EDriver,
+      EMiss,
+      EId
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     const update = (<R, E>(
       parentId: string,
@@ -194,15 +207,32 @@ export const makeWithReverseLookup = Effect.fn("cache.makeWithReverseLookup")(
       readonly
         ? (Effect.fail(
             new CacheReadonlyError({ message: "Cannot update in readonly cache" }),
-          ) as UpdateEffect<typeof readonly, A, EDriver, EMiss, E, R>)
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as UpdateEffect<
+            typeof readonly,
+            A,
+            EDriver,
+            EMiss,
+            E,
+            R
+          >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
         : get(parentId, resourceId).pipe(
             Effect.flatMap(f),
             Effect.tap((a) => driver.set(parentId, resourceId, a)),
-          )) as <R, E>(
+          )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as <
+      R,
+      E,
+    >(
       parentId: string,
       resourceId: string,
       f: (_: A) => Effect.Effect<A, E, R>,
-    ) => UpdateEffect<ReadonlyValue, A, EDriver, EMiss, E, R>;
+    ) => UpdateEffect<
+      ReadonlyValue,
+      A,
+      EDriver,
+      EMiss,
+      E,
+      R
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     return {
       get,
@@ -270,51 +300,107 @@ export const makeWithReverseLookup = Effect.fn("cache.makeWithReverseLookup")(
             onSome: Effect.succeed,
           }),
         ),
+
       refreshTTL: ((parentId: string, resourceId: string) =>
         readonly
           ? (Effect.fail(
               new CacheReadonlyError({ message: "Cannot refreshTTL in readonly cache" }),
-            ) as WriteEffect<typeof readonly, EDriver>)
-          : driver.refreshTTL(parentId, resourceId)) as (
+            ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WriteEffect<
+              typeof readonly,
+              EDriver
+            >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          : driver.refreshTTL(
+              parentId,
+              resourceId,
+            )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (
         parentId: string,
         resourceId: string,
-      ) => WriteEffect<ReadonlyValue, EDriver>,
+      ) => WriteEffect<
+        ReadonlyValue,
+        EDriver
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+
       set: ((parentId: string, resourceId: string, resource: A) =>
         readonly
           ? (Effect.fail(
               new CacheReadonlyError({ message: "Cannot set in readonly cache" }),
-            ) as WriteEffect<typeof readonly, EDriver>)
-          : driver.set(parentId, resourceId, resource)) as (
+            ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WriteEffect<
+              typeof readonly,
+              EDriver
+            >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          : driver.set(
+              parentId,
+              resourceId,
+              resource,
+            )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (
         parentId: string,
         resourceId: string,
         resource: A,
-      ) => WriteEffect<ReadonlyValue, EDriver>,
+      ) => WriteEffect<
+        ReadonlyValue,
+        EDriver
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+
       delete: ((parentId: string, resourceId: string) =>
         readonly
           ? (Effect.fail(
               new CacheReadonlyError({ message: "Cannot delete in readonly cache" }),
-            ) as WriteEffect<typeof readonly, EDriver>)
-          : driver.delete(parentId, resourceId)) as (
+            ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WriteEffect<
+              typeof readonly,
+              EDriver
+            >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          : driver.delete(
+              parentId,
+              resourceId,
+            )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (
         parentId: string,
         resourceId: string,
-      ) => WriteEffect<ReadonlyValue, EDriver>,
+      ) => WriteEffect<
+        ReadonlyValue,
+        EDriver
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+
       parentDelete: ((parentId: string) =>
         readonly
           ? (Effect.fail(
               new CacheReadonlyError({ message: "Cannot parentDelete in readonly cache" }),
-            ) as WriteEffect<typeof readonly, EDriver>)
-          : driver.parentDelete(parentId)) as (
+            ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WriteEffect<
+              typeof readonly,
+              EDriver
+            >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          : driver.parentDelete(
+              parentId,
+            )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (
         parentId: string,
-      ) => WriteEffect<ReadonlyValue, EDriver>,
+      ) => WriteEffect<
+        ReadonlyValue,
+        EDriver
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+
       resourceDelete: ((resourceId: string) =>
         readonly
           ? (Effect.fail(
               new CacheReadonlyError({ message: "Cannot resourceDelete in readonly cache" }),
-            ) as WriteEffect<typeof readonly, EDriver>)
-          : driver.resourceDelete(resourceId)) as (
+            ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WriteEffect<
+              typeof readonly,
+              EDriver
+            >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          : driver.resourceDelete(
+              resourceId,
+            )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (
         resourceId: string,
-      ) => WriteEffect<ReadonlyValue, EDriver>,
-    } as ReverseLookupCache<EDriver, EMiss | EId, EPMiss, ERMiss, A, ReadonlyValue>;
+      ) => WriteEffect<
+        ReadonlyValue,
+        EDriver
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReverseLookupCache<
+      EDriver,
+      EMiss | EId,
+      EPMiss,
+      ERMiss,
+      A,
+      ReadonlyValue
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   },
   Effect.annotateLogs({
     package: "dfx-discord-utils",
@@ -387,7 +473,13 @@ export const make = Effect.fn("cache.make")(
     onMiss: (id: string) => Effect.Effect<A, EMiss>;
     readonly?: ReadonlyValue;
   }) {
-    const { driver, id, onMiss, ops = Stream.empty, readonly = false as ReadonlyValue } = args;
+    const {
+      driver,
+      id,
+      onMiss,
+      ops = Stream.empty,
+      readonly = false /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReadonlyValue /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+    } = args;
 
     // In readonly mode, we still consume the ops stream but don't apply writes
     yield* launchRestarting(
@@ -421,49 +513,102 @@ export const make = Effect.fn("cache.make")(
       readonly
         ? (Effect.fail(
             new CacheReadonlyError({ message: "Cannot put in readonly cache" }),
-          ) as SimplePutEffect<typeof readonly, EDriver>)
-        : driver.set(id(_), _)) as (_: A) => SimplePutEffect<ReadonlyValue, EDriver>;
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SimplePutEffect<
+            typeof readonly,
+            EDriver
+          >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+        : driver.set(
+            id(_),
+            _,
+          )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (
+      _: A,
+    ) => SimplePutEffect<
+      ReadonlyValue,
+      EDriver
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     const update = (<R, E>(resourceId: string, f: (_: A) => Effect.Effect<A, E, R>) =>
       readonly
         ? (Effect.fail(
             new CacheReadonlyError({ message: "Cannot update in readonly cache" }),
-          ) as SimpleUpdateEffect<typeof readonly, A, EDriver, EMiss, E, R>)
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SimpleUpdateEffect<
+            typeof readonly,
+            A,
+            EDriver,
+            EMiss,
+            E,
+            R
+          >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
         : get(resourceId).pipe(
             Effect.flatMap(f),
             Effect.tap((a) => driver.set(resourceId, a)),
-          )) as <R, E>(
+          )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as <
+      R,
+      E,
+    >(
       resourceId: string,
       f: (_: A) => Effect.Effect<A, E, R>,
-    ) => SimpleUpdateEffect<ReadonlyValue, A, EDriver, EMiss, E, R>;
+    ) => SimpleUpdateEffect<
+      ReadonlyValue,
+      A,
+      EDriver,
+      EMiss,
+      E,
+      R
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     const set = ((resourceId: string, resource: A) =>
       readonly
         ? (Effect.fail(
             new CacheReadonlyError({ message: "Cannot set in readonly cache" }),
-          ) as SimpleWriteEffect<typeof readonly, EDriver>)
-        : driver.set(resourceId, resource)) as (
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SimpleWriteEffect<
+            typeof readonly,
+            EDriver
+          >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+        : driver.set(
+            resourceId,
+            resource,
+          )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (
       resourceId: string,
       resource: A,
-    ) => SimpleWriteEffect<ReadonlyValue, EDriver>;
+    ) => SimpleWriteEffect<
+      ReadonlyValue,
+      EDriver
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     const delete_ = ((resourceId: string) =>
       readonly
         ? (Effect.fail(
             new CacheReadonlyError({ message: "Cannot delete in readonly cache" }),
-          ) as SimpleWriteEffect<typeof readonly, EDriver>)
-        : driver.delete(resourceId)) as (
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SimpleWriteEffect<
+            typeof readonly,
+            EDriver
+          >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+        : driver.delete(
+            resourceId,
+          )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (
       resourceId: string,
-    ) => SimpleWriteEffect<ReadonlyValue, EDriver>;
+    ) => SimpleWriteEffect<
+      ReadonlyValue,
+      EDriver
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     const refreshTTL = ((resourceId: string) =>
       readonly
         ? (Effect.fail(
             new CacheReadonlyError({ message: "Cannot refreshTTL in readonly cache" }),
-          ) as SimpleWriteEffect<typeof readonly, EDriver>)
-        : driver.refreshTTL(resourceId)) as (
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SimpleWriteEffect<
+            typeof readonly,
+            EDriver
+          >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+        : driver.refreshTTL(
+            resourceId,
+          )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (
       resourceId: string,
-    ) => SimpleWriteEffect<ReadonlyValue, EDriver>;
+    ) => SimpleWriteEffect<
+      ReadonlyValue,
+      EDriver
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     return {
       get,

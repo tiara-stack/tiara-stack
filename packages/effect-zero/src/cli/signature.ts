@@ -7,6 +7,16 @@ const computeHash = (content: string): string => createHash("sha256").update(con
 export const signContent = (content: string): string =>
   `${signaturePrefix}${computeHash(content)}\n${content}`;
 
+export const stripSignature = (content: string): string => {
+  const newlineIndex = content.indexOf("\n");
+  if (newlineIndex === -1) {
+    return content;
+  }
+
+  const firstLine = content.slice(0, newlineIndex);
+  return firstLine.startsWith(signaturePrefix) ? content.slice(newlineIndex + 1) : content;
+};
+
 export const checkSignature = (fileContent: string): "valid" | "modified" | "no-signature" => {
   const newlineIndex = fileContent.indexOf("\n");
   if (newlineIndex === -1) {

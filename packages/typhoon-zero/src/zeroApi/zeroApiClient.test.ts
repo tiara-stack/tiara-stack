@@ -86,7 +86,7 @@ const provideFakeZero = <A, E>(
 
 const makeFakeZeroClient = (options: Partial<FakeZeroClient>): FakeZeroClient =>
   ({
-    zero: {} as never,
+    zero: {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     run: () => Effect.void,
     stream: () => Stream.empty,
     mutate: () =>
@@ -95,7 +95,7 @@ const makeFakeZeroClient = (options: Partial<FakeZeroClient>): FakeZeroClient =>
         server: () => Effect.void,
       }),
     ...options,
-  }) as FakeZeroClient;
+  }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FakeZeroClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 describe("ZeroApiClient", () => {
   it.effect(
@@ -104,7 +104,11 @@ describe("ZeroApiClient", () => {
       const client = yield* provideFakeZero(
         ZeroApiClient.make(TestApi),
         makeFakeZeroClient({
-          run: (() => Effect.succeed({ id: "item-1", count: 1 })) as FakeZeroClient["run"],
+          run: (() =>
+            Effect.succeed({
+              id: "item-1",
+              count: 1,
+            })) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FakeZeroClient["run"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         }),
       );
 
@@ -120,7 +124,11 @@ describe("ZeroApiClient", () => {
       const client = yield* provideFakeZero(
         ZeroApiClient.make(TestApi),
         makeFakeZeroClient({
-          run: (() => Effect.succeed({ id: "item-1", count: "bad" })) as FakeZeroClient["run"],
+          run: (() =>
+            Effect.succeed({
+              id: "item-1",
+              count: "bad",
+            })) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FakeZeroClient["run"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         }),
       );
 
@@ -140,7 +148,7 @@ describe("ZeroApiClient", () => {
           run: ((request: QueryOrQueryRequest<any, any, any, any, any, any>) => {
             capturedArgs = "args" in request ? request.args : undefined;
             return Effect.succeed([{ id: "item-1", count: 3 }]);
-          }) as FakeZeroClient["run"],
+          }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FakeZeroClient["run"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         }),
       );
 
@@ -160,7 +168,7 @@ describe("ZeroApiClient", () => {
           run: (() => {
             runCount++;
             return Effect.succeed([]);
-          }) as FakeZeroClient["run"],
+          }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FakeZeroClient["run"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         }),
       );
 
@@ -176,7 +184,11 @@ describe("ZeroApiClient", () => {
       const grouped = yield* provideFakeZero(
         ZeroApiClient.make(TestApi),
         makeFakeZeroClient({
-          run: (() => Effect.succeed({ id: "item-1", count: 4 })) as FakeZeroClient["run"],
+          run: (() =>
+            Effect.succeed({
+              id: "item-1",
+              count: 4,
+            })) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FakeZeroClient["run"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         }),
       );
       const client = ZeroApiClient.makeFunctionClient(grouped);
@@ -194,7 +206,11 @@ describe("ZeroApiClient", () => {
       const client = yield* ZeroApiClient.makeFunctionsWithVisibilities(
         PrivilegedApi,
         makeFakeZeroClient({
-          run: (() => Effect.succeed({ id: "item-1", count: 4 })) as FakeZeroClient["run"],
+          run: (() =>
+            Effect.succeed({
+              id: "item-1",
+              count: 4,
+            })) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FakeZeroClient["run"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
           mutate: (() =>
             Effect.succeed({
               client: () => Effect.void,
@@ -235,7 +251,10 @@ describe("ZeroApiClient", () => {
         makeFakeZeroClient({}),
         {
           visibilities: ["service", "internal"],
-          queries: { operations: {} } as never,
+
+          queries: {
+            operations: {},
+          } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         },
       ).pipe(Effect.exit);
 
@@ -256,10 +275,15 @@ describe("ZeroApiClient", () => {
         { visibilities: ["service"] },
       );
       const publicReferences = ZeroFunctionReference.makeReferences(PrivilegedApi, ["public"]);
-      const fetch = client.fetch as (
-        reference: ZeroFunctionReference.AnyQueryReference,
-        args: unknown,
-      ) => Effect.Effect<unknown, ZeroApiClient.QueryError>;
+
+      const fetch =
+        client.fetch /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (
+          reference: ZeroFunctionReference.AnyQueryReference,
+          args: unknown,
+        ) => Effect.Effect<
+          unknown,
+          ZeroApiClient.QueryError
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       const exit = yield* Effect.exit(fetch(publicReferences.items.getItem, { id: "item-1" }));
 
@@ -291,7 +315,7 @@ describe("ZeroApiClient", () => {
           stream: ((_query, runOptions) => {
             capturedRunOptions = runOptions;
             return Stream.make({ id: "item-1", count: 1 }, { id: "item-1", count: 2 });
-          }) as FakeZeroClient["stream"],
+          }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FakeZeroClient["stream"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         }),
       );
       const client = ZeroApiClient.makeFunctionClient(grouped);
@@ -314,7 +338,11 @@ describe("ZeroApiClient", () => {
       const grouped = yield* provideFakeZero(
         ZeroApiClient.make(TestApi),
         makeFakeZeroClient({
-          stream: (() => Stream.make({ id: "item-1", count: "bad" })) as FakeZeroClient["stream"],
+          stream: (() =>
+            Stream.make({
+              id: "item-1",
+              count: "bad",
+            })) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FakeZeroClient["stream"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         }),
       );
       const client = ZeroApiClient.makeFunctionClient(grouped);

@@ -17,7 +17,10 @@ const columnTypeFormatters: Record<string, ColumnTypeFormatter> = {
       kind: elementKind,
       config:
         typeof elementConfig === "object" && elementConfig !== null
-          ? (elementConfig as Record<string, unknown>)
+          ? (elementConfig /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+              string,
+              unknown
+            >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
           : undefined,
     })}[]`;
   },
@@ -59,7 +62,7 @@ const columnSql = (column: ColumnSnapshot, inlinePrimaryKey = false): string =>
     columnType(column),
     column.notNull ? "not null" : "",
     inlinePrimaryKey && column.primaryKey ? "primary key" : "",
-    column.defaultSql
+    column.defaultSql // oxlint-disable-line no-nested-ternary -- inherited master site
       ? `default ${column.defaultSql}`
       : column.default !== undefined
         ? `default ${literal(column.default)}`
@@ -194,7 +197,9 @@ const normalizeDefaultSql = (sql?: string): string | undefined => {
   const normalized = sql.trim().replace(/\s+/g, " ").toLowerCase();
   if (normalized === "current_timestamp") return "now()";
   const castMatch = normalized.match(/^'([^']*)'::(?:text|character varying|varchar)$/);
-  if (castMatch) return `'${castMatch[1]}'`;
+
+  if (castMatch)
+    return `'${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ castMatch[1] /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}'`;
   return normalized;
 };
 

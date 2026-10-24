@@ -83,7 +83,11 @@ export const generateMigrationEffect = ({
       previous,
       current,
       statements,
-      previousExtensions: (previousStored?.extensions ?? {}) as Readonly<Record<string, JsonValue>>,
+
+      previousExtensions: (previousStored?.extensions ??
+        {}) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Readonly<
+        Record<string, JsonValue>
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     });
     const extensionBeforeStatements = extensionResults.flatMap(
       (result) => result.beforeStatements ?? [],

@@ -31,9 +31,20 @@ export const getSomeFields = Function.dual<
     fields: Array.NonEmptyReadonlyArray<F>,
   ) =>
     pipe(
-      Option.all(Struct.pick(a, fields) as Pick<OptionFields<A>, F>) as Option.Option<
+      Option.all(
+        Struct.pick(
+          a,
+          fields,
+        ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Pick<
+          OptionFields<A>,
+          F
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Option.Option<
         Pick<OptionFieldValues<A>, F>
-      >,
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       Option.map((v) => ({ ...a, ...v })),
-    ) as GetSomeFields<A, F>,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as GetSomeFields<
+      A,
+      F
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
 );

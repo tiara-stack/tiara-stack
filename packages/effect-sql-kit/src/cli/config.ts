@@ -29,15 +29,18 @@ export const loadConfigEffect = (
         });
       }
       return {
-        config: yield* resolveConfigEffect(overrides as EffectSqlKitConfig),
+        config: yield* resolveConfigEffect(
+          overrides /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as EffectSqlKitConfig /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ),
       };
     }
 
     const imported = yield* importFileEffect(resolvedPath);
     const rawConfig = resolveConfigExport(imported);
+
     const config = (yield* Schema.decodeUnknownEffect(EffectSqlKitConfigSchema)(
       rawConfig,
-    )) as EffectSqlKitConfig;
+    )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as EffectSqlKitConfig /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     return {
       config: yield* resolveConfigEffect(config, overrides),
       configPath: resolvedPath,

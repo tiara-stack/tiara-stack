@@ -13,9 +13,12 @@ export const hashMapPositional =
       Effect.bind("resultValues", ({ values }) => f(values)),
       Effect.map(
         ({ keys, resultValues }) =>
-          pipe(Array.zip(keys, resultValues), HashMap.fromIterable) as HashMap.HashMap<
+          pipe(
+            Array.zip(keys, resultValues),
+            HashMap.fromIterable,
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as HashMap.HashMap<
             HashMap.HashMap.Key<T>,
             Out
-          >,
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       ),
     );

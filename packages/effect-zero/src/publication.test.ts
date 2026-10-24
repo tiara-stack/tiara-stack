@@ -37,9 +37,15 @@ const context = (
   dialect: "postgresql" | "sqlite" = "postgresql",
 ): MigrationExtensionContext => ({
   config: config(dialect),
-  schema: {} as never,
-  previous: {} as never,
-  current: {} as never,
+
+  schema:
+    {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+
+  previous:
+    {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+
+  current:
+    {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   previousExtensions,
 });
 
@@ -49,7 +55,9 @@ const generate = (
   extension: MigrationExtension,
   previousExtensions?: Readonly<Record<string, JsonValue>>,
 ): MigrationExtensionResult =>
-  extension.generate(context(previousExtensions)) as MigrationExtensionResult;
+  extension.generate(
+    context(previousExtensions),
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as MigrationExtensionResult /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 type IntrospectableMigrationExtension = MigrationExtension & {
   readonly introspect: (
@@ -64,13 +72,14 @@ type IntrospectableMigrationExtension = MigrationExtension & {
 const fakeSql = (rows: readonly unknown[]): SqlClient.SqlClient =>
   ({
     unsafe: () => Effect.succeed(rows),
-  }) as unknown as SqlClient.SqlClient;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SqlClient.SqlClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const introspect = (
   extension: MigrationExtension,
   rows: readonly unknown[],
 ): Effect.Effect<JsonValue | undefined, unknown> => {
-  const introspectable = extension as IntrospectableMigrationExtension;
+  const introspectable =
+    extension /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as IntrospectableMigrationExtension /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   if (!introspectable.introspect) {
     throw new Error("expected extension to define introspect");
   }
@@ -81,10 +90,13 @@ const introspect = (
     }
     return Effect.succeed(result);
   }
-  return result.pipe(Effect.provideService(SqlClient.SqlClient, fakeSql(rows))) as Effect.Effect<
+
+  return result.pipe(
+    Effect.provideService(SqlClient.SqlClient, fakeSql(rows)),
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
     JsonValue | undefined,
     unknown
-  >;
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 describe("zeroPublication", () => {

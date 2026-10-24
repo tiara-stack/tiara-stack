@@ -62,8 +62,13 @@ describe("ZeroApi", () => {
   });
 
   it("generates registries for only matching endpoint kinds", () => {
-    const queries = ZeroApiRegistry.toQueries(TestApi) as any;
-    const mutators = ZeroApiRegistry.toMutators(TestApi) as any;
+    const queries = ZeroApiRegistry.toQueries(
+      TestApi,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
+    const mutators = ZeroApiRegistry.toMutators(
+      TestApi,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(queries.items.getItem).toBeTypeOf("function");
     expect(queries.items.getByCount).toBeTypeOf("function");
