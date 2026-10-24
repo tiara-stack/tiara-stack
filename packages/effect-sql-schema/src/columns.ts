@@ -71,7 +71,13 @@ const clone = <
       }),
     references: (resolver: ReferenceResolver, options?: ReferenceOptions) =>
       make({ references: { resolver, options } }),
-  } as EffectSqlColumn<D, K, FieldSchema, NotNull, Generation>;
+  } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as EffectSqlColumn<
+    D,
+    K,
+    FieldSchema,
+    NotNull,
+    Generation
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 export const makeColumn = <

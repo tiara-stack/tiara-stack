@@ -202,7 +202,11 @@ const runQuery = <S extends ZeroSchema, MD extends CustomMutatorDefs | undefined
 
       removeListener = view.addListener((data, resultType, error) => {
         if (resultType === "complete") {
-          complete(Effect.succeed(data as HumanReadable<TReturn>));
+          complete(
+            Effect.succeed(
+              data /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as HumanReadable<TReturn> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+            ),
+          );
         } else if (resultType === "error") {
           complete(Effect.fail(error ?? makeUnknownQueryError()));
         }
@@ -277,7 +281,11 @@ export const ZeroClient = <S extends ZeroSchema, MD extends CustomMutatorDefs | 
                 let emitted = false;
                 const offer = (data: unknown) => {
                   emitted = true;
-                  Queue.offerUnsafe(queue, data as HumanReadable<TReturn>);
+
+                  Queue.offerUnsafe(
+                    queue,
+                    data /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as HumanReadable<TReturn> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+                  );
                 };
                 const removeListener = view.addListener((data, resultType, error) => {
                   if (resultType === "error") {

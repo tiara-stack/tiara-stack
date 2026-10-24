@@ -71,7 +71,7 @@ function GuildChooser() {
         </p>
       </div>
 
-      {AsyncResult.isFailure(guildsResult) ? (
+      {AsyncResult.isFailure(guildsResult) ? ( // oxlint-disable-line no-nested-ternary -- inherited master site
         <div
           role="alert"
           aria-busy={guildsResult.waiting}

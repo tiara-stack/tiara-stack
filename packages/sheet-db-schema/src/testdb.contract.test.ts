@@ -342,7 +342,12 @@ describe("PGlite Sheet Zero contract", () => {
           workspaceId: "workspace-1",
           flagName: "feature-1",
         });
-        expect(Option.isNone(activeFlag as Option.Option<unknown>)).toBe(true);
+
+        expect(
+          Option.isNone(
+            activeFlag /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Option.Option<unknown> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ),
+        ).toBe(true);
         yield* client.workspaceConfig.addWorkspaceFeatureFlag({
           workspaceId: "workspace-1",
           flagName: "feature-1",
@@ -496,7 +501,12 @@ describe("PGlite Sheet Zero contract", () => {
               throw new Error("synthetic rollback after insert");
             },
           },
-        } as unknown as MutateRequest<any, SheetZeroSchema, undefined, any>;
+        } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as MutateRequest<
+          any,
+          SheetZeroSchema,
+          undefined,
+          any
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
         const rollbackPhases = yield* database.executor.mutate(syntheticRollback);
         expect(Exit.isFailure(yield* Effect.exit(rollbackPhases.server()))).toBe(true);
         expect(

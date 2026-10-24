@@ -24,7 +24,7 @@ const withTempCwd = <A, E, R>(f: (dir: string) => Effect.Effect<A, E, R>) =>
   );
 
 describe("effect-zero config effects", () => {
-  it.effect("finds the default config file", () =>
+  it.live("finds the default config file", () =>
     withTempCwd((dir) =>
       Effect.gen(function* () {
         yield* Effect.promise(() =>
@@ -36,7 +36,7 @@ describe("effect-zero config effects", () => {
     ).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("rejects invalid config exports through the schema parser", () =>
+  it.live("rejects invalid config exports through the schema parser", () =>
     withTempCwd((dir) =>
       Effect.gen(function* () {
         const configPath = path.join(dir, "effect-zero.config.ts");

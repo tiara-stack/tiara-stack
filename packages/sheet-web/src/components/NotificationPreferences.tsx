@@ -206,7 +206,7 @@ function SaveButtonIcon(props: { readonly saving: boolean; readonly saved: boole
 }
 
 function SaveButtonLabel(props: { readonly saving: boolean; readonly saved: boolean }) {
-  return <span>{props.saving ? "SAVING" : props.saved ? "SAVED" : "SAVE"}</span>;
+  return <span>{props.saving ? "SAVING" : props.saved ? "SAVED" : "SAVE"}</span>; // oxlint-disable-line no-nested-ternary -- inherited master site
 }
 
 function ClientSummary(props: { readonly clientCount: number }) {

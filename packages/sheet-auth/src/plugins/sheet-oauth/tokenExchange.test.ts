@@ -147,7 +147,7 @@ const makeDiscordResolverAdapter = ({
         account: createdAccount,
       };
     },
-  } as unknown as InternalAdapter;
+  } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as InternalAdapter /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
   return {
     accountLookups,
@@ -341,6 +341,7 @@ describe("resolveUserByDiscordId", () => {
     });
     const conflict = Object.assign(new Error("duplicate key"), { code: "23505" });
     let discordAccountLookups = 0;
+
     const adapter = {
       findAccountByProviderId: async (accountId: string, providerId: string) => {
         if (providerId === "discord") {
@@ -355,7 +356,7 @@ describe("resolveUserByDiscordId", () => {
       createOAuthUser: async () => {
         throw conflict;
       },
-    } as unknown as InternalAdapter;
+    } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as InternalAdapter /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     await expect(resolveUserByDiscordId(adapter, "123")).resolves.toEqual(user);
     expect(discordAccountLookups).toBe(3);
@@ -363,12 +364,13 @@ describe("resolveUserByDiscordId", () => {
 
   it("preserves non-conflict placeholder creation errors", async () => {
     const failure = new Error("database unavailable");
+
     const adapter = {
       findAccountByProviderId: async () => null,
       createOAuthUser: async () => {
         throw failure;
       },
-    } as unknown as InternalAdapter;
+    } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as InternalAdapter /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     await expect(resolveUserByDiscordId(adapter, "123")).rejects.toBe(failure);
   });

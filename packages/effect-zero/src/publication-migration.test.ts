@@ -32,9 +32,15 @@ const context = (
     breakpoints: true,
     extensions: [],
   },
-  schema: {} as never,
-  previous: {} as never,
-  current: {} as never,
+
+  schema:
+    {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+
+  previous:
+    {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+
+  current:
+    {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   statements,
   previousExtensions,
 });
@@ -54,7 +60,7 @@ const generate = (
 
   return zeroPublication({ schema: schema({ users, accounts }) }).generate(
     context(previousExtensions, statements),
-  ) as MigrationExtensionResult;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as MigrationExtensionResult /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 const generateMixedCase = (
@@ -73,7 +79,7 @@ const generateMixedCase = (
 
   return zeroPublication({ schema: schema({ myTable }) }).generate(
     context(previousExtensions, statements),
-  ) as MigrationExtensionResult;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as MigrationExtensionResult /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 describe("zeroPublication migration wrappers", () => {

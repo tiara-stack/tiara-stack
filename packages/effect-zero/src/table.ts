@@ -2,7 +2,11 @@ import { Schema } from "effect";
 import type { EffectZeroModel, EffectZeroTable, TableOptions } from "./types";
 
 const identifierFromModel = (model: EffectZeroModel): string | undefined => {
-  const ast = (model as { readonly ast?: { readonly annotations?: Record<string, unknown> } }).ast;
+  const ast = (
+    model /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+      readonly ast?: { readonly annotations?: Record<string, unknown> };
+    }
+  ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.ast;
   const id = ast?.annotations?.identifier ?? ast?.annotations?.id ?? ast?.annotations?.title;
   return typeof id === "string" ? id : undefined;
 };
@@ -32,6 +36,8 @@ export const table = <const Model extends EffectZeroModel>(
     name,
     serverName: decodedOptions.serverName,
     key: decodedOptions.key,
-    columns: decodedOptions.columns as TableOptions<Model>["columns"],
+
+    columns:
+      decodedOptions.columns /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as TableOptions<Model>["columns"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   };
 };

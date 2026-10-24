@@ -50,7 +50,7 @@ const withTempProject = <A, E, R>(f: (dir: string) => Effect.Effect<A, E, R>) =>
   );
 
 describe("cli generation", () => {
-  it.effect(
+  it.live(
     "generates and signs a schema file",
     () =>
       withTempProject((dir) =>
@@ -72,7 +72,7 @@ describe("cli generation", () => {
     15_000,
   );
 
-  it.effect(
+  it.live(
     "refuses to overwrite modified generated files without force",
     () =>
       withTempProject((dir) =>
@@ -99,7 +99,7 @@ describe("cli generation", () => {
     15_000,
   );
 
-  it.effect(
+  it.live(
     "writeGeneratedFileEffect refuses manually modified generated files",
     () =>
       withTempProject((dir) =>
@@ -122,7 +122,7 @@ describe("cli generation", () => {
     15_000,
   );
 
-  it.effect("formatGeneratedFileEffect warns instead of failing when formatting fails", () =>
+  it.live("formatGeneratedFileEffect warns instead of failing when formatting fails", () =>
     withTempProject((dir) => formatGeneratedFileEffect(path.join(dir, "missing.ts"))).pipe(
       Effect.provide(NodeServices.layer),
     ),

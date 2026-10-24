@@ -109,11 +109,11 @@ export const runMigrationExtensionsEffect = ({
         } as MigrationExtensionResult & { readonly name: string };
       }),
     )) as readonly (MigrationExtensionResult & { readonly name: string })[];
-  }) as Effect.Effect<
+  }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
     readonly (MigrationExtensionResult & { readonly name: string })[],
     unknown,
     never
-  >;
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 export const introspectMigrationExtensionsEffect = ({
   config,
@@ -132,7 +132,11 @@ export const introspectMigrationExtensionsEffect = ({
     const entries = yield* Effect.forEach(config.extensions, (extension) => {
       const introspect = extension.introspect;
       if (!introspect) {
-        return Effect.void as Effect.Effect<undefined, never, never>;
+        return Effect.void /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
+          undefined,
+          never,
+          never
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       }
 
       return Effect.gen(function* () {

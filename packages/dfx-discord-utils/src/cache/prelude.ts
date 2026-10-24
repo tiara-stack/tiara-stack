@@ -168,7 +168,14 @@ export const channelsWithReverseLookup = Effect.fn("cache.channelsWithReverseLoo
 
   return yield* makeWithReverseLookup({
     driver,
-    id: (c) => Effect.succeed([(c as Discord.GuildChannelResponse).guild_id, c.id]),
+
+    id: (c) =>
+      Effect.succeed([
+        (
+          c /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Discord.GuildChannelResponse
+        ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.guild_id,
+        c.id,
+      ]),
     ops: opsWithReverseLookup({
       id: (c: DiscordChannel) => c.id,
       fromParent: Stream.map(gateway.fromDispatch("GUILD_CREATE"), (g) => [

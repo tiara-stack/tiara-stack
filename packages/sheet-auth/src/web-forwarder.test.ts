@@ -80,6 +80,7 @@ describe("createForwarder", () => {
   it.live("returns a mapped response when request conversion fails", () =>
     Effect.gen(function* () {
       const handler = vi.fn(async () => new Response(null, { status: 204 }));
+
       const request = {
         source: {},
         url: "http://[invalid",
@@ -87,7 +88,7 @@ describe("createForwarder", () => {
         headers: {
           host: "[invalid",
         },
-      } as unknown as HttpServerRequest.HttpServerRequest;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as HttpServerRequest.HttpServerRequest /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const forward = createForwarder(handler);
 
       const effectResponse = yield* forward({ request });

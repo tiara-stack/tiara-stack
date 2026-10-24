@@ -34,7 +34,12 @@ export const OptionArrayToOptionTupleSchema = <
 ) => {
   const ArraySchema = Schema.Array(Schema.Option(Schema.toEncoded(value)));
   const TupleSchema = Schema.Tuple(
-    Array.makeBy(count, () => Schema.Option(value)) as ReadonlyTupleOf<Count, Schema.Option<Value>>,
+    Array.makeBy(count, () =>
+      Schema.Option(value),
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReadonlyTupleOf<
+      Count,
+      Schema.Option<Value>
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   );
 
   const schema = ArraySchema.pipe(
@@ -43,11 +48,16 @@ export const OptionArrayToOptionTupleSchema = <
         (array) =>
           Array.makeBy(count, (index) =>
             pipe(Array.get(array, index), Option.flatten),
-          ) as unknown as Schema.Tuple.Encoded<ReadonlyTupleOf<Count, Schema.Option<Value>>>,
+          ) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Schema.Tuple.Encoded<
+            ReadonlyTupleOf<Count, Schema.Option<Value>>
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       ),
       encode: SchemaGetter.passthrough(),
     }),
-  ) as unknown as OptionArrayToOptionTupleSchema<Count, Value>;
+  ) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as OptionArrayToOptionTupleSchema<
+    Count,
+    Value
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
   return Object.assign(schema, { count, value });
 };

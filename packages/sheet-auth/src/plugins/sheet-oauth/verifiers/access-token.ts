@@ -134,7 +134,7 @@ const tokenExpiresAt = (payload: Record<string, unknown>) =>
   Predicate.isNumber(payload.exp) ? new Date(payload.exp * 1000).toISOString() : undefined;
 
 const getAccessTokenClientId = (payload: Record<string, unknown>) =>
-  Predicate.isString(payload.client_id)
+  Predicate.isString(payload.client_id) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? payload.client_id
     : Predicate.isString(payload.azp)
       ? payload.azp

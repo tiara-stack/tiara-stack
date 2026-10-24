@@ -76,7 +76,9 @@ describe("Workflow Contract HTTP/SSE transport", () => {
         const handler = yield* HttpRouter.toHttpEffect(
           HttpRouter.add(
             "POST",
-            workflowContractRoutes(Contract).enqueue as HttpRouter.PathInput,
+
+            workflowContractRoutes(Contract)
+              .enqueue /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as HttpRouter.PathInput /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
             HttpServerResponse.empty({ status: 202 }),
           ).pipe(Layer.provide(HttpRouter.layer)),
         );
@@ -142,7 +144,12 @@ describe("Workflow Contract HTTP/SSE transport", () => {
             submittedAt: "2026-01-01T00:00:00.000Z",
             updatedAt: "2026-01-01T00:00:00.000Z",
           }).pipe(
-            Effect.map((run) => run as WorkflowRun<typeof contract>),
+            Effect.map(
+              (run) =>
+                run /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WorkflowRun<
+                  typeof contract
+                > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+            ),
             Effect.mapError(
               () =>
                 new WorkflowObservationInvalidData({

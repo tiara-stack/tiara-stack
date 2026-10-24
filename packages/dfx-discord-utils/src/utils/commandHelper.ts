@@ -242,26 +242,35 @@ export class WrappedCommandHelper<A> {
   }
 
   option(name: CommandOptions<A>["name"]): OptionTypeToTs<CommandWithName<A, typeof name>["type"]> {
-    return this.helper.option(name) as any;
+    return this.helper.option(
+      name,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   optionValue<N extends RequiredCommandOptions<A>["name"]>(
     name: N,
   ): OptionTypeToTs<CommandWithName<A, N>["type"]> {
-    return this.helper.optionValue(name) as any;
+    return this.helper.optionValue(
+      name,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   optionValueOptional<N extends CommandOptions<A>["name"]>(
     name: N,
   ): Option.Option<OptionTypeToTs<CommandWithName<A, N>["type"]>> {
-    return this.helper.optionValueOptional(name) as any;
+    return this.helper.optionValueOptional(
+      name,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   optionValueOrElse<N extends CommandOptions<A>["name"], const OrElse>(
     name: N,
     orElse: () => OrElse,
   ): OptionTypeToTs<CommandWithName<A, N>["type"]> | OrElse {
-    return this.helper.optionValueOrElse(name, orElse) as any;
+    return this.helper.optionValueOrElse(
+      name,
+      orElse,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   optionRoleValue<N extends RequiredRoleOptions<A>["name"]>(name: N): CommandRoleValue<A, N> {
@@ -379,6 +388,7 @@ export class WrappedCommandHelper<A> {
     const commands_ = commands as Record<string, any>;
 
     const { data, helper, subcommand } = this;
+
     return Effect.gen(function* () {
       yield* Effect.log(subcommand, Object.keys(commands_));
 
@@ -415,7 +425,7 @@ export class WrappedCommandHelper<A> {
           ),
         onNone: () => new SubCommandNotFound({ data }),
       });
-    }) as any;
+    }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   get optionsMap(): HashMap.HashMap<string, string | undefined> {
@@ -622,7 +632,10 @@ export const makeGlobalCommand = <
 ): GlobalCommand<E, R> =>
   Ix.global(data, (commandHelper) =>
     provideInteractionToken(provideInteractionResponse("command", handler(commandHelper))),
-  ) as GlobalCommand<E, R>;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as GlobalCommand<
+    E,
+    R
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 export const makeGuildCommand = <
   const A extends Discord.ApplicationCommandCreateRequest,
@@ -636,4 +649,7 @@ export const makeGuildCommand = <
 ): GuildCommand<E, R> =>
   Ix.guild(data, (commandHelper) =>
     provideInteractionToken(provideInteractionResponse("command", handler(commandHelper))),
-  ) as GuildCommand<E, R>;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as GuildCommand<
+    E,
+    R
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;

@@ -59,7 +59,12 @@ class AppsScriptResponse
     if (this.cachedCookies !== undefined) {
       return this.cachedCookies;
     }
-    const headerArray = this.source.getAllHeaders() as Record<string, string | string[]>;
+
+    const headerArray =
+      this.source.getAllHeaders() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+        string,
+        string | string[]
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     const header = headerArray["set-cookie"];
     return (this.cachedCookies = header ? Cookies.fromSetCookie(header) : Cookies.empty);
   }
@@ -69,7 +74,12 @@ class AppsScriptResponse
     return (this.formDataBody ??= Effect.tryPromise({
       try: async () => {
         const headers = new globalThis.Headers();
-        const headerArray = this.source.getAllHeaders() as Record<string, string | string[]>;
+
+        const headerArray =
+          this.source.getAllHeaders() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+            string,
+            string | string[]
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
         for (const key in headerArray) {
           const value = headerArray[key];
           if (value !== undefined) {
@@ -181,7 +191,14 @@ const waitForResponse = (
       const method = httpRequest.method.toLowerCase();
       const validMethods = ["get", "post", "put", "delete", "patch"] as const;
       const isValidMethod = (m: string): m is "get" | "post" | "put" | "delete" | "patch" =>
-        validMethods.includes(m as "get" | "post" | "put" | "delete" | "patch");
+        validMethods.includes(
+          m /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as
+            | "get"
+            | "post"
+            | "put"
+            | "delete"
+            | "patch" /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        );
       const validMethod = isValidMethod(method) ? method : "get";
 
       const headers: Record<string, string> = {};

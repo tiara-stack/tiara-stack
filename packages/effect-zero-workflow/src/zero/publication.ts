@@ -58,6 +58,7 @@ export const configureWorkflowZeroSchema = <
   const exposedWorkflowRunColumns = Object.fromEntries(
     publicWorkflowRunColumns.map((column) => [column, workflowRunColumns[column] ?? true] as const),
   );
+
   return {
     ...generated,
     tables: {
@@ -70,5 +71,5 @@ export const configureWorkflowZeroSchema = <
         },
       },
     },
-  } as const;
+  } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as const /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };

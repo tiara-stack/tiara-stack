@@ -72,7 +72,8 @@ describe("generated schema", () => {
 
       expect(generated).toContain("function customType<T>(): T");
       expect(generated).toContain("customType: customType<string>()");
-      expect(generated.match(/as unknown as/g)).toHaveLength(1);
+      expect(generated).toContain("return null!;");
+      expect(generated).not.toContain("as unknown as");
       expect(generated).not.toContain("as never");
       expect(generated).toContain("createBuilder(schema)");
       expect(generated).toContain('"destSchema": "posts"');

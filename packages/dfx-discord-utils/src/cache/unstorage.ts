@@ -69,7 +69,9 @@ const readPageEntries = <T>(
         batchIds,
         (resourceId) =>
           Effect.promise(async () => {
-            const value = (await storage.getItem(`${parentId}:${resourceId}`)) as T | null;
+            const value = (await storage.getItem(
+              `${parentId}:${resourceId}`,
+            )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as T | null /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
             return [resourceId, value] as const;
           }),
         { concurrency: "unbounded" },
@@ -163,14 +165,21 @@ const make = <T>(opts: UnstorageOpts): CacheDriver<never, T> => {
 
     get: (resourceId) =>
       Effect.promise(async () => {
-        const value = (await prefixedStorage.getItem(resourceId)) as T | null;
+        const value = (await prefixedStorage.getItem(
+          resourceId,
+        )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as T | null /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
         return Option.fromNullishOr(value);
       }),
 
     refreshTTL: () => Effect.void,
 
     set: (resourceId, resource) =>
-      Effect.promise(() => prefixedStorage.setItem(resourceId, resource as never)),
+      Effect.promise(() =>
+        prefixedStorage.setItem(
+          resourceId,
+          resource /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ),
+      ),
 
     delete: (resourceId) => Effect.promise(() => prefixedStorage.removeItem(resourceId)),
 
@@ -389,7 +398,10 @@ export const createWithReverseLookup = <T>({
               uniqueEntries,
               ([resourceId, resource]) =>
                 Effect.promise(() =>
-                  prefixedStorage.setItem(`${parentId}:${resourceId}`, resource as never),
+                  prefixedStorage.setItem(
+                    `${parentId}:${resourceId}`,
+                    resource /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+                  ),
                 ),
               { concurrency: cachePopulationConcurrency, discard: true },
             );
@@ -433,7 +445,9 @@ export const createWithReverseLookup = <T>({
 
       get: (parentId, resourceId) =>
         Effect.promise(async () => {
-          const value = (await prefixedStorage.getItem(`${parentId}:${resourceId}`)) as T | null;
+          const value = (await prefixedStorage.getItem(
+            `${parentId}:${resourceId}`,
+          )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as T | null /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
           return Option.fromNullishOr(value);
         }),
 
@@ -447,7 +461,7 @@ export const createWithReverseLookup = <T>({
             Effect.promise(async () => {
               const value = (await prefixedStorage.getItem(
                 `${parentId}:${resourceId}`,
-              )) as T | null;
+              )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as T | null /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
               return [resourceId, value] as const;
             }),
           { concurrency: "unbounded" },
@@ -504,7 +518,7 @@ export const createWithReverseLookup = <T>({
             Effect.promise(async () => {
               const value = (await prefixedStorage.getItem(
                 `${parentId}:${resourceId}`,
-              )) as T | null;
+              )) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as T | null /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
               return [parentId, value] as const;
             }),
           { concurrency: "unbounded" },

@@ -205,6 +205,7 @@ export const makeWorkflowHttpClient = <Contract extends AnyWorkflowContract>(
       encodeURIComponent(reference.invocationId),
     );
     const schema = Schema.OptionFromNullishOr(makeWorkflowRunSchema(contract));
+
     return Stream.unwrap(
       execute(httpClient, options, HttpClientRequest.get(urlFor(options.baseUrl, route))).pipe(
         Effect.flatMap(observationResponse),
@@ -215,10 +216,14 @@ export const makeWorkflowHttpClient = <Contract extends AnyWorkflowContract>(
             : transportUnavailable("Observe", "Workflow observation request failed"),
         ),
       ),
-    ) as Stream.Stream<Option.Option<WorkflowRun<Contract>>, WorkflowObservationError>;
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Stream.Stream<
+      Option.Option<WorkflowRun<Contract>>,
+      WorkflowObservationError
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   },
   list: (filter = {}) => {
     const schema = Schema.Array(makeWorkflowRunSchema(contract));
+
     return Stream.unwrap(
       execute(httpClient, options, HttpClientRequest.get(listUrl(contract, options, filter))).pipe(
         Effect.flatMap(observationResponse),
@@ -229,7 +234,10 @@ export const makeWorkflowHttpClient = <Contract extends AnyWorkflowContract>(
             : transportUnavailable("Observe", "Workflow list request failed"),
         ),
       ),
-    ) as Stream.Stream<ReadonlyArray<WorkflowRun<Contract>>, WorkflowObservationError>;
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Stream.Stream<
+      ReadonlyArray<WorkflowRun<Contract>>,
+      WorkflowObservationError
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   },
 });
 

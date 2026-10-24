@@ -473,7 +473,9 @@ export const sheetZeroClientAtom = runtimeAtom
         authClient,
         ["discord"],
         !previewGatewayMediated && Predicate.isNotUndefined(session.value.token)
-          ? { Authorization: `Bearer ${Redacted.value(session.value.token)}` }
+          ? {
+              Authorization: `Bearer ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ Redacted.value(session.value.token) /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
+            }
           : undefined,
       ).pipe(
         Effect.tapError(() => Effect.sync(clearSheetZeroClients)),

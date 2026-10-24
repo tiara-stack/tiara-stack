@@ -48,12 +48,24 @@ describe("sheet Workflow Contract Zero clients", () => {
       workflowContractZeroGroupIdentifier(CheckinMessagesSave),
       workflowContractZeroGroupIdentifier(AuthorizationLoadWorkspaceCapabilities),
     ];
-    const clientQueries = queries as unknown as Record<string, Record<string, unknown>>;
-    const mountedServerQueries = serverQueries as unknown as Record<
-      string,
-      Record<string, unknown>
-    >;
-    const mountedServerMutators = serverMutators as unknown as Record<string, unknown>;
+
+    const clientQueries =
+      queries as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+        string,
+        Record<string, unknown>
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
+    const mountedServerQueries =
+      serverQueries as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+        string,
+        Record<string, unknown>
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
+    const mountedServerMutators =
+      serverMutators as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+        string,
+        unknown
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(sheetWorkflowZeroObservationProcedureManifest).toEqual(
       groups.flatMap((group) => [`${group}.get`, `${group}.list`]),
@@ -73,6 +85,7 @@ describe("sheet Workflow Contract Zero clients", () => {
 
   it("builds the mounted query from the contract and authenticated owner", () => {
     const calls: Array<readonly unknown[]> = [];
+
     const query = {
       where: (field: string, operator: string, value: unknown) => {
         calls.push(["where", field, operator, value]);
@@ -82,7 +95,7 @@ describe("sheet Workflow Contract Zero clients", () => {
         calls.push(["one"]);
         return query;
       },
-    } as unknown as typeof zql.workflowRun;
+    } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof zql.workflowRun /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     const group = makeSheetWorkflowZeroObservationGroups(query).find(
       (candidate) =>
         candidate.identifier === workflowContractZeroGroupIdentifier(CheckinMessagesLoad),

@@ -107,7 +107,12 @@ describe("preview session authority HTTP client", () => {
         authorization: Option.getOrUndefined(Headers.get(request.headers, "authorization")),
         body:
           bytes instanceof Uint8Array
-            ? (JSON.parse(new TextDecoder().decode(bytes)) as Record<string, unknown>)
+            ? (JSON.parse(
+                new TextDecoder().decode(bytes),
+              ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+                string,
+                unknown
+              >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
             : {},
       };
       return Effect.succeed(

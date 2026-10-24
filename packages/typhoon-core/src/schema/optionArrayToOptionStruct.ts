@@ -33,7 +33,10 @@ export const OptionArrayToOptionStructValueSchema = <
       decode: SchemaGetter.passthrough(),
       encode: SchemaGetter.passthroughSupertype(),
     }),
-  ) as unknown as OptionArrayToOptionStructValueSchema<Keys, Value>;
+  ) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as OptionArrayToOptionStructValueSchema<
+    Keys,
+    Value
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
   return Object.assign(schema, { keys, value });
 };

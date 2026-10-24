@@ -85,11 +85,14 @@ describe("guild configuration helpers", () => {
         announcementConversationId: null,
         ...timestamps,
       };
+
       const client = {
         sheet: {
           stream: () => Stream.succeed(Option.some(config)),
         },
-      } as unknown as Atom.Success<typeof sheetZeroClientAtom>;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Atom.Success<
+        typeof sheetZeroClientAtom
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const registry = AtomRegistry.make({
         initialValues: [[sheetZeroClientAtom, AsyncResult.success(client)]],
       });

@@ -141,7 +141,7 @@ export function query(name: string, options: any): AnyQuery {
     success: options.success,
     runOptions: options.runOptions,
     query: options.query,
-  }) as AnyQuery;
+  }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as AnyQuery /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 }
 
 interface MutatorOptions<
@@ -190,7 +190,7 @@ export function mutator(name: string, options: any): AnyMutator {
     name,
     request: options.request,
     mutator: options.mutator,
-  }) as AnyMutator;
+  }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as AnyMutator /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 }
 
 export const isZeroApiEndpoint = (input: unknown): input is Any =>

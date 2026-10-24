@@ -34,7 +34,11 @@ export const annotateBotAdmissionPolicy = <
   policy: Policy,
 ) => {
   Schema.decodeUnknownSync(BotAdmissionPolicyMetadata)(policy);
-  return endpoint.annotate(BotAdmissionPolicyAnnotation, policy) as Endpoint;
+
+  return endpoint.annotate(
+    BotAdmissionPolicyAnnotation,
+    policy,
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Endpoint /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 const hasAnnotations = (

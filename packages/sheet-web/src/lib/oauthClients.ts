@@ -76,12 +76,19 @@ export const normalizeOAuthClientCreateInput = (
   input: typeof OAuthClientCreateInputSchema.Type,
 ): OAuthClientCreateInput => {
   const { redirect_uris, ...optional } = input;
-  return { redirect_uris, ...withoutUndefined(optional) } as OAuthClientCreateInput;
+
+  return {
+    redirect_uris,
+    ...withoutUndefined(optional),
+  } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as OAuthClientCreateInput /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 export const normalizeOAuthClientUpdateInput = (
   input: typeof OAuthClientUpdateInputSchema.Type,
-): OAuthClientUpdateInput => withoutUndefined(input) as OAuthClientUpdateInput;
+): OAuthClientUpdateInput =>
+  withoutUndefined(
+    input,
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as OAuthClientUpdateInput /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 type CreateOAuthClientMutation = OAuthClientCreateInput;
 

@@ -318,10 +318,16 @@ export const makeZeroHttpLive = <
       const contextFactory = options.context ?? emptyZeroContextFactory;
       type ContextEffect = ZeroContextEffectFromFactory<ContextFactory>;
       type Context = ZeroContextFromEffect<ContextEffect>;
-      const queryHandlers = queryRegistry as Readonly<Record<string, ZeroQueryHandler<Context>>>;
-      const mutatorHandlers = mutatorRegistry as Readonly<
-        Record<string, ZeroMutatorHandler<Context, unknown>>
-      >;
+
+      const queryHandlers =
+        queryRegistry /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Readonly<
+          Record<string, ZeroQueryHandler<Context>>
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
+      const mutatorHandlers =
+        mutatorRegistry /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Readonly<
+          Record<string, ZeroMutatorHandler<Context, unknown>>
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const zql = yield* options.zql;
       const resolveContext = (procedureNames: readonly string[]) =>
         Effect.gen(function* () {
@@ -340,7 +346,8 @@ export const makeZeroHttpLive = <
                   }),
             ),
           );
-          return context as Context;
+
+          return context /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Context /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
         });
 
       return handlers

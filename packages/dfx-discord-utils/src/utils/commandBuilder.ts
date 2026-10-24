@@ -94,7 +94,7 @@ abstract class SharedBuilderToJSON<
   abstract readonly builder: BaseBuilderType<BuilderT>;
 
   toJSON(): InnerType {
-    return this.builder.toJSON() as InnerType;
+    return this.builder.toJSON() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as InnerType /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 }
 
@@ -218,10 +218,11 @@ export class ChannelOptionBuilder<
     ...channelTypes: ChannelTypes
   ): BuilderType<ChannelOptionBuilderTypeLambda, AppendAllKey<A, "channel_types", ChannelTypes>> {
     this.builder.addChannelTypes(...channelTypes);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       ChannelOptionBuilderTypeLambda,
       AppendAllKey<A, "channel_types", ChannelTypes>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 }
 
@@ -236,46 +237,51 @@ export class IntegerOptionBuilder<
 
   setMinValue<const MinValue extends number>(minValue: MinValue) {
     this.builder.setMinValue(minValue);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       IntegerOptionBuilderTypeLambda,
       ReplaceKey<A, "min_value", MinValue>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setMaxValue<const MaxValue extends number>(maxValue: MaxValue) {
     this.builder.setMaxValue(maxValue);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       IntegerOptionBuilderTypeLambda,
       ReplaceKey<A, "max_value", MaxValue>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   addChoices<const Choices extends ReadonlyArray<APIApplicationCommandOptionChoice<number>>>(
     ...choices: Choices
   ) {
     this.builder.addChoices(...choices);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       IntegerOptionBuilderTypeLambda,
       AppendAllKey<A, "choices", Choices>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setChoices<const Choices extends ReadonlyArray<APIApplicationCommandOptionChoice<number>>>(
     ...choices: Choices
   ) {
     this.builder.setChoices(...choices);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       IntegerOptionBuilderTypeLambda,
       ReplaceKey<A, "choices", Choices>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setAutocomplete<const Autocomplete extends boolean>(autocomplete: Autocomplete) {
     this.builder.setAutocomplete(autocomplete);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       IntegerOptionBuilderTypeLambda,
       ReplaceKey<A, "autocomplete", Autocomplete>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 }
 
@@ -300,46 +306,51 @@ export class NumberOptionBuilder<
 
   setMinValue<const MinValue extends number>(minValue: MinValue) {
     this.builder.setMinValue(minValue);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       NumberOptionBuilderTypeLambda,
       ReplaceKey<A, "min_value", MinValue>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setMaxValue<const MaxValue extends number>(maxValue: MaxValue) {
     this.builder.setMaxValue(maxValue);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       NumberOptionBuilderTypeLambda,
       ReplaceKey<A, "max_value", MaxValue>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   addChoices<const Choices extends ReadonlyArray<APIApplicationCommandOptionChoice<number>>>(
     ...choices: Choices
   ) {
     this.builder.addChoices(...choices);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       NumberOptionBuilderTypeLambda,
       AppendAllKey<A, "choices", Choices>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setChoices<const Choices extends ReadonlyArray<APIApplicationCommandOptionChoice<number>>>(
     ...choices: Choices
   ) {
     this.builder.setChoices(...choices);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       NumberOptionBuilderTypeLambda,
       ReplaceKey<A, "choices", Choices>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setAutocomplete<const Autocomplete extends boolean>(autocomplete: Autocomplete) {
     this.builder.setAutocomplete(autocomplete);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       NumberOptionBuilderTypeLambda,
       ReplaceKey<A, "autocomplete", Autocomplete>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 }
 
@@ -366,44 +377,49 @@ export class StringOptionBuilder<
     ...choices: Choices
   ) {
     this.builder.addChoices(...choices);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       StringOptionBuilderTypeLambda,
       AppendAllKey<A, "choices", Choices>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setChoices<const Choices extends ReadonlyArray<APIApplicationCommandOptionChoice<string>>>(
     ...choices: Choices
   ) {
     this.builder.setChoices(...choices);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       StringOptionBuilderTypeLambda,
       ReplaceKey<A, "choices", Choices>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setAutocomplete<const Autocomplete extends boolean>(autocomplete: Autocomplete) {
     this.builder.setAutocomplete(autocomplete);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       StringOptionBuilderTypeLambda,
       ReplaceKey<A, "autocomplete", Autocomplete>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setMinLength<const MinLength extends number>(minLength: MinLength) {
     this.builder.setMinLength(minLength);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       StringOptionBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "min_length", MinLength>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setMaxLength<const MaxLength extends number>(maxLength: MaxLength) {
     this.builder.setMaxLength(maxLength);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       StringOptionBuilderTypeLambda,
       ReplaceKey<BuilderInnerType<typeof this>, "max_length", MaxLength>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 }
 
@@ -530,14 +546,15 @@ export class SubCommandGroupBuilder<
     input: (builder: SubCommandBuilder) => SubCommandBuilder<InnerOption>,
   ): BuilderType<SubCommandGroupBuilderTypeLambda, AppendKey<A, "options", InnerOption>> {
     this.builder.addSubcommand(input(new SubCommandBuilder()).builder);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       SubCommandGroupBuilderTypeLambda,
       AppendKey<A, "options", InnerOption>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   toJSON(): A {
-    return this.builder.toJSON() as A;
+    return this.builder.toJSON() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as A /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 }
 
@@ -552,19 +569,24 @@ export class SubCommandBuilder<
 
   setName<const Name extends string>(name: Name) {
     this.builder.setName(name);
-    return this as unknown as BuilderType<SubCommandBuilderTypeLambda, ReplaceKey<A, "name", Name>>;
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
+      SubCommandBuilderTypeLambda,
+      ReplaceKey<A, "name", Name>
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setDescription<const Description extends string>(description: Description) {
     this.builder.setDescription(description);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       SubCommandBuilderTypeLambda,
       ReplaceKey<A, "description", Description>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   toJSON(): A {
-    return this.builder.toJSON() as A;
+    return this.builder.toJSON() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as A /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 }
 
@@ -632,71 +654,85 @@ export class CommandBuilder<A = unknown> extends SharedCommandOptionsBuilder<
 
   setName<const Name extends string>(name: Name) {
     this.builder.setName(name);
-    return this as unknown as BuilderType<CommandBuilderTypeLambda, ReplaceKey<A, "name", Name>>;
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
+      CommandBuilderTypeLambda,
+      ReplaceKey<A, "name", Name>
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setDescription<const Description extends string>(description: Description) {
     this.builder.setDescription(description);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       CommandBuilderTypeLambda,
       ReplaceKey<A, "description", Description>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setContexts<const Contexts extends ReadonlyArray<InteractionContextType>>(...contexts: Contexts) {
     this.builder.setContexts(...contexts);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       CommandBuilderTypeLambda,
       ReplaceKey<A, "contexts", Contexts>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setIntegrationTypes<const IntegrationTypes extends ReadonlyArray<ApplicationIntegrationType>>(
     ...integrationTypes: IntegrationTypes
   ) {
     this.builder.setIntegrationTypes(...integrationTypes);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       CommandBuilderTypeLambda,
       ReplaceKey<A, "integration_types", IntegrationTypes>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setDefaultMemberPermissions<const DefaultMemberPermissions extends bigint>(
     defaultMemberPermissions: DefaultMemberPermissions,
   ) {
     this.builder.setDefaultMemberPermissions(defaultMemberPermissions);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       CommandBuilderTypeLambda,
       ReplaceKey<A, "default_member_permissions", DefaultMemberPermissions>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   setNSFW<const NSFW extends boolean>(nsfw: NSFW) {
     this.builder.setNSFW(nsfw);
-    return this as unknown as BuilderType<CommandBuilderTypeLambda, ReplaceKey<A, "nsfw", NSFW>>;
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
+      CommandBuilderTypeLambda,
+      ReplaceKey<A, "nsfw", NSFW>
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   addSubcommandGroup<const InnerOption>(
     input: (builder: SubCommandGroupBuilder) => SubCommandGroupBuilder<InnerOption>,
   ): BuilderType<CommandSubCommandsOnlyBuilderTypeLambda, AppendKey<A, "options", InnerOption>> {
     this.builder.addSubcommandGroup(input(new SubCommandGroupBuilder()).builder);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       CommandSubCommandsOnlyBuilderTypeLambda,
       AppendKey<A, "options", InnerOption>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   addSubcommand<const InnerOption>(
     input: (builder: SubCommandBuilder) => SubCommandBuilder<InnerOption>,
   ): BuilderType<CommandSubCommandsOnlyBuilderTypeLambda, AppendKey<A, "options", InnerOption>> {
     this.builder.addSubcommand(input(new SubCommandBuilder()).builder);
-    return this as unknown as BuilderType<
+
+    return this as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BuilderType<
       CommandSubCommandsOnlyBuilderTypeLambda,
       AppendKey<A, "options", InnerOption>
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   toJSON(): A {
-    return this.builder.toJSON() as A;
+    return this.builder.toJSON() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as A /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 }

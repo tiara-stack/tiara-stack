@@ -113,13 +113,13 @@ const makeServerTx = (
   ({
     location: "server",
     dbTransaction: { query },
-  }) as unknown as Transaction<TestZeroSchema>;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Transaction<TestZeroSchema> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeClientTx = (workflowRunMutator: object) =>
   ({
     location: "client",
     mutate: { workflowRun: workflowRunMutator },
-  }) as unknown as Transaction<TestZeroSchema>;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Transaction<TestZeroSchema> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeQueryRecorder = () => {
   const calls: Array<readonly unknown[]> = [];
@@ -147,7 +147,12 @@ const makeQueryRecorder = () => {
   };
   return {
     calls,
-    query: query as unknown as Query<"workflowRun", TestZeroSchema>,
+
+    query:
+      query as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Query<
+        "workflowRun",
+        TestZeroSchema
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   };
 };
 
@@ -188,7 +193,7 @@ const expectFailureMessage = (exit: Exit.Exit<unknown, unknown>, expected: strin
       return;
     }
     const failure: unknown = failureReason.error;
-    const message = Schema.isSchemaError(failure)
+    const message = Schema.isSchemaError(failure) // oxlint-disable-line no-nested-ternary -- inherited master site
       ? failure.message
       : Predicate.isError(failure)
         ? failure.message

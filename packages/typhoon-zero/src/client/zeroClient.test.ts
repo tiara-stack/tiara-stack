@@ -4,7 +4,10 @@ import { Cause, Effect, Exit, Option, Stream } from "effect";
 import { makeArgumentError } from "typhoon-core/error";
 import * as ZeroClient from "./zeroClient";
 
-const makeClient = (zero: unknown) => ZeroClient.ZeroClient<any, any, any>().make(zero as never);
+const makeClient = (zero: unknown) =>
+  ZeroClient.ZeroClient<any, any, any>().make(
+    zero /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 
 describe("ZeroClient", () => {
   it("only exposes error codes from tagged application errors", () => {
@@ -32,7 +35,10 @@ describe("ZeroClient", () => {
         }),
       };
       const client = yield* makeClient(zero);
-      const mutation = yield* client.mutate({} as never);
+
+      const mutation = yield* client.mutate(
+        {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+      );
 
       const [clientExit, serverExit] = yield* Effect.all([
         Effect.exit(mutation.client()),
@@ -80,7 +86,10 @@ describe("ZeroClient", () => {
       };
       const client = yield* makeClient(zero);
 
-      const result = yield* client.run({} as never, { type: "unknown", ttl: "1m" });
+      const result = yield* client.run(
+        {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        { type: "unknown", ttl: "1m" },
+      );
 
       expect(result).toEqual([{ id: "item-1" }]);
       expect(destroyed).toBe(true);
@@ -112,7 +121,9 @@ describe("ZeroClient", () => {
       };
       const client = yield* makeClient(zero);
 
-      const result = yield* client.run({} as never);
+      const result = yield* client.run(
+        {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+      );
 
       expect(result).toEqual([{ id: "item-2" }]);
       expect(destroyed).toBe(true);
@@ -157,7 +168,10 @@ describe("ZeroClient", () => {
       const client = yield* makeClient(zero);
 
       const exit = yield* Effect.exit(
-        client.run({} as never, { type: "complete", ttl: "forever" }),
+        client.run(
+          {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          { type: "complete", ttl: "forever" },
+        ),
       );
 
       expect(Exit.isFailure(exit)).toBe(true);
@@ -198,7 +212,10 @@ describe("ZeroClient", () => {
       };
       const client = yield* makeClient(zero);
 
-      const result = yield* client.run({} as never, { type: "complete" });
+      const result = yield* client.run(
+        {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        { type: "complete" },
+      );
 
       expect(result).toEqual([{ id: "item-1" }]);
       expect(destroyed).toBe(true);
@@ -232,7 +249,11 @@ describe("ZeroClient", () => {
       const client = yield* makeClient(zero);
 
       const result = yield* client
-        .stream({} as never, { type: "complete" })
+
+        .stream(
+          {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          { type: "complete" },
+        )
         .pipe(Stream.take(1), Stream.runCollect);
 
       expect(result).toEqual([[{ id: "complete" }]]);
@@ -262,7 +283,11 @@ describe("ZeroClient", () => {
       };
       const client = yield* makeClient(zero);
 
-      const result = yield* client.stream({} as never).pipe(Stream.take(1), Stream.runCollect);
+      const result = yield* client
+        .stream(
+          {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        )
+        .pipe(Stream.take(1), Stream.runCollect);
 
       expect(result).toEqual([[{ id: "initial" }]]);
       expect(destroyed).toBe(true);
@@ -305,16 +330,20 @@ describe("ZeroClient", () => {
       const client = yield* makeClient(zero);
       const updates: Array<unknown> = [];
 
-      const exit = yield* client.stream({} as never).pipe(
-        Stream.tap((value) =>
-          Effect.sync(() => {
-            updates.push(value);
-          }),
-        ),
-        Stream.take(2),
-        Stream.runCollect,
-        Effect.exit,
-      );
+      const exit = yield* client
+        .stream(
+          {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        )
+        .pipe(
+          Stream.tap((value) =>
+            Effect.sync(() => {
+              updates.push(value);
+            }),
+          ),
+          Stream.take(2),
+          Stream.runCollect,
+          Effect.exit,
+        );
 
       expect(Exit.isFailure(exit)).toBe(true);
       expect(updates).toEqual([[{ id: "item-1" }]]);
@@ -356,7 +385,11 @@ describe("ZeroClient", () => {
       const client = yield* makeClient(zero);
 
       const exit = yield* client
-        .stream({} as never, { type: "complete" })
+
+        .stream(
+          {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          { type: "complete" },
+        )
         .pipe(Stream.runCollect, Effect.exit);
 
       expect(Exit.isFailure(exit)).toBe(true);

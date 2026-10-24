@@ -37,10 +37,12 @@ export function createSecondaryStorage(driver: Driver): SecondaryStorage {
     },
     async close() {
       // Unstorage drivers expose dispose or underlying instance
-      const driverInstance = driver as {
-        dispose?: () => Promise<void>;
-        getInstance?: () => { quit: () => Promise<void> };
-      };
+
+      const driverInstance =
+        driver /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+          dispose?: () => Promise<void>;
+          getInstance?: () => { quit: () => Promise<void> };
+        } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       if (driverInstance.dispose) {
         await driverInstance.dispose();
       } else if (driverInstance.getInstance) {

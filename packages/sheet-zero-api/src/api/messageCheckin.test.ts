@@ -58,7 +58,9 @@ const makeExclusiveTransaction = (runResult?: unknown) => {
       messageCheckin: { upsert: operation, update: operation },
       messageCheckinMember: { upsert: operation, update: operation },
     },
-  } as unknown as Parameters<typeof persistMessageCheckin.mutator>[0]["tx"];
+  } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Parameters<
+    typeof persistMessageCheckin.mutator
+  >[0]["tx"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 describe("message check-in mutators", () => {

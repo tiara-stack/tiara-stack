@@ -26,18 +26,27 @@ const DebugFormatConfig = Config.boolean("EFFECT_ZERO_DEBUG_FORMAT").pipe(
 );
 
 const readBooleanConfig = (name: string, config: Config.Config<boolean>) =>
-  config.parse(ConfigProvider.fromEnv({ env: process.env as Record<string, string> })).pipe(
-    Effect.catch((error) =>
-      Effect.gen(function* () {
-        if (process.env[name] !== undefined) {
-          yield* Console.warn(
-            `effect-zero: Failed to parse ${name}; using false. ${String(error)}`,
-          );
-        }
-        return false;
+  config
+    .parse(
+      ConfigProvider.fromEnv({
+        env: process.env /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+          string,
+          string
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       }),
-    ),
-  );
+    )
+    .pipe(
+      Effect.catch((error) =>
+        Effect.gen(function* () {
+          if (process.env[name] !== undefined) {
+            yield* Console.warn(
+              `effect-zero: Failed to parse ${name}; using false. ${String(error)}`,
+            );
+          }
+          return false;
+        }),
+      ),
+    );
 
 export type GeneratorOptions = {
   readonly config?: string | undefined;

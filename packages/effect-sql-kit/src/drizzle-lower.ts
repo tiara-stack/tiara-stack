@@ -46,20 +46,43 @@ type RuntimeTableFactory<Builder> = (
 // - table invokes a generic table factory with a runtime column record;
 // - index / primaryKey bridge validated fields to Drizzle's non-empty tuples.
 const drizzleAdapter = {
-  config: <Config>(value: unknown): Config => value as Config,
-  sqliteBuilder: (value: unknown): SqliteBuilder => value as SqliteBuilder,
+  config: <Config>(value: unknown): Config =>
+    value /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Config /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+
+  sqliteBuilder: (value: unknown): SqliteBuilder =>
+    value /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SqliteBuilder /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   defaultValue: <Result>(builder: { readonly default: unknown }, value: unknown): Result =>
-    (builder.default as (input: unknown) => Result)(value),
+    (
+      builder.default /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (
+        input: unknown,
+      ) => Result
+    )(/* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */ value),
   table: <Builder>(
     factory: unknown,
     name: string,
     columns: Record<string, Builder>,
     extraConfig: (table: Record<string, unknown>) => readonly unknown[],
-  ): unknown => (factory as RuntimeTableFactory<Builder>)(name, columns, extraConfig),
+  ): unknown =>
+    (
+      factory /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as RuntimeTableFactory<Builder>
+    )(
+      /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */ name,
+      columns,
+      extraConfig,
+    ),
   index: (builder: unknown, columns: readonly unknown[]): unknown =>
-    (builder as { readonly on: (...values: unknown[]) => unknown }).on(...columns),
+    (
+      builder /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+        readonly on: (...values: unknown[]) => unknown;
+      }
+    ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+      .on(...columns),
   primaryKey: (factory: unknown, columns: readonly unknown[]): unknown =>
-    (factory as (config: { readonly columns: readonly unknown[] }) => unknown)({ columns }),
+    (
+      factory /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (config: {
+        readonly columns: readonly unknown[];
+      }) => unknown
+    )(/* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */ { columns }),
 };
 
 type PgModule = typeof import("drizzle-orm/pg-core");
@@ -194,7 +217,10 @@ const pgScalarOrArray = (pg: PgModule, name: string, column: EffectSqlColumn): P
     name,
     requireArrayElementKind(column.data),
     typeof elementConfig === "object" && elementConfig !== null
-      ? (elementConfig as Record<string, unknown>)
+      ? (elementConfig /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+          string,
+          unknown
+        >) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
       : undefined,
   ).array();
 };
@@ -206,12 +232,12 @@ const applyPgColumnModifiers = (
   scalar: PgMutableBuilder,
 ): PgFinalBuilder => {
   const withDefault: PgDefaultedBuilder =
-    column.data.defaultExpression !== undefined
+    column.data.defaultExpression !== undefined // oxlint-disable-line no-nested-ternary -- inherited master site
       ? scalar.default(drizzleOrm.sql.raw(column.data.defaultExpression))
       : column.data.defaultValue !== undefined
         ? drizzleAdapter.defaultValue<PgDefaultedBuilder>(scalar, column.data.defaultValue)
         : scalar;
-  return column.data.primaryKey && table.primaryKey.length === 1
+  return column.data.primaryKey && table.primaryKey.length === 1 // oxlint-disable-line no-nested-ternary -- inherited master site
     ? withDefault.primaryKey()
     : column.data.notNull
       ? withDefault.notNull()
@@ -324,13 +350,13 @@ const lowerSqliteColumns = (
     const name = column.data.name ?? fieldName;
     const builder = makeSqliteBuilder(sqlite, name, column);
     const withDefault =
-      column.data.defaultExpression !== undefined
+      column.data.defaultExpression !== undefined // oxlint-disable-line no-nested-ternary -- inherited master site
         ? builder.default(drizzleOrm.sql.raw(column.data.defaultExpression))
         : column.data.defaultValue !== undefined
           ? drizzleAdapter.defaultValue<SqliteBuilder>(builder, column.data.defaultValue)
           : builder;
     columns[fieldName] =
-      column.data.primaryKey && table.primaryKey.length === 1
+      column.data.primaryKey && table.primaryKey.length === 1 // oxlint-disable-line no-nested-ternary -- inherited master site
         ? withDefault.primaryKey()
         : column.data.notNull
           ? withDefault.notNull()

@@ -22,7 +22,7 @@ const isPlainRecord = (value: unknown): value is Record<string, unknown> =>
 
 const stringifyRecord = (value: Record<string, unknown>) =>
   `object:{${Object.entries(value)
-    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+    .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)) // oxlint-disable-line no-nested-ternary -- inherited master site
     .map(
       ([key, nested]) =>
         `${JSON.stringify(key)}:${
@@ -32,7 +32,7 @@ const stringifyRecord = (value: Record<string, unknown>) =>
     .join(",")}}`;
 
 const unsupportedArgument = (value: unknown): never => {
-  const type = Predicate.isFunction(value)
+  const type = Predicate.isFunction(value) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? "function"
     : Predicate.isSymbol(value)
       ? "symbol"
@@ -123,11 +123,13 @@ export const makeQuery = <
     ZeroApiClient.QueryError | Cause.NoSuchElementError
   >
 > =>
-  queryAtoms(client as unknown as ErasedFunctionClient)(reference)(
+  queryAtoms(
+    client as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ErasedFunctionClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )(reference)(
     args.length === 0 || args[0] === undefined ? NoArgs : args[0],
-  ) as Atom.Atom<
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Atom.Atom<
     AsyncResult.AsyncResult<
       ZeroApiEndpoint.SuccessType<Reference["endpoint"]>,
       ZeroApiClient.QueryError | Cause.NoSuchElementError
     >
-  >;
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;

@@ -165,7 +165,7 @@ export const autoMonitorCheckinDelivery = ({
   const runningConversation = MessageText.conversationMention(
     MessageText.conversationRef(client, workspaceId, runningConversationId),
   );
-  const content = Predicate.isString(monitorUserId)
+  const content = Predicate.isString(monitorUserId) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? checkinIsRequired
       ? MessageText.parts(
           MessageText.userMention(monitorUserId),

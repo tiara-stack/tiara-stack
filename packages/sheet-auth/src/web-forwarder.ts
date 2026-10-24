@@ -20,7 +20,7 @@ export const createForwarder =
           Effect.succeed(
             HttpServerResponse.empty({
               status:
-                error._tag === "RequestParseError"
+                error._tag === "RequestParseError" // oxlint-disable-line no-nested-ternary -- inherited master site
                   ? 400
                   : error._tag === "RouteNotFound"
                     ? 404

@@ -8,7 +8,7 @@
   "scripts": {
     "format": "vp fmt --check",
     "format:apply": "vp fmt",
-    "lint": "pnpm docs:generate && vp lint src",
+    "lint": "pnpm docs:generate && pnpm --workspace-root exec vp lint packages/sheet-web/src",
     "test": "vp test run",
     "test:watch": "vp test",
     "dev": "vp dev --port 3001",

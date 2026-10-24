@@ -103,15 +103,17 @@ describe("Zero server HTTP helpers", () => {
 
   it("removes undefined object fields and normalizes undefined array entries to null", () => {
     expect(
-      removeUndefinedFields({
-        keep: "value",
-        drop: undefined,
-        nested: {
-          keep: 1,
+      removeUndefinedFields(
+        {
+          keep: "value",
           drop: undefined,
-        },
-        array: ["value", undefined, { keep: true, drop: undefined }],
-      } as any),
+          nested: {
+            keep: 1,
+            drop: undefined,
+          },
+          array: ["value", undefined, { keep: true, drop: undefined }],
+        } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+      ),
     ).toEqual({
       keep: "value",
       nested: {

@@ -73,7 +73,11 @@ export const makeWorkflowHttpRouteHandlers = <
       Schema.decodeUnknownEffect(WorkflowEnqueueRequest(contract))(request).pipe(
         Effect.mapError(() => new WorkflowInputRejected({ message: "Workflow input is invalid" })),
         Effect.flatMap((decoded) =>
-          executor.enqueue(contract, context, decoded as WorkflowEnqueueRequest<Contract>),
+          executor.enqueue(
+            contract,
+            context,
+            decoded /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WorkflowEnqueueRequest<Contract> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ),
         ),
       ),
     get: (context: Context, invocationId: unknown) =>

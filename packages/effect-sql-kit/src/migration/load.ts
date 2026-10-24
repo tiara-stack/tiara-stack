@@ -26,7 +26,12 @@ export const fromDirectory = (directory: string): Loader =>
             if (!Effect.isEffect(mod.default)) {
               throw new Error(`effect-sql-kit: migration ${file} must default export an Effect`);
             }
-            return mod.default as Effect.Effect<unknown, unknown, SqlClient.SqlClient>;
+
+            return mod.default /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
+              unknown,
+              unknown,
+              SqlClient.SqlClient
+            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
           }),
         ],
       ];

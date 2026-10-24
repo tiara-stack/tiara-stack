@@ -69,7 +69,11 @@ export const getConfigFromFileEffect = ({
     const namedExport = imported?.schema;
     const cjsNamedExport =
       typeof defaultExport === "object" && defaultExport !== null && "schema" in defaultExport
-        ? (defaultExport as { readonly schema?: unknown }).schema
+        ? (
+            defaultExport /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+              readonly schema?: unknown;
+            }
+          ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.schema
         : undefined;
     const exportName =
       Schema.decodeUnknownOption(EffectZeroSchemaExportSchema)(defaultExport)._tag === "Some"

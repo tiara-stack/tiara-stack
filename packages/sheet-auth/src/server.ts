@@ -131,7 +131,7 @@ function isOriginAllowed(origin: string, allowedOrigins: string[]): boolean {
       // [^./]* ensures * matches only valid hostname chars (no dots or slashes)
       const withPlaceholder = allowed.replace(/\*/g, "\x00");
       const escaped = withPlaceholder.replace(/[.+^${}()|[\]\\]/g, "\\$&");
-      // eslint-disable-next-line no-control-regex
+      // oxlint-disable-next-line no-control-regex -- NUL placeholder separates wildcard tokens before constructing the origin matcher
       const regex = new RegExp("^" + escaped.replace(/\x00/g, "[^./]*") + "$");
       return regex.test(origin);
     }
@@ -180,10 +180,14 @@ const wellKnownLayer = Layer.effectDiscard(
     // These helpers expect auth.api to have getOAuthServerConfig/getOpenIdConfig
     // but those are SERVER_ONLY endpoints not actually on the api. We cast to satisfy types.
     const oauthAuthServerHandler = oauthProviderAuthServerMetadata(
-      auth as AuthWithCleanup & { api: { getOAuthServerConfig: (...args: unknown[]) => unknown } },
+      auth /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as AuthWithCleanup & {
+        api: { getOAuthServerConfig: (...args: unknown[]) => unknown };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     );
     const openIdConfigHandler = oauthProviderOpenIdConfigMetadata(
-      auth as AuthWithCleanup & { api: { getOpenIdConfig: (...args: unknown[]) => unknown } },
+      auth /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as AuthWithCleanup & {
+        api: { getOpenIdConfig: (...args: unknown[]) => unknown };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     );
 
     const forwardOAuthAuthServer = createForwarder(oauthAuthServerHandler);
