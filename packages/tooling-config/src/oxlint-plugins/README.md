@@ -36,7 +36,10 @@ local function or import from another module does not grant the timeout. A
 clock advance that cannot reach either the sleep deadline or that timeout does
 not exempt the sleep; only guaranteed, reachable advances count.
 
-The native rule remains error-level in root, shared package, and staged configs.
+Enforcement in the root and staged Vite+ routes starts only when the root Vite+
+configuration imports and applies `lintPolicy`; the foundation and migration
+layers defer this step. After activation, the native rule remains error-level
+in root, shared package, and staged configs.
 The baseline corpus includes the full staged-reachable roots (`packages/**/*`,
 `deploy/**/*`, `.github/**/*`, and the root `vite.config.ts`), not only package
 `src/` paths. The deploy parity-gate site is inherited at its exact AST location.
