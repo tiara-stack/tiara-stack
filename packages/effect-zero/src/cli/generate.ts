@@ -160,7 +160,8 @@ const validateOutputPathEffect = (outputPath: string): Effect.Effect<string, Err
   });
 
 const formatGeneratedFileEffectWithStatus = (
-  outputPath: string,
+  formatPath: string,
+  displayPath: string,
   originalContent?: string,
 ): Effect.Effect<
   FormatterAttempt,
@@ -174,29 +175,29 @@ const formatGeneratedFileEffectWithStatus = (
     const cwd = process.cwd();
     const original =
       originalContent === undefined
-        ? yield* Effect.result(fs.readFileString(outputPath))
+        ? yield* Effect.result(fs.readFileString(formatPath))
         : Result.succeed(originalContent);
     const recoveryContent = formatterRecoveryContent(originalContent, original);
 
     const first = yield* runFormatterAttempt(
       fs,
-      outputPath,
+      formatPath,
       "pnpm",
-      ["exec", "vp", "fmt", outputPath],
+      ["exec", "vp", "fmt", formatPath],
       cwd,
       recoveryContent,
     );
     if (first.succeeded) return first;
     const second = yield* runFormatterAttempt(
       fs,
-      outputPath,
+      formatPath,
       "vp",
-      ["fmt", outputPath],
+      ["fmt", formatPath],
       cwd,
       recoveryContent,
     );
     if (second.succeeded) return second;
-    yield* warnFormatterUnavailable(outputPath, debugFormat, first.failure, second.failure);
+    yield* warnFormatterUnavailable(displayPath, debugFormat, first.failure, second.failure);
     return second;
   });
 
@@ -236,7 +237,11 @@ export const formatGeneratedFileEffect = (
       Effect.gen(function* () {
         const tempPath = yield* fs.makeTempFileScoped(stagedFilePath(path, outputTargetPath));
         yield* fs.writeFileString(tempPath, original.success);
-        const formatted = yield* formatGeneratedFileEffectWithStatus(tempPath, original.success);
+        const formatted = yield* formatGeneratedFileEffectWithStatus(
+          tempPath,
+          resolvedOutputPath,
+          original.success,
+        );
         if (!formatted.succeeded) return;
         yield* fs.chmod(tempPath, outputMode);
         yield* assertGeneratedOutputPathResolvesTo(
@@ -421,11 +426,12 @@ const writeStagedGeneratedContent = (
   content: string,
   format: boolean | undefined,
   hasValidSignature: boolean,
+  displayPath: string,
 ) =>
   Effect.gen(function* () {
     yield* fs.writeFileString(tempPath, content);
     if (!format) return;
-    const formatted = yield* formatGeneratedFileEffectWithStatus(tempPath, content);
+    const formatted = yield* formatGeneratedFileEffectWithStatus(tempPath, displayPath, content);
     if (hasValidSignature)
       return yield* signStagedGeneratedContent(fs, tempPath, content, formatted);
     yield* restoreUnsignedStagedContent(fs, tempPath, content, formatted);
@@ -791,6 +797,7 @@ export const writeGeneratedFileEffect = ({
           plan.contentToFormat,
           format,
           plan.hasValidSignature,
+          requestedOutputPath,
         );
         yield* commitGeneratedOutput(
           fs,

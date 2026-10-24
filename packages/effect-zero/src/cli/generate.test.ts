@@ -14,6 +14,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Exit, FileSystem, Result, Sink, Stream } from "effect";
+import { TestConsole } from "effect/testing";
 import { PlatformError, SystemError } from "effect/PlatformError";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import {
@@ -67,6 +68,9 @@ const withTempDirectory = <A, E, R>(f: (dir: string) => Effect.Effect<A, E, R>) 
     f,
     (dir) => Effect.promise(() => rm(dir, { recursive: true, force: true })),
   );
+
+const isGeneratedTemporaryEntry = (entry: string) =>
+  entry.includes(".stage-") || entry.includes(".hardlink-probe-") || entry.includes(".recovery-");
 
 const installFormatterHarness = async (
   dir: string,
@@ -296,9 +300,7 @@ describe("cli generation", () => {
           }
           expect(yield* fs.exists(outputFilePath)).toBe(false);
           const remaining = yield* Effect.promise(() => readdir(dir));
-          expect(
-            remaining.filter((entry) => entry.includes(".tmp-") || entry.includes(".recovery-")),
-          ).toEqual([]);
+          expect(remaining.filter(isGeneratedTemporaryEntry)).toEqual([]);
         }),
       ).pipe(Effect.provide(NodeServices.layer)),
     15_000,
@@ -358,6 +360,8 @@ describe("cli generation", () => {
             expect(String(result.failure)).toContain("hard link");
           }
           expect(recoveryDirectories).toEqual([]);
+          const remaining = yield* Effect.promise(() => readdir(dir));
+          expect(remaining.filter(isGeneratedTemporaryEntry)).toEqual([]);
         }),
       ).pipe(Effect.provide(NodeServices.layer)),
     30_000,
@@ -432,7 +436,14 @@ describe("cli generation", () => {
             expect(result.failure).toHaveProperty("cause", alreadyExistsFailure);
           }
           const remaining = yield* Effect.promise(() => readdir(dir));
-          expect(remaining.filter((entry) => entry.includes(".recovery-"))).toEqual([]);
+          expect(
+            remaining.filter((entry) => entry.includes(".stage-") || entry.includes(".recovery-")),
+          ).toEqual([]);
+          const occupiedProbeDirectory =
+            probePath === undefined ? [] : [path.basename(path.dirname(probePath))];
+          expect(remaining.filter((entry) => entry.includes(".hardlink-probe-"))).toEqual(
+            occupiedProbeDirectory,
+          );
         }),
       ).pipe(Effect.provide(NodeServices.layer)),
     30_000,
@@ -486,9 +497,7 @@ describe("cli generation", () => {
           }
           expect(yield* fs.readFileString(outputFilePath)).toBe(competingContent);
           const remaining = yield* Effect.promise(() => readdir(dir));
-          expect(
-            remaining.filter((entry) => entry.includes(".tmp-") || entry.includes(".recovery-")),
-          ).toEqual([]);
+          expect(remaining.filter(isGeneratedTemporaryEntry)).toEqual([]);
         }),
       ).pipe(Effect.provide(NodeServices.layer)),
     15_000,
@@ -513,7 +522,7 @@ describe("cli generation", () => {
 
           expect(yield* fs.readFileString(outputFilePath)).toBe(generated);
           const remaining = yield* Effect.promise(() => readdir(dir));
-          expect(remaining.filter((entry) => entry.includes(".recovery-"))).toEqual([]);
+          expect(remaining.filter(isGeneratedTemporaryEntry)).toEqual([]);
         }),
       ).pipe(Effect.provide(NodeServices.layer)),
     15_000,
@@ -534,7 +543,24 @@ describe("cli generation", () => {
             ),
             ({ captureDirectory }) =>
               Effect.gen(function* () {
-                yield* formatGeneratedFileEffect(outputFilePath);
+                const warnings: Array<ReadonlyArray<unknown>> = [];
+                yield* TestConsole.testConsoleWith((testConsole) => {
+                  const originalWarn = testConsole.warn;
+                  testConsole.warn = (...args) => {
+                    warnings.push(args);
+                    originalWarn(...args);
+                  };
+                  return formatGeneratedFileEffect(outputFilePath).pipe(
+                    Effect.ensuring(
+                      Effect.sync(() => {
+                        testConsole.warn = originalWarn;
+                      }),
+                    ),
+                  );
+                });
+                const warningText = warnings.flat().map(String).join("\n");
+                expect(warningText).toContain(outputFilePath);
+                expect(warningText).not.toContain(".stage-");
                 const formatted = yield* fs.readFileString(outputFilePath);
                 expect(formatted).toBe(original);
                 const receipts = yield* Effect.promise(async () => {
@@ -549,12 +575,12 @@ describe("cli generation", () => {
                 });
                 expect(receipts.map(({ exitCode }) => exitCode)).toEqual([1, 1]);
                 const remaining = yield* Effect.promise(() => readdir(dir));
-                expect(remaining.filter((entry) => entry.includes(".stage-"))).toEqual([]);
+                expect(remaining.filter(isGeneratedTemporaryEntry)).toEqual([]);
               }),
             ({ restore }) => Effect.sync(restore),
           );
         }),
-      ).pipe(Effect.provide(NodeServices.layer)),
+      ).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer)),
     15_000,
   );
 
@@ -624,7 +650,7 @@ describe("cli generation", () => {
           expect(output).toBe(previous);
           expect(checkSignature(output)).toBe("valid");
           const remaining = yield* Effect.promise(() => readdir(dir));
-          expect(remaining.filter((entry) => entry.includes(".tmp-"))).toEqual([]);
+          expect(remaining.filter(isGeneratedTemporaryEntry)).toEqual([]);
         }),
       ).pipe(Effect.provide(NodeServices.layer)),
     15_000,
@@ -647,11 +673,28 @@ describe("cli generation", () => {
             ),
             ({ captureDirectory }) =>
               Effect.gen(function* () {
-                const writtenPath = yield* writeGeneratedFileEffect({
-                  content: generated,
-                  outputFilePath,
-                  format: true,
+                const warnings: Array<ReadonlyArray<unknown>> = [];
+                const writtenPath = yield* TestConsole.testConsoleWith((testConsole) => {
+                  const originalWarn = testConsole.warn;
+                  testConsole.warn = (...args) => {
+                    warnings.push(args);
+                    originalWarn(...args);
+                  };
+                  return writeGeneratedFileEffect({
+                    content: generated,
+                    outputFilePath,
+                    format: true,
+                  }).pipe(
+                    Effect.ensuring(
+                      Effect.sync(() => {
+                        testConsole.warn = originalWarn;
+                      }),
+                    ),
+                  );
                 });
+                const warningText = warnings.flat().map(String).join("\n");
+                expect(warningText).toContain(outputFilePath);
+                expect(warningText).not.toContain(".stage-");
                 expect(writtenPath).toBe(outputFilePath);
                 const output = yield* fs.readFileString(outputFilePath);
                 expect(output).toBe(generated);
@@ -674,12 +717,12 @@ describe("cli generation", () => {
                   ),
                 ).toBe(true);
                 const remaining = yield* Effect.promise(() => readdir(dir));
-                expect(remaining.filter((entry) => entry.includes(".stage-"))).toEqual([]);
+                expect(remaining.filter(isGeneratedTemporaryEntry)).toEqual([]);
               }),
             ({ restore }) => Effect.sync(restore),
           );
         }),
-      ).pipe(Effect.provide(NodeServices.layer)),
+      ).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer)),
     15_000,
   );
 
@@ -732,7 +775,7 @@ describe("cli generation", () => {
                 );
                 expect(exitCodesByCommand).toEqual({ pnpm: 1, vp: 0 });
                 const remaining = yield* Effect.promise(() => readdir(dir));
-                expect(remaining.filter((entry) => entry.includes(".stage-"))).toEqual([]);
+                expect(remaining.filter(isGeneratedTemporaryEntry)).toEqual([]);
               }),
             ({ restore }) => Effect.sync(restore),
           );
