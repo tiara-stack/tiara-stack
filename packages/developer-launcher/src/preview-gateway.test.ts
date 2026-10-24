@@ -896,15 +896,18 @@ it.effect(
           Effect.provideService(
             HttpServerRequest.HttpServerRequest,
             HttpServerRequest.fromWeb(
-              new Request(`${origin}sync/v50/connect`, {
-                headers: {
-                  ...f.carol,
-                  host: f.routeC.hostname,
-                  origin: `https://${f.routeC.hostname}`,
-                  cookie: "shared-token=must-not-forward",
-                  accept: "application/json",
+              new Request(
+                `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ origin /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}sync/v50/connect`,
+                {
+                  headers: {
+                    ...f.carol,
+                    host: f.routeC.hostname,
+                    origin: `https://${f.routeC.hostname}`,
+                    cookie: "shared-token=must-not-forward",
+                    accept: "application/json",
+                  },
                 },
-              }),
+              ),
             ),
           ),
         );
@@ -930,16 +933,19 @@ it.effect(
           Effect.provideService(
             HttpServerRequest.HttpServerRequest,
             HttpServerRequest.fromWeb(
-              new Request(`${origin}sync/v50/connect`, {
-                headers: {
-                  ...f.carol,
-                  host: f.routeC.hostname,
-                  origin: "https://external.example",
-                  "sec-fetch-site": "cross-site",
-                  "sec-fetch-mode": "navigate",
-                  "sec-fetch-dest": "document",
+              new Request(
+                `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ origin /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}sync/v50/connect`,
+                {
+                  headers: {
+                    ...f.carol,
+                    host: f.routeC.hostname,
+                    origin: "https://external.example",
+                    "sec-fetch-site": "cross-site",
+                    "sec-fetch-mode": "navigate",
+                    "sec-fetch-dest": "document",
+                  },
                 },
-              }),
+              ),
             ),
           ),
         );
@@ -954,13 +960,16 @@ it.effect(
           Effect.provideService(
             HttpServerRequest.HttpServerRequest,
             HttpServerRequest.fromWeb(
-              new Request(`${workflowOrigin}workflows/unknown`, {
-                headers: {
-                  ...f.carol,
-                  host: f.routeC.hostname,
-                  origin: `https://${f.routeC.hostname}`,
+              new Request(
+                `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ workflowOrigin /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}workflows/unknown`,
+                {
+                  headers: {
+                    ...f.carol,
+                    host: f.routeC.hostname,
+                    origin: `https://${f.routeC.hostname}`,
+                  },
                 },
-              }),
+              ),
             ),
           ),
         );

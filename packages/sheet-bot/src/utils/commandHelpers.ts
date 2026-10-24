@@ -79,7 +79,13 @@ export const optionalPayloadField = <const Key extends string, Value>(
   pipe(
     value,
     Option.match({
-      onSome: (resolved) => ({ [key]: resolved }) as Record<Key, Value>,
+      onSome: (resolved) =>
+        ({
+          [key]: resolved,
+        }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+          Key,
+          Value
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       onNone: () => ({}),
     }),
   );

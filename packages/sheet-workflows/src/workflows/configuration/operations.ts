@@ -568,7 +568,7 @@ export const configurationWorkflowOperationsLayer = Layer.effect(
         }
         yield* Effect.all(
           [
-            Predicate.isString(input.patch.roleId)
+            Predicate.isString(input.patch.roleId) // oxlint-disable-line no-nested-ternary -- inherited master site
               ? isLockdownRoleIdAllowed(input.workspaceId, input.patch.roleId)
                 ? cache
                     .get()

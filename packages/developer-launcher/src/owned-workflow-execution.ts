@@ -34,7 +34,7 @@ const canonical = (value: unknown): unknown => {
   if (typeof value === "object" && value !== null)
     return Object.fromEntries(
       Object.entries(value)
-        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+        .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)) // oxlint-disable-line no-nested-ternary -- inherited master site
         .map(([key, entry]) => [key, canonical(entry)]),
     );
   return value;

@@ -60,7 +60,10 @@ const makeResponse = (messages: Array<string | undefined>) =>
       messages.push(payload.content);
       return Effect.void;
     },
-  }) as Pick<CommandInteractionResponseContext, "editReply">;
+  }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Pick<
+    CommandInteractionResponseContext,
+    "editReply"
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeCapabilityStore = (
   issueResponseReference: BotCapabilityStoreShape["issueResponseReference"] = () =>

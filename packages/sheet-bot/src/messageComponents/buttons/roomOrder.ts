@@ -45,7 +45,15 @@ const getInteractionGuildId = Effect.gen(function* () {
   const interactionGuild = yield* Interaction.guild();
   return pipe(
     interactionGuild,
-    Option.map((guild) => (guild as { id: string }).id),
+
+    Option.map(
+      (guild) =>
+        (
+          guild /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+            id: string;
+          }
+        ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.id,
+    ),
   );
 });
 
@@ -53,7 +61,15 @@ const getInteractionMessage = Effect.gen(function* () {
   const interactionMessage = yield* Interaction.message();
   return pipe(
     interactionMessage,
-    Option.map((message) => message as { id: string; channel_id: string; content?: string }),
+
+    Option.map(
+      (message) =>
+        message /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+          id: string;
+          channel_id: string;
+          content?: string;
+        } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+    ),
   );
 });
 
@@ -233,22 +249,38 @@ const makeTentativeRoomOrderPinButtonHandler = Effect.gen(function* () {
 
 const makeRoomOrderPreviousButton = Effect.gen(function* () {
   const button = yield* makeRoomOrderPreviousButtonHandler;
-  return makeMessageComponent(button.data, button.handler as never);
+
+  return makeMessageComponent(
+    button.data,
+    button.handler /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 });
 
 const makeRoomOrderNextButton = Effect.gen(function* () {
   const button = yield* makeRoomOrderNextButtonHandler;
-  return makeMessageComponent(button.data, button.handler as never);
+
+  return makeMessageComponent(
+    button.data,
+    button.handler /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 });
 
 const makeRoomOrderSendButton = Effect.gen(function* () {
   const button = yield* makeRoomOrderSendButtonHandler;
-  return makeMessageComponent(button.data, button.handler as never);
+
+  return makeMessageComponent(
+    button.data,
+    button.handler /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 });
 
 const makeTentativeRoomOrderPinButton = Effect.gen(function* () {
   const button = yield* makeTentativeRoomOrderPinButtonHandler;
-  return makeMessageComponent(button.data, button.handler as never);
+
+  return makeMessageComponent(
+    button.data,
+    button.handler /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 });
 
 export const roomOrderButtonLayer = Layer.effectDiscard(

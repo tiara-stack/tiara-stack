@@ -107,9 +107,15 @@ export const discordInteractionMessageToRef = (
 const renderFiles = (message: BotOutboundMessage) =>
   message.files?.map(
     (file) =>
-      new File([file.content as BlobPart], file.name, {
-        type: file.contentType,
-      }),
+      new File(
+        [
+          file.content /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BlobPart /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ],
+        file.name,
+        {
+          type: file.contentType,
+        },
+      ),
   ) ?? [];
 
 const deliveryFileEvidence = (files: ReadonlyArray<BotOutboundFile>) =>

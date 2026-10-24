@@ -30,7 +30,10 @@ const optionalDecodedField = <const Key extends string, Value>(
   Option.match(value, {
     onSome: (optionValue) => Effect.map(decode(optionValue), (decoded) => ({ [key]: decoded })),
     onNone: () => Effect.succeed({}),
-  }) as Effect.Effect<Partial<Record<Key, Value>>, Error>;
+  }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
+    Partial<Record<Key, Value>>,
+    Error
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const optionalNullUnsetField = <const Key extends string>(
   key: Key,

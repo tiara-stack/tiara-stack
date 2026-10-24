@@ -101,7 +101,12 @@ const decodeSavedMessageModalId = (value: string): Option.Option<SavedMessageMod
     messageSetGeneration,
     expectedVersion,
   ] = value.split(":");
-  if (`${namespace}:${kind}:` !== savedMessageModalPrefix) return Option.none();
+
+  if (
+    `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ namespace /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}:${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ kind /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}:` !==
+    savedMessageModalPrefix
+  )
+    return Option.none();
   return Schema.decodeUnknownOption(SavedMessageModalState)({
     workspaceId,
     conversationId,

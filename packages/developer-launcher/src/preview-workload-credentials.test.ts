@@ -473,6 +473,7 @@ describe("preview workload credentials", () => {
     Effect.gen(function* () {
       const clients: OAuthClientDetails[] = [];
       const calls: string[] = [];
+
       const client = {
         oauth2: {
           getClients: async () => ({ data: [...clients] }),
@@ -496,7 +497,7 @@ describe("preview workload credentials", () => {
             return { data: null };
           },
         },
-      } as unknown as SheetAuthClient;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetAuthClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const headers = { Authorization: "Bearer operator-auth-client-token" };
       const provisioner = yield* PreviewOAuthClientProvisioner.pipe(
         Effect.provide(SheetAuthOAuthClientProvisionerLive(client, headers)),
@@ -662,7 +663,9 @@ describe("preview workload credentials", () => {
         Layer.succeed(KubernetesServiceAccountClient, {
           ensureOwned: () => Effect.succeed({ uid: "new-service-account-uid", created: true }),
           deleteOwned: (_input, expectedUid?: string) => {
-            events.push(`delete-service-account:${expectedUid}`);
+            events.push(
+              `delete-service-account:${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ expectedUid /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
+            );
             return Effect.fail(
               new KubernetesServiceAccountClientError({ reason: "cleanup failed" }),
             );
@@ -703,7 +706,9 @@ describe("preview workload credentials", () => {
         Layer.succeed(KubernetesServiceAccountClient, {
           ensureOwned: () => Effect.succeed({ uid: "new-service-account-uid", created: true }),
           deleteOwned: (_input, expectedUid?: string) => {
-            events.push(`delete-service-account:${expectedUid}`);
+            events.push(
+              `delete-service-account:${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ expectedUid /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
+            );
             return Effect.void;
           },
         }),

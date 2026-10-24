@@ -175,9 +175,12 @@ describe("developer launcher Effect CLI", () => {
       const output = (yield* TestConsole.logLines).at(-1);
       expect(output).toBeDefined();
       if (typeof output !== "string") throw new Error("expected the CLI to log a JSON string");
-      const decoded = JSON.parse(output) as {
+
+      const decoded = JSON.parse(
+        output,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
         readonly previewSession: { readonly id: string };
-      };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       expect(decoded.previewSession.id).toBe(created.session.id);
     }).pipe(
       Effect.provide(TestConsole.layer),
@@ -219,7 +222,16 @@ describe("developer launcher Effect CLI", () => {
     const executed = await executeComposePlan(result, true, {
       jsonStream: true,
       executor: async () => ({ exitCode: 0 }),
-      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+
+      writeStdout: (value) =>
+        lines.push(
+          JSON.parse(
+            value,
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+            string,
+            unknown
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ),
       writeStderr: () => undefined,
     });
 
@@ -301,7 +313,16 @@ describe("developer launcher Effect CLI", () => {
             resolveExit({ exitCode: 0 });
           }
         },
-        writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+
+        writeStdout: (value) =>
+          lines.push(
+            JSON.parse(
+              value,
+            ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+              string,
+              unknown
+            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ),
         writeStderr: () => undefined,
       });
 
@@ -330,7 +351,16 @@ describe("developer launcher Effect CLI", () => {
     const executed = await executeKubernetesPlan(result, true, {
       jsonStream: true,
       executor: async () => ({ exitCode: 0 }),
-      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+
+      writeStdout: (value) =>
+        lines.push(
+          JSON.parse(
+            value,
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+            string,
+            unknown
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ),
       writeStderr: () => undefined,
     });
 
@@ -365,7 +395,16 @@ describe("developer launcher Effect CLI", () => {
         }
         return { exitCode: 0 };
       },
-      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+
+      writeStdout: (value) =>
+        lines.push(
+          JSON.parse(
+            value,
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+            string,
+            unknown
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ),
       writeStderr: () => undefined,
     });
 
@@ -403,7 +442,16 @@ describe("developer launcher Effect CLI", () => {
           stop.resolve("SIGINT");
         }
       },
-      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+
+      writeStdout: (value) =>
+        lines.push(
+          JSON.parse(
+            value,
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+            string,
+            unknown
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ),
       writeStderr: () => undefined,
     });
 
@@ -480,7 +528,16 @@ describe("developer launcher Effect CLI", () => {
           resolveExit({ exitCode: 17, stderr: "late child failure" });
         }
       },
-      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+
+      writeStdout: (value) =>
+        lines.push(
+          JSON.parse(
+            value,
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+            string,
+            unknown
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ),
       writeStderr: (value) => stderr.push(value),
     });
 
@@ -521,7 +578,16 @@ describe("developer launcher Effect CLI", () => {
       accessChecker: async () => ({ reachable: true, status: 204 }),
       readinessChecker: async () => ({ reachable: true, status: 204 }),
       processStarter: async () => runningProcess(Promise.resolve({ exitCode: 0 })),
-      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+
+      writeStdout: (value) =>
+        lines.push(
+          JSON.parse(
+            value,
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+            string,
+            unknown
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ),
       writeStderr: () => undefined,
     });
 
@@ -550,7 +616,16 @@ describe("developer launcher Effect CLI", () => {
       processStarter: async () => {
         throw new Error(`process start failed: ${secret}`);
       },
-      writeStdout: (value) => lines.push(JSON.parse(value) as Record<string, unknown>),
+
+      writeStdout: (value) =>
+        lines.push(
+          JSON.parse(
+            value,
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+            string,
+            unknown
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ),
       writeStderr: () => undefined,
     });
 
@@ -586,7 +661,12 @@ describe("developer launcher Effect CLI", () => {
       accessChecker: async () => ({ reachable: true, status: 204 }),
       processStarter: async () => runningProcess(Promise.resolve({ exitCode: 0 })),
       writeStdout: (value) => {
-        const event = JSON.parse(value) as Record<string, unknown>;
+        const event = JSON.parse(
+          value,
+        ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+          string,
+          unknown
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
         attempts.push(event);
         if (failNextWrite && event.type === "prerequisite") {
           failNextWrite = false;
@@ -636,7 +716,12 @@ describe("developer launcher Effect CLI", () => {
         }
       },
       writeStdout: (value) => {
-        const event = JSON.parse(value) as Record<string, unknown>;
+        const event = JSON.parse(
+          value,
+        ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+          string,
+          unknown
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
         if (event.type === "readiness" && event.status === "ready") readinessWritten = true;
         if (event.type === "terminal" && readinessWritten && failTerminalWrite) {
           failTerminalWrite = false;

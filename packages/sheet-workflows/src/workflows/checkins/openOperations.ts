@@ -326,7 +326,7 @@ export const checkinsOpenWorkflowOperationsLayer = Layer.effect(
         const monitorFailureMessage = generated.monitorFailureMessage;
 
         const summary =
-          execution.principal.kind === "user"
+          execution.principal.kind === "user" // oxlint-disable-line no-nested-ternary -- inherited master site
             ? {
                 primaryConversationId: generated.runningConversationId,
                 primaryMessage: yield* decodeMessage(

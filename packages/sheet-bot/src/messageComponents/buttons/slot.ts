@@ -30,7 +30,15 @@ const getInteractionMessageId = Effect.gen(function* () {
   const interactionMessage = yield* Interaction.message();
   return pipe(
     interactionMessage,
-    Option.map((message) => (message as { id: string }).id),
+
+    Option.map(
+      (message) =>
+        (
+          message /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+            id: string;
+          }
+        ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.id,
+    ),
   );
 });
 
@@ -78,7 +86,10 @@ const makeSlotButtonHandler = Effect.gen(function* () {
 const makeSlotButton = Effect.gen(function* () {
   const button = yield* makeSlotButtonHandler;
 
-  return makeMessageComponent(button.data, button.handler as never);
+  return makeMessageComponent(
+    button.data,
+    button.handler /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 });
 
 export const slotButtonLayer = Layer.effectDiscard(

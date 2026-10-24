@@ -367,7 +367,7 @@ export const SheetWorkflowHttpRequestContext = Object.assign(sheetWorkflowHttpRe
         }),
       );
     }),
-}) as typeof sheetWorkflowHttpRequestContextTag & {
+}) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof sheetWorkflowHttpRequestContextTag & {
   readonly asDiscordUser: <Args extends any[], A, E, R>(
     discordUserId: string,
     fn: (...args: Args) => Effect.Effect<A, E, R>,
@@ -387,7 +387,7 @@ export const SheetWorkflowHttpRequestContext = Object.assign(sheetWorkflowHttpRe
     E | InvalidDiscordUser,
     DiscordInteraction | Exclude<R, typeof sheetWorkflowHttpRequestContextTag>
   >;
-};
+} /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const readKubernetesServiceAccountToken = (path: string) =>
   Effect.tryPromise({
@@ -548,7 +548,7 @@ const makeProtectedEnqueue = <Enqueue extends RawWorkflowEnqueue>(
               }),
             );
       }),
-    ) as ReturnType<Enqueue>;
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReturnType<Enqueue> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }) as ProtectedWorkflowEnqueue<Enqueue>;
   return protectedEnqueue;
 };

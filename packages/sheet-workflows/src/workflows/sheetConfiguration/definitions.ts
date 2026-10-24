@@ -77,7 +77,10 @@ const makeDefinition = <Contract extends AnyWorkflowContract>(
       Effect.gen(function* () {
         const operations = yield* SheetConfigurationWorkflowOperations;
         const input = yield* decodeWorkflowContractInputOrDie(contract, execution.input);
-        const attribution = attributionFor(execution as LifecycleExecution<Contract>);
+
+        const attribution = attributionFor(
+          execution /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as LifecycleExecution<Contract> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        );
         const workspaceId = workspaceIdForAudit(input);
         const auditFailure = (error: unknown) =>
           workspaceId === undefined

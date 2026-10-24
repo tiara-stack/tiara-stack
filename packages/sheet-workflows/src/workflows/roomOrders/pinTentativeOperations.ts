@@ -334,7 +334,7 @@ export const roomOrderTentativePinOperationsLayer = Layer.effect(
               Effect.catch(
                 (error): ReturnType<typeof RoomOrderTentativePinOperations.Service.pin> =>
                   // fallow-ignore-next-line code-duplication
-                  Predicate.isTagged("BotUnauthenticated")(error) ||
+                  Predicate.isTagged("BotUnauthenticated")(error) || // oxlint-disable-line no-nested-ternary -- inherited master site
                   Predicate.isTagged("BotAdmissionDenied")(error)
                     ? Effect.fail(interactiveAuthorizationRevoked(policy))
                     : Predicate.isTagged("BotResourceNotFound")(error) ||

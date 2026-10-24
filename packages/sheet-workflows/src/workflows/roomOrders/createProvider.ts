@@ -178,7 +178,9 @@ const readScheduleGridRows = (options: {
       });
       return rows.some(Predicate.isUndefined)
         ? Effect.fail(makeError(new Error("The schedule formatting response was incomplete")))
-        : Effect.succeed(rows as ReadonlyArray<GridRows>);
+        : Effect.succeed(
+            rows /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReadonlyArray<GridRows> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          );
     }),
   );
 };
@@ -235,7 +237,7 @@ const isFormattedEnc = (
   cell: typeof GridCell.Type | undefined,
 ): boolean => {
   const format = Predicate.isUndefined(cell) ? undefined : formatAt(cell);
-  return encoding === "bold"
+  return encoding === "bold" // oxlint-disable-line no-nested-ternary -- inherited master site
     ? (format?.bold ?? false)
     : encoding === "underline"
       ? (format?.underline ?? false)

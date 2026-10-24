@@ -48,7 +48,7 @@ const autocompleteWorkspaceId = Effect.gen(function* () {
   const interaction = yield* Ix.Interaction;
   const serverId = Option.flatMap(
     IxHelpers.optionValue("server_id")(
-      data as Discord.APIChatInputApplicationCommandInteractionData,
+      data /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Discord.APIChatInputApplicationCommandInteractionData /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     ),
     (value) => (Predicate.isString(value) ? Option.some(value) : Option.none()),
   );

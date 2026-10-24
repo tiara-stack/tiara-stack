@@ -89,7 +89,11 @@ export class DBService extends Context.Service<DBService>()("DBService", {
       catch: (error) => new Cause.UnknownError(error),
     });
     const zql = yield* Effect.try({
-      try: () => zeroDrizzle(zeroSchema, db as unknown as DrizzleDatabase),
+      try: () =>
+        zeroDrizzle(
+          zeroSchema,
+          db as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as DrizzleDatabase /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ),
       catch: (error) => new Cause.UnknownError(error),
     });
     yield* Effect.addFinalizer(() =>

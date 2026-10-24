@@ -8,15 +8,13 @@ export type CheckinParticipant = {
 };
 
 const renderStaticTemplateSegment = (value: string): ReadonlyArray<BotTextPart> =>
-  value
-    .split("~~")
-    .flatMap((segment, index) =>
-      segment.length === 0
-        ? []
-        : index % 2 === 0
-          ? [MessageText.text(segment)]
-          : [{ type: "strikethrough" as const, parts: [MessageText.text(segment)] }],
-    );
+  value.split("~~").flatMap((segment, index) =>
+    segment.length === 0 // oxlint-disable-line no-nested-ternary -- inherited master site
+      ? []
+      : index % 2 === 0
+        ? [MessageText.text(segment)]
+        : [{ type: "strikethrough" as const, parts: [MessageText.text(segment)] }],
+  );
 
 export const renderTemplate = (
   template: string,
@@ -79,9 +77,9 @@ export const monitorFailureMessage = (
       }
     | undefined,
 ): ReadonlyArray<BotTextPart> | null =>
-  Predicate.isUndefined(current)
+  Predicate.isUndefined(current) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? null
-    : Predicate.isNull(current.monitor)
+    : Predicate.isNull(current.monitor) // oxlint-disable-line no-nested-ternary -- inherited master site
       ? [MessageText.text("Cannot ping monitor: monitor not assigned for this hour.")]
       : Predicate.isNull(current.monitor.accountId)
         ? [

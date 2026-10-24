@@ -89,7 +89,7 @@ const makeBot = (
 ): SheetBotHttpClient =>
   ({
     delivery: { respond },
-  }) as unknown as SheetBotHttpClient;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 describe("preferences write-and-delivery Workflow Definition slice", () => {
   it("registers exactly the two pinned definitions", () => {

@@ -756,10 +756,13 @@ it.live("lets a separate launcher stop the owner-recorded web process", () =>
       const supervisorRecordContents = yield* Effect.promise(() =>
         readFile(path.join(directory, "11111111-1111-4111-8111-111111111111.json"), "utf8"),
       );
-      const supervisorRecord = JSON.parse(supervisorRecordContents) as {
+
+      const supervisorRecord = JSON.parse(
+        supervisorRecordContents,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
         readonly controlToken: string;
         readonly endpoint: string;
-      };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       expect(supervisorRecord.controlToken).not.toBe(revisionToken);
       const revisionTokenStatus = yield* Effect.promise(() =>
         fetch(`${supervisorRecord.endpoint}/status`, {
@@ -946,13 +949,16 @@ it.live("reclaims a recorded detached process group when its supervisor is unava
         onSourceRevision: () => Effect.void,
       });
       const recordPath = path.join(directory, `${sessionId}.json`);
-      const record = JSON.parse(yield* Effect.promise(() => readFile(recordPath, "utf8"))) as {
+
+      const record = JSON.parse(
+        yield* Effect.promise(() => readFile(recordPath, "utf8")),
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
         readonly controlToken: string;
         readonly processGroupId: number;
         readonly processId: number;
         readonly processStartedAt: number;
         readonly sessionId: string;
-      };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       expect(record.processGroupId).toBe(processGroupId);
       yield* Effect.promise(() =>
         writeFile(recordPath, JSON.stringify({ ...record, endpoint: "http://127.0.0.1:1" }), {

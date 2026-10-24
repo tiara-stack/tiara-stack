@@ -321,7 +321,7 @@ export const makeRoomOrdersNavigateWorkflowBody = <
         ? yield* Effect.exit(actions.edit(committedExecution))
         : undefined;
     const canonicalProjectionConfirmed =
-      committed.status === "denied"
+      committed.status === "denied" // oxlint-disable-line no-nested-ternary -- inherited master site
         ? true
         : committed.context.tentative
           ? Predicate.isNotUndefined(editExit) && Exit.isSuccess(editExit)

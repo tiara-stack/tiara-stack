@@ -111,7 +111,10 @@ const makeBot = (
       readonly message: unknown;
     };
   }) => Effect.Effect<unknown, unknown>,
-): SheetBotHttpClient => ({ delivery: { respond } }) as unknown as SheetBotHttpClient;
+): SheetBotHttpClient =>
+  ({
+    delivery: { respond },
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const basePersistence = () => makeTrustedSheetPersistenceMock();
 
@@ -863,6 +866,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
         ],
       ] as const;
       let request = 0;
+
       const client = {
         spreadsheets: {
           values: {
@@ -885,7 +889,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
             },
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const provider = makeSlotListProvider(client);
       expect(yield* provider.load("sheet-1", 2)).toEqual({
         eventStartEpochMs,
@@ -923,6 +927,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
     Effect.gen(function* () {
       const calls: Array<ReadonlyArray<string>> = [];
       let request = 0;
+
       const client = {
         spreadsheets: {
           get: () =>
@@ -974,7 +979,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
             },
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const provider = makeSlotListProvider(client);
       const reference = yield* provider.loadLegacyScheduleTimeReference!({
         spreadsheetId: "sheet-1",
@@ -990,6 +995,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
     Effect.gen(function* () {
       const valueCalls: Array<ReadonlyArray<string>> = [];
       let valueRequest = 0;
+
       const client = {
         spreadsheets: {
           get: () =>
@@ -1041,7 +1047,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
             },
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const provider = makeSlotListProvider(client);
       const reference = yield* provider.loadLegacyScheduleTimeReference!({
         spreadsheetId: "sheet-1",
@@ -1057,6 +1063,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
     Effect.gen(function* () {
       const valueCalls: Array<ReadonlyArray<string>> = [];
       let valueRequest = 0;
+
       const client = {
         spreadsheets: {
           get: () =>
@@ -1108,7 +1115,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
             },
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const provider = makeSlotListProvider(client);
       const reference = yield* provider.loadLegacyScheduleTimeReference!({
         spreadsheetId: "sheet-1",
@@ -1156,6 +1163,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
       ];
       const valueCalls: Array<ReadonlyArray<string>> = [];
       let valueRequest = 0;
+
       const client = {
         spreadsheets: {
           get: () =>
@@ -1191,7 +1199,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
             },
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const provider = makeSlotListProvider(client);
       const reference = yield* provider.loadLegacyScheduleTimeReference!({
         spreadsheetId: "sheet-1",
@@ -1239,6 +1247,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
       ];
       const valueCalls: Array<ReadonlyArray<string>> = [];
       let valueRequest = 0;
+
       const client = {
         spreadsheets: {
           get: () =>
@@ -1274,7 +1283,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
             },
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const provider = makeSlotListProvider(client);
       const reference = yield* provider.loadLegacyScheduleTimeReference!({
         spreadsheetId: "sheet-1",
@@ -1314,6 +1323,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
       ]);
       const calls: Array<ReadonlyArray<string>> = [];
       let request = 0;
+
       const client = {
         spreadsheets: {
           values: {
@@ -1341,7 +1351,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
             },
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(yield* makeSlotListProvider(client).load("sheet-1", 2)).toEqual({
         eventStartEpochMs,
@@ -1373,7 +1383,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
               }),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const failure = yield* Effect.flip(makeSlotListProvider(client).load("sheet-1", 2));
       expect(failure._tag).toBe("SlotListProviderError");
       expect(failure.operation).toBe("read-configuration");
@@ -1388,7 +1398,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
             batchGet: () => Promise.resolve({ data: { valueRanges: [{}, {}] } }),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const failure = yield* Effect.flip(makeSlotListProvider(client).load("sheet-1", 2));
       expect(failure.operation).toBe("read-configuration");
       expect(String(failure.cause)).toContain("Expected 3 value ranges, received 2");
@@ -1408,6 +1418,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
       yield* Effect.forEach(transientFailures, (transientFailure) =>
         Effect.gen(function* () {
           const calls: Array<ReadonlyArray<string>> = [];
+
           const client = {
             spreadsheets: {
               values: {
@@ -1427,7 +1438,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
                 },
               },
             },
-          } as unknown as sheets_v4.Sheets;
+          } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
           expect(yield* makeSlotListProvider(client).load("sheet-1", 2)).toEqual({
             eventStartEpochMs,
@@ -1450,32 +1461,36 @@ describe("slot-list delivery Workflow Definition slice", () => {
 
       let permanentAttempts = 0;
       const permanentFailure = yield* Effect.flip(
-        makeSlotListProvider({
-          spreadsheets: {
-            values: {
-              batchGet: () => {
-                permanentAttempts += 1;
-                return Promise.reject({ response: { status: 403 } });
+        makeSlotListProvider(
+          {
+            spreadsheets: {
+              values: {
+                batchGet: () => {
+                  permanentAttempts += 1;
+                  return Promise.reject({ response: { status: 403 } });
+                },
               },
             },
-          },
-        } as unknown as sheets_v4.Sheets).load("sheet-1", 2),
+          } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ).load("sheet-1", 2),
       );
       expect(permanentFailure.operation).toBe("read-configuration");
       expect(permanentAttempts).toBe(1);
 
       let exhaustedAttempts = 0;
       const exhaustedFailure = yield* Effect.flip(
-        makeSlotListProvider({
-          spreadsheets: {
-            values: {
-              batchGet: () => {
-                exhaustedAttempts += 1;
-                return Promise.reject({ response: { status: 503 } });
+        makeSlotListProvider(
+          {
+            spreadsheets: {
+              values: {
+                batchGet: () => {
+                  exhaustedAttempts += 1;
+                  return Promise.reject({ response: { status: 503 } });
+                },
               },
             },
-          },
-        } as unknown as sheets_v4.Sheets).load("sheet-1", 2),
+          } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ).load("sheet-1", 2),
       );
       expect(exhaustedFailure.operation).toBe("read-configuration");
       expect(exhaustedAttempts).toBe(3);
@@ -1540,7 +1555,7 @@ describe("slot-list delivery Workflow Definition slice", () => {
                   }),
               },
             },
-          } as unknown as sheets_v4.Sheets;
+          } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
           const failure = yield* Effect.flip(makeSlotListProvider(client).load("sheet-1", 2));
           expect(failure.operation).toBe("read-configuration");
           expect(String(failure.cause)).toContain(expected);

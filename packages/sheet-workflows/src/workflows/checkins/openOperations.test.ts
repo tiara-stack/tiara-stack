@@ -124,7 +124,7 @@ const makeDeliveryBot = (handlers: Record<string, unknown>): SheetBotHttpClient 
       get: (target, method: string) =>
         method in target ? target[method] : () => Effect.die(`Unexpected delivery call: ${method}`),
     }),
-  }) as unknown as SheetBotHttpClient;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeOperations = (
   persistence: TrustedSheetPersistenceShape,

@@ -212,7 +212,7 @@ const makeBot = (overrides: BotOverrides = {}): SheetBotHttpClient =>
       respond: overrides.respond ?? (() => Effect.die("unexpected response delivery")),
       sendMessage: overrides.sendMessage ?? (() => Effect.die("unexpected announcement delivery")),
     },
-  }) as unknown as SheetBotHttpClient;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const basePersistence = () => makeTrustedSheetPersistenceMock() as TrustedSheetPersistenceShape;
 

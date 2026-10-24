@@ -107,7 +107,9 @@ const requiredEntry = <A>(entry: A | undefined, label: string): A =>
 const definition = requiredEntry(
   SlotSheetWorkflowDefinitions.find(({ contract }) => contract.identity === SlotsOpen.identity),
   "SlotsOpen definition",
-) as ReturnType<typeof makeSlotsOpenDefinition>;
+) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReturnType<
+  typeof makeSlotsOpenDefinition
+> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 const registration = requiredEntry(
   SlotSheetWorkflowRegistrations.find(({ contract }) => contract.identity === SlotsOpen.identity),
   "SlotsOpen registration",
@@ -130,7 +132,7 @@ const makeAuthorizationBot = (
         }),
       listRoles: () => Effect.succeed([]),
     },
-  }) as unknown as SheetBotHttpClient;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeAuthorization = (options: {
   readonly row?: Option.Option<typeof slotRow>;
@@ -188,7 +190,10 @@ const makeDeliveryBot = (
       readonly message: unknown;
     };
   }) => Effect.Effect<unknown, unknown>,
-): SheetBotHttpClient => ({ delivery: { respond } }) as unknown as SheetBotHttpClient;
+): SheetBotHttpClient =>
+  ({
+    delivery: { respond },
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeOperations = (provider: SlotListProvider["Service"], bot: SheetBotHttpClient) => {
   const persistence = makeTrustedSheetPersistenceMock();

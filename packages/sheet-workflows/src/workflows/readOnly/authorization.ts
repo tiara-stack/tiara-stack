@@ -1111,7 +1111,8 @@ export const readOnlyWorkflowAuthorizationLayer = Layer.effect(
       principal,
       input,
     ) => {
-      const policy = contract.authorizationPolicy as SheetWorkflowAuthorizationPolicyMetadata;
+      const policy =
+        contract.authorizationPolicy /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetWorkflowAuthorizationPolicyMetadata /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const principalAllowed = policy.principalKinds.includes(principal.kind);
       if (!principalAllowed) return Effect.fail(unauthorized());
       if (contract.identity === SlotsOpen.identity) {

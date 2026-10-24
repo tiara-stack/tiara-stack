@@ -104,7 +104,8 @@ const composePrefix = (config: ComposeModeConfig) =>
 const fastPlan = (config: FastModeConfig, selectedServices: readonly string[]): ModePlan => ({
   selectedServices,
   plannedProcesses: selectedServices.map((service) => {
-    const fastService = service as FastService;
+    const fastService =
+      service /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FastService /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     if (fastService === "sheet-web") {
       return processPlan(
         fastService,
@@ -116,7 +117,7 @@ const fastPlan = (config: FastModeConfig, selectedServices: readonly string[]): 
       );
     }
     const entrypoint =
-      fastService === "sheet-auth"
+      fastService === "sheet-auth" // oxlint-disable-line no-nested-ternary -- inherited master site
         ? "src/server.ts"
         : fastService === "sheet-bot"
           ? "src/main.ts"
@@ -139,7 +140,8 @@ const fastPlan = (config: FastModeConfig, selectedServices: readonly string[]): 
       .filter((service) => service !== "sheet-web")
       .map((service) => ({
         name: service,
-        url: `http://localhost:${config.servicePorts[service as FastService]}`,
+
+        url: `http://localhost:${config.servicePorts[service /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FastService /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */]}`,
       })),
   ],
   parityGates: [],
@@ -350,14 +352,20 @@ export function buildModePlan(
     return fastPlan(config, selectedServices);
   }
   if (config.mode === "compose") {
-    return composePlan(config, action as ComposeAction, selectedServices, serviceSelectionExplicit);
+    return composePlan(
+      config,
+      action /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ComposeAction /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+      selectedServices,
+      serviceSelectionExplicit,
+    );
   }
   if (action === "preview" && (imageTag === null || imageTag.trim() === "")) {
     throw new Error("Kubernetes preview requires an image tag");
   }
   return kubernetesPlan(
     config,
-    action as KubernetesAction,
+
+    action /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as KubernetesAction /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     selectedServices,
     imageTag,
     changedSurfaces,

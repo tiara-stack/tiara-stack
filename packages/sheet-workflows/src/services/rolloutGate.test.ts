@@ -11,7 +11,9 @@ import { sheetWorkflowsRolloutGateEvaluations } from "../metrics";
 const failingSql = (): SqlClient.SqlClient =>
   Object.assign(
     ((..._args: unknown[]) =>
-      Effect.fail(new Error("evaluation storage failed"))) as unknown as SqlClient.SqlClient,
+      Effect.fail(
+        new Error("evaluation storage failed"),
+      )) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SqlClient.SqlClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     {
       withTransaction: <R, E, A>(effect: Effect.Effect<A, E, R>) => effect,
     },

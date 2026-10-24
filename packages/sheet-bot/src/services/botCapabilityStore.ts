@@ -880,7 +880,9 @@ export const makeBotCapabilityStore = Effect.gen(function* () {
             });
           }
           if (record.state === "completed")
-            return record.receipt as Effect.Success<typeof input.effect>;
+            return record.receipt /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Success<
+              typeof input.effect
+            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
           if (record.state === "pending") {
             return yield* new BotDependencyUnavailable({
               message:
@@ -940,7 +942,11 @@ export const makeBotCapabilityStore = Effect.gen(function* () {
               const current = yield* readDeliveryRecord(input.deliveryKey);
               if (!Predicate.isNull(current) && current.record.state === "completed") {
                 yield* clearUnresolved(input.deliveryKey);
-                return current.record.receipt as Effect.Success<typeof input.effect>;
+
+                return current.record
+                  .receipt /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Success<
+                  typeof input.effect
+                > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
               }
               yield* Effect.logError(
                 "Sheet bot delivery committed but its reservation was reconciled concurrently",

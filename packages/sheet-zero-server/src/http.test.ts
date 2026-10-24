@@ -25,12 +25,16 @@ describe("Sheet Zero server handlers", () => {
     Effect.gen(function* () {
       const queryHandlers = yield* makeZeroHandlerRegistry(serverQueries);
       const mutatorHandlers = yield* makeZeroHandlerRegistry(serverMutators);
-      const publicCatalog = api as Readonly<
-        Record<string, Readonly<Record<string, FunctionReference>>>
-      >;
-      const serviceCatalog = serviceApi as Readonly<
-        Record<string, Readonly<Record<string, FunctionReference>>>
-      >;
+
+      const publicCatalog =
+        api /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Readonly<
+          Record<string, Readonly<Record<string, FunctionReference>>>
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
+      const serviceCatalog =
+        serviceApi /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Readonly<
+          Record<string, Readonly<Record<string, FunctionReference>>>
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(Object.keys(queryHandlers).sort()).toEqual(
         [
@@ -51,9 +55,11 @@ describe("Sheet Zero server handlers", () => {
     Effect.gen(function* () {
       const queryHandlers = yield* makeZeroHandlerRegistry(serverQueries);
       const mutatorHandlers = yield* makeZeroHandlerRegistry(serverMutators);
-      const internalCatalog = internal as Readonly<
-        Record<string, Readonly<Record<string, FunctionReference>>>
-      >;
+
+      const internalCatalog =
+        internal /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Readonly<
+          Record<string, Readonly<Record<string, FunctionReference>>>
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       for (const procedure of procedureNames(internalCatalog, "query")) {
         expect(procedure in queryHandlers).toBe(false);

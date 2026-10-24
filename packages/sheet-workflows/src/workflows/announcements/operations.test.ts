@@ -208,6 +208,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
         }),
     },
   };
+
   const bot = {
     cache: {
       listConversations: (request: unknown) =>
@@ -254,7 +255,7 @@ const makeHarness = (options: HarnessOptions = {}) => {
             };
           })),
     },
-  } as unknown as SheetBotHttpClient;
+  } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   const operations = UpdateAnnouncementWorkflowOperations.pipe(
     Effect.provide(updateAnnouncementWorkflowOperationsLayer),
     Effect.provideService(TrustedSheetPersistence, persistence),
@@ -287,7 +288,8 @@ const authorizeWithPolicy = (
   candidate: typeof EffectivePrincipal.Type,
   candidateInput: unknown,
 ) => {
-  const bot = {} as SheetBotHttpClient;
+  const bot =
+    {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   const persistence = makeTrustedSheetPersistenceMock();
   return ReadOnlyWorkflowAuthorization.pipe(
     Effect.flatMap((authorization) =>

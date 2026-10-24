@@ -231,7 +231,7 @@ it.effect(
               return client;
             }),
           removeClientRegistration: (binding, ownerKey) =>
-            ownerKey === `${binding.sessionId}:${binding.generation}:${binding.role}`
+            ownerKey === `${binding.sessionId}:${binding.generation}:${binding.role}` // oxlint-disable-line no-nested-ternary -- inherited master site
               ? failClientRegistrationCleanup
                 ? Effect.fail(new PreviewAuthError({ reason: "unavailable" }))
                 : Effect.sync(() => {
@@ -257,7 +257,7 @@ it.effect(
               `https://auth.dev.test/authorize?client_id=${client.clientId}&state=${state}&method=${codeChallengeMethod}`,
             ),
           exchangeCallback: ({ client, code, verifier }) =>
-            code === "empty-token-code" && verifier.length > 20
+            code === "empty-token-code" && verifier.length > 20 // oxlint-disable-line no-nested-ternary -- inherited master site
               ? Effect.succeed({
                   principal,
                   upstreamAccessToken: "",

@@ -284,7 +284,8 @@ function appRequest(
     const response = yield* auth.request(input);
     const safeHeaders = {
       ...safeApplicationHeaders(response.headers),
-      "access-control-allow-origin": `https://${request.headers.host}`,
+
+      "access-control-allow-origin": `https://${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ request.headers.host /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
       "access-control-allow-credentials": "true",
       vary: "Origin",
     };

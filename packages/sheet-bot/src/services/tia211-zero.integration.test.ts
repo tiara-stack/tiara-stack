@@ -485,7 +485,8 @@ const makeHttpLayer = (
   });
   const workflowEnqueueLayer = HttpRouter.add(
     "POST",
-    checkinMessagesLoadEnqueuePath as HttpRouter.PathInput,
+
+    checkinMessagesLoadEnqueuePath /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as HttpRouter.PathInput /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       if (bearerToken(request.headers.authorization) !== userToken) {
@@ -570,7 +571,10 @@ const makeHttpLayer = (
           : yield* observationContextFromToken(procedureNames, token);
       }),
     userID: (context) => context.principalId,
-    zql: Effect.succeed({} as import("@rocicorp/zero/server").Database<unknown>),
+
+    zql: Effect.succeed(
+      {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as import("@rocicorp/zero/server").Database<unknown> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+    ),
   });
   const routesLayer = Layer.provide(HttpApiBuilder.layer(IntegrationApi), [zeroHttpLayer]).pipe(
     Layer.merge(workflowEnqueueLayer),

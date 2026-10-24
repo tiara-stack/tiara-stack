@@ -322,7 +322,7 @@ const allocationError = (
 ) => new PreviewAllocationError({ reason, ...values });
 
 const allocationFailureDescription = (error: unknown) =>
-  error instanceof PreviewAllocationError
+  error instanceof PreviewAllocationError // oxlint-disable-line no-nested-ternary -- inherited master site
     ? error.reason
     : error instanceof Error
       ? error.message
@@ -387,8 +387,9 @@ const matchesOwnedGroupDemand = (
 ) => {
   const expected = ownedGroups.flatMap(
     (group) =>
-      previewCapacityDimensionsByGroup[group as keyof typeof previewCapacityDimensionsByGroup] ??
-      [],
+      previewCapacityDimensionsByGroup[
+        group /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof typeof previewCapacityDimensionsByGroup /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+      ] ?? [],
   );
   const required = [...new Set(expected)];
   const actual = demands.map(({ dimension }) => dimension);
@@ -676,7 +677,17 @@ export const makePreviewAllocationController = (
           return yield* Effect.fail(allocationError("live-session-destruction-refused"));
         const cleanups =
           yield* sql`SELECT completed_at FROM preview_cleanup_state WHERE session_id=${sessionId}`;
-        if (cleanups.length > 0 && (cleanups[0] as Record<string, unknown>).completed_at !== null)
+
+        if (
+          cleanups.length > 0 &&
+          (
+            cleanups[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+              string,
+              unknown
+            >
+          ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+            .completed_at !== null
+        )
           return "cleaned" as const;
         const endedAt = Number(session.ended_at);
         if (cleanups.length === 0)
@@ -700,21 +711,31 @@ export const makePreviewAllocationController = (
           yield* sql`SELECT resource FROM preview_allocation_ledger WHERE session_id=${sessionId}`;
         let recordedResources: Readonly<Record<string, unknown>>;
         try {
-          recordedResources = JSON.parse(String(session.resource_ids)) as Readonly<
+          recordedResources = JSON.parse(
+            String(session.resource_ids),
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Readonly<
             Record<string, unknown>
-          >;
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
         } catch {
           yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='unknown-ownership-ledger' WHERE session_id=${sessionId}`;
           return undefined;
         }
         const ledgerResources = new Set(
-          (allRows as Array<Record<string, unknown>>).map((row) => String(row.resource)),
+          (
+            allRows /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
+              Record<string, unknown>
+            >
+          ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+            .map((row) => String(row.resource)),
         );
         if (Object.keys(recordedResources).some((resource) => !ledgerResources.has(resource))) {
           yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='unknown-ownership-ledger' WHERE session_id=${sessionId}`;
           return undefined;
         }
-        return ledger as Array<Record<string, unknown>>;
+
+        return ledger /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
+          Record<string, unknown>
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       });
 
     const verifyCleanupProof = (sessionId: string, ledger: readonly Record<string, unknown>[]) =>
@@ -744,7 +765,16 @@ export const makePreviewAllocationController = (
         yield* sql`UPDATE preview_cleanup_state SET proof_at=COALESCE(proof_at, ${proofCompletedAt}) WHERE session_id=${sessionId}`;
         const rows =
           yield* sql`SELECT proof_at FROM preview_cleanup_state WHERE session_id=${sessionId}`;
-        const proofAt = Number((rows[0] as Record<string, unknown>).proof_at);
+
+        const proofAt = Number(
+          (
+            rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+              string,
+              unknown
+            >
+          ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+            .proof_at,
+        );
         return now() >= proofAt + 5 * 60_000;
       });
 
@@ -871,10 +901,16 @@ export const makePreviewAllocationController = (
       Effect.gen(function* () {
         const rows =
           yield* sql`SELECT DISTINCT provider, provider_identity FROM preview_capacity_reservations WHERE session_id=${sessionId}`;
-        const identities = (rows as Array<Record<string, unknown>>).map((row) => ({
-          provider: String(row.provider),
-          identity: String(row.provider_identity),
-        }));
+
+        const identities = (
+          rows /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
+            Record<string, unknown>
+          >
+        ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          .map((row) => ({
+            provider: String(row.provider),
+            identity: String(row.provider_identity),
+          }));
         if (identities.length === 0)
           return yield* Effect.fail(allocationError("provider-resolution-identity-unreserved"));
         return identities;
@@ -1052,13 +1088,27 @@ export const makePreviewAllocationController = (
           const plan =
             persisted !== undefined &&
             JSON.stringify(
-              normalizeSet(JSON.parse(String(persisted.selected_roles)) as string[]),
+              normalizeSet(
+                JSON.parse(
+                  String(persisted.selected_roles),
+                ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as string[] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+              ),
             ) === JSON.stringify(normalizeSet(input.selectedRoles)) &&
-            JSON.stringify(normalizeSet(JSON.parse(String(persisted.owned_groups)) as string[])) ===
-              JSON.stringify(normalizeSet(input.ownedGroups))
+            JSON.stringify(
+              normalizeSet(
+                JSON.parse(
+                  String(persisted.owned_groups),
+                ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as string[] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+              ),
+            ) === JSON.stringify(normalizeSet(input.ownedGroups))
               ? {
-                  demands: JSON.parse(String(persisted.demands)) as readonly CapacityDemand[],
-                  resources: JSON.parse(String(persisted.resources)) as readonly string[],
+                  demands: JSON.parse(
+                    String(persisted.demands),
+                  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as readonly CapacityDemand[] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+
+                  resources: JSON.parse(
+                    String(persisted.resources),
+                  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as readonly string[] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
                 }
               : yield* Effect.mapError(
                   withPreviewResourceAdapterTimeout(
@@ -1106,9 +1156,13 @@ export const makePreviewAllocationController = (
             if (row === undefined) {
               const otherRows =
                 yield* sql`SELECT provider, provider_identity FROM preview_capacity_measurements WHERE dimension=${demand.dimension}`;
-              const observedProviders = (otherRows as Array<Record<string, unknown>>).map(
-                (other) => `${String(other.provider)}/${String(other.provider_identity)}`,
-              );
+
+              const observedProviders = (
+                otherRows /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
+                  Record<string, unknown>
+                >
+              ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+                .map((other) => `${String(other.provider)}/${String(other.provider_identity)}`);
               return {
                 ...demand,
                 status:
@@ -1176,7 +1230,10 @@ export const makePreviewAllocationController = (
           const rows = yield* reserveCapacityAndLedger(input);
           return yield* allocateRecordedResources(
             input.sessionId,
-            rows as Array<Record<string, unknown>>,
+
+            rows /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
+              Record<string, unknown>
+            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
             input.resourceMetadata,
           );
         }),
@@ -1218,30 +1275,43 @@ export const makePreviewAllocationController = (
             yield* sql`SELECT * FROM preview_cleanup_state WHERE session_id=${sessionId}`;
           const cleanupState = cleanup[0] as Record<string, unknown> | undefined;
           return {
-            reservations: (reservations as Array<Record<string, unknown>>).map((row) => ({
-              dimension: String(row.dimension),
-              amount: Number(row.amount),
-              provider: String(row.provider),
-              identity: String(row.provider_identity),
-              releasedAt: row.released_at === null ? null : Number(row.released_at),
-            })),
-            allocations: (allocations as Array<Record<string, unknown>>).map((row) => ({
-              resource: String(row.resource),
-              providerResourceId:
-                typeof row.provider_resource_id === "string" ? row.provider_resource_id : null,
-              state: row.state as
-                | "allocating"
-                | "owned"
-                | "deleting"
-                | "quarantined"
-                | "deleted"
-                | "not-allocated",
-              failure: typeof row.failure === "string" ? row.failure : null,
-            })),
+            reservations: (
+              reservations /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
+                Record<string, unknown>
+              >
+            ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+              .map((row) => ({
+                dimension: String(row.dimension),
+                amount: Number(row.amount),
+                provider: String(row.provider),
+                identity: String(row.provider_identity),
+                releasedAt: row.released_at === null ? null : Number(row.released_at),
+              })),
+
+            allocations: (
+              allocations /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
+                Record<string, unknown>
+              >
+            ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+              .map((row) => ({
+                resource: String(row.resource),
+                providerResourceId:
+                  typeof row.provider_resource_id === "string" ? row.provider_resource_id : null,
+
+                state:
+                  row.state /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as
+                    | "allocating"
+                    | "owned"
+                    | "deleting"
+                    | "quarantined"
+                    | "deleted"
+                    | "not-allocated" /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+                failure: typeof row.failure === "string" ? row.failure : null,
+              })),
             cleanup:
-              cleanupState === undefined
+              cleanupState === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
                 ? null
-                : cleanupState.completed_at !== null
+                : cleanupState.completed_at !== null // oxlint-disable-line no-nested-ternary -- inherited master site
                   ? "cleaned"
                   : cleanupState.quarantine_reason == null
                     ? "waiting"
@@ -1276,11 +1346,13 @@ const verifyLocalOwnerRecord = (
   Effect.gen(function* () {
     const decoded = yield* Effect.try({
       try: () =>
-        JSON.parse(ownerRecord) as {
+        JSON.parse(
+          ownerRecord,
+        ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
           readonly sessionId?: unknown;
           readonly ownerToken?: unknown;
           readonly resource?: unknown;
-        },
+        } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       catch: () => new Error("local-resource-owner-record-invalid"),
     });
     if (

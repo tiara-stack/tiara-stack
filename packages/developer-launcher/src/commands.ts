@@ -503,10 +503,12 @@ export const parsePositionals = (
     }
     return {
       kind: "preview",
-      action: second as Exclude<
-        ConnectedPreviewAction,
-        "plan" | "doctor" | "baseline" | "start" | "resolve"
-      >,
+
+      action:
+        second /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Exclude<
+          ConnectedPreviewAction,
+          "plan" | "doctor" | "baseline" | "start" | "resolve"
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       options: { ...options, configFile: null, sessionId: options.sessionId },
       command: `preview ${second}`,
     };

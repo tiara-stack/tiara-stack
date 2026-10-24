@@ -534,9 +534,11 @@ const clientGroupByPersistenceGroup = {
   teamSubmissionState: (client: GroupedSheetClient) => client.messageTeamSubmission,
 } as const satisfies ClientGroupByPersistenceGroup;
 
-const persistenceGroups = Object.keys(clientGroupByPersistenceGroup) as ReadonlyArray<
+const persistenceGroups = Object.keys(
+  clientGroupByPersistenceGroup,
+) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReadonlyArray<
   keyof TrustedSheetPersistenceShape
->;
+> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeTrustedGroup = <Group extends keyof TrustedSheetPersistenceShape>(
   group: Group,
@@ -549,18 +551,22 @@ const makeTrustedGroup = <Group extends keyof TrustedSheetPersistenceShape>(
     throw new Error(`No trusted persistence client group registered for ${String(group)}`);
   }
   const source = selectClientGroup(client);
-  const methods = trustedSheetPersistenceCatalog[group] as unknown as ReadonlyArray<
+
+  const methods = trustedSheetPersistenceCatalog[
+    group
+  ] as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReadonlyArray<
     keyof TrustedClientGroup<Group>
-  >;
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
   return Object.fromEntries(
     methods.map((method) => [method, source[method]]),
-  ) as TrustedSheetPersistenceShape[Group];
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as TrustedSheetPersistenceShape[Group] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 const makeTrustedView = (client: GroupedSheetClient): TrustedSheetPersistenceShape =>
   Object.fromEntries(
     persistenceGroups.map((group) => [group, makeTrustedGroup(group, client)]),
-  ) as unknown as TrustedSheetPersistenceShape;
+  ) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as TrustedSheetPersistenceShape /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 export class TrustedSheetPersistence extends Context.Service<
   TrustedSheetPersistence,
@@ -661,18 +667,27 @@ const makePostgresExecutor = <ClientContext>({
         ),
     );
     const drizzleDatabase = drizzle(postgresClient);
-    const database = zeroDrizzle(schema, {
-      transaction: (transaction) =>
-        drizzleDatabase.transaction(
-          async (drizzleTransaction) => {
-            await drizzleTransaction.execute(
-              drizzleSql`select set_config('statement_timeout', ${`${statementTimeoutMillis}ms`}, true)`,
-            );
-            return transaction(drizzleTransaction as unknown as Parameters<typeof transaction>[0]);
-          },
-          { isolationLevel: "serializable" },
-        ),
-    } as DrizzleDatabase);
+
+    const database = zeroDrizzle(
+      schema,
+      {
+        transaction: (transaction) =>
+          drizzleDatabase.transaction(
+            async (drizzleTransaction) => {
+              await drizzleTransaction.execute(
+                drizzleSql`select set_config('statement_timeout', ${`${statementTimeoutMillis}ms`}, true)`,
+              );
+
+              return transaction(
+                drizzleTransaction as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Parameters<
+                  typeof transaction
+                >[0] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+              );
+            },
+            { isolationLevel: "serializable" },
+          ),
+      } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as DrizzleDatabase /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+    );
     const resolveQuery = <Return>(
       request: QueryOrQueryRequest<any, any, any, SheetZeroSchema, Return, ClientContext>,
     ) => addContextToQuery(request, context);

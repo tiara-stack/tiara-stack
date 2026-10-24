@@ -231,7 +231,10 @@ const makeCheckinCommand = Effect.gen(function* () {
 const makeGlobalCheckinCommand = Effect.gen(function* () {
   const checkinCommand = yield* makeCheckinCommand;
 
-  return CommandHelper.makeGlobalCommand(checkinCommand.data, checkinCommand.handler as never);
+  return CommandHelper.makeGlobalCommand(
+    checkinCommand.data,
+    checkinCommand.handler /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 });
 
 export const checkinCommandLayer = Layer.merge(
@@ -244,8 +247,14 @@ export const checkinCommandLayer = Layer.merge(
 
       yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));
       const savedMessageModalBuilder = Ix.builder
-        .add<never, never>(savedMessageModal as never)
-        .add<never, never>(savedMessageEditButton as never)
+
+        .add<never, never>(
+          savedMessageModal /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        )
+
+        .add<never, never>(
+          savedMessageEditButton /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        )
         .catchAllCause(Effect.log);
       yield* registry.register(savedMessageModalBuilder);
     }),

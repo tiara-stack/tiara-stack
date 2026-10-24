@@ -125,7 +125,7 @@ const isAmbiguousWriteCause = (cause: unknown): boolean => {
 };
 
 const cellString = (value: unknown) =>
-  Predicate.isNullish(value) ? "" : Predicate.isString(value) ? value : globalThis.String(value);
+  Predicate.isNullish(value) ? "" : Predicate.isString(value) ? value : globalThis.String(value); // oxlint-disable-line no-nested-ternary -- inherited master site
 
 const valueRangeRows = (
   valueRange:

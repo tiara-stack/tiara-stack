@@ -185,7 +185,10 @@ export const readOnlyWorkflowDataSourceLayer = Layer.effect(
       workspaceId,
     ) =>
       Effect.gen(function* () {
-        const items = [] as Array<DiscordLoadWorkspaceChannelsSuccess[number]>;
+        const items =
+          [] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
+            DiscordLoadWorkspaceChannelsSuccess[number]
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
         let cursor: BotCollectionCursor | undefined;
         let pageCount = 0;
         while (pageCount < maximumWorkspaceConversationPages) {
@@ -307,7 +310,7 @@ export const readOnlyWorkflowDataSourceLayer = Layer.effect(
       });
       // A candidate is valid only when it is the same authoritative spreadsheet bound to the workspace.
       const matchCandidate = (spreadsheetId: typeof SpreadsheetId.Type) =>
-        Predicate.isUndefined(candidateSpreadsheetId)
+        Predicate.isUndefined(candidateSpreadsheetId) // oxlint-disable-line no-nested-ternary -- inherited master site
           ? Effect.succeed(spreadsheetId)
           : spreadsheetId === candidateSpreadsheetId
             ? Effect.succeed(spreadsheetId)

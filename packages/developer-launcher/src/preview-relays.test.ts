@@ -25,7 +25,9 @@ const startHostRuntime = async (sessionId: string, processId: string) => {
     response.end(JSON.stringify({ sessionId, processId }));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
-  const address = server.address() as AddressInfo;
+
+  const address =
+    server.address() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as AddressInfo /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   return {
     port: address.port,
     close: () =>

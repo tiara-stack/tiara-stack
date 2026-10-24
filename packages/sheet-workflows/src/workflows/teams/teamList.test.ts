@@ -130,7 +130,10 @@ const makeBot = (
       readonly message: unknown;
     };
   }) => Effect.Effect<unknown, unknown>,
-): SheetBotHttpClient => ({ delivery: { respond } }) as unknown as SheetBotHttpClient;
+): SheetBotHttpClient =>
+  ({
+    delivery: { respond },
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const workspaceConfiguration = (sheetId: string | null) => ({
   workspaceId: "workspace-1",
@@ -584,6 +587,7 @@ describe("team-list delivery Workflow Definition slice", () => {
         ],
       ] as const;
       let request = 0;
+
       const client = {
         spreadsheets: {
           values: {
@@ -593,7 +597,7 @@ describe("team-list delivery Workflow Definition slice", () => {
             },
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       expect(yield* makeUserTeamsProvider(client).load("sheet-1")).toEqual(view);
       expect(calls).toEqual([
         ["'Thee''s Sheet Settings'!E8:M", "'Thee''s Sheet Settings'!B8:C"],
@@ -616,35 +620,38 @@ describe("team-list delivery Workflow Definition slice", () => {
   it.live("retries transient provider reads but not permanent failures", () =>
     Effect.gen(function* () {
       let attempts = 0;
-      const provider = makeUserTeamsProvider({
-        spreadsheets: {
-          values: {
-            batchGet: () => {
-              attempts += 1;
-              if (attempts === 1) return Promise.reject({ response: { status: 503 } });
-              return attempts === 2
-                ? Promise.resolve({
-                    data: {
-                      valueRanges: [
-                        { values: [] },
-                        {
-                          values: [
-                            ["User IDs", "'Players'!A1:A1"],
-                            ["User Sheet Names", "'Players'!B1:B1"],
-                          ],
-                        },
-                      ],
-                    },
-                  })
-                : Promise.resolve({
-                    data: {
-                      valueRanges: [{ values: [["account-target"]] }, { values: [["Target"]] }],
-                    },
-                  });
+
+      const provider = makeUserTeamsProvider(
+        {
+          spreadsheets: {
+            values: {
+              batchGet: () => {
+                attempts += 1;
+                if (attempts === 1) return Promise.reject({ response: { status: 503 } });
+                return attempts === 2
+                  ? Promise.resolve({
+                      data: {
+                        valueRanges: [
+                          { values: [] },
+                          {
+                            values: [
+                              ["User IDs", "'Players'!A1:A1"],
+                              ["User Sheet Names", "'Players'!B1:B1"],
+                            ],
+                          },
+                        ],
+                      },
+                    })
+                  : Promise.resolve({
+                      data: {
+                        valueRanges: [{ values: [["account-target"]] }, { values: [["Target"]] }],
+                      },
+                    });
+              },
             },
           },
-        },
-      } as unknown as sheets_v4.Sheets);
+        } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+      );
       expect(yield* provider.load("sheet-1")).toEqual({
         players: [{ accountId: "account-target", name: "Target" }],
         teams: [],
@@ -653,16 +660,18 @@ describe("team-list delivery Workflow Definition slice", () => {
 
       let permanentAttempts = 0;
       const failure = yield* Effect.flip(
-        makeUserTeamsProvider({
-          spreadsheets: {
-            values: {
-              batchGet: () => {
-                permanentAttempts += 1;
-                return Promise.reject({ response: { status: 403 } });
+        makeUserTeamsProvider(
+          {
+            spreadsheets: {
+              values: {
+                batchGet: () => {
+                  permanentAttempts += 1;
+                  return Promise.reject({ response: { status: 403 } });
+                },
               },
             },
-          },
-        } as unknown as sheets_v4.Sheets).load("sheet-1"),
+          } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ).load("sheet-1"),
       );
       expect(failure.operation).toBe("read-configuration");
       expect(permanentAttempts).toBe(1);

@@ -967,21 +967,46 @@ it.effect("clears only settlement quarantine after accepted work settles", () =>
       expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("quarantined");
       let cleanupRows =
         yield* sql`SELECT quarantine_reason FROM preview_cleanup_state WHERE session_id=${started.session.id}`;
-      expect((cleanupRows[0] as Record<string, unknown>).quarantine_reason).toBe(
-        "accepted-work-settlement-unproven",
-      );
+
+      expect(
+        (
+          cleanupRows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+            string,
+            unknown
+          >
+        ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          .quarantine_reason,
+      ).toBe("accepted-work-settlement-unproven");
 
       yield* sessions.settle(started.session.id, active.generation);
       expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
       cleanupRows =
         yield* sql`SELECT quarantine_reason FROM preview_cleanup_state WHERE session_id=${started.session.id}`;
-      expect((cleanupRows[0] as Record<string, unknown>).quarantine_reason).toBe(null);
+
+      expect(
+        (
+          cleanupRows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+            string,
+            unknown
+          >
+        ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          .quarantine_reason,
+      ).toBe(null);
 
       yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='deletion-failed' WHERE session_id=${started.session.id}`;
       expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
       cleanupRows =
         yield* sql`SELECT quarantine_reason FROM preview_cleanup_state WHERE session_id=${started.session.id}`;
-      expect((cleanupRows[0] as Record<string, unknown>).quarantine_reason).toBe("deletion-failed");
+
+      expect(
+        (
+          cleanupRows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+            string,
+            unknown
+          >
+        ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          .quarantine_reason,
+      ).toBe("deletion-failed");
       expect((yield* allocations.inspect(started.session.id)).reservations[0]?.releasedAt).toBe(
         null,
       );
@@ -1229,7 +1254,12 @@ it.effect("quarantines when the deletion phase expires between owned resources",
       );
       expect(remaining).toBeDefined();
       expect(state.reservations[0]?.releasedAt).toBe(null);
-      expect(resources.has(`${started.session.id}/${remaining?.resource}`)).toBe(true);
+
+      expect(
+        resources.has(
+          `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ started.session.id /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}/${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ remaining?.resource /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
+        ),
+      ).toBe(true);
     }),
   ),
 );

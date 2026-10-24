@@ -333,7 +333,7 @@ const makeUserObservationAuth = (options: {
         scope: ["workflow.observe"],
       });
       const identity = yield* getSheetAuthIdentity(options.sheetAuthClient, {
-        Authorization: `Bearer ${Redacted.value(userToken.accessToken)}`,
+        Authorization: `Bearer ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ Redacted.value(userToken.accessToken) /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
       });
       if (
         identity.permissions.includes("service") ||
@@ -399,7 +399,7 @@ const makeServiceObservationAuth = (options: {
         scope: ["service", "workflow.observe"],
       });
       const identity = yield* getSheetAuthIdentity(options.sheetAuthClient, {
-        Authorization: `Bearer ${Redacted.value(serviceToken.accessToken)}`,
+        Authorization: `Bearer ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ Redacted.value(serviceToken.accessToken) /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
       });
       if (
         !identity.permissions.includes("service") ||
@@ -642,7 +642,7 @@ const isTeamSubmissionEnabled = Effect.fn("SheetZeroClient.isTeamSubmissionEnabl
 });
 
 const decodeClientOption = <A>(schema: Schema.Decoder<A, never>, value: unknown) =>
-  Option.isOption(value)
+  Option.isOption(value) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? Option.isNone(value)
       ? Effect.succeed(Option.none<A>())
       : Schema.decodeUnknownEffect(schema)(value.value).pipe(Effect.map(Option.some))

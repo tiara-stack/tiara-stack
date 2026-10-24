@@ -42,7 +42,9 @@ const makeQueryRecorder = () => {
   };
   return {
     calls,
-    query: query as unknown as SheetWorkflowRunQuery,
+
+    query:
+      query as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetWorkflowRunQuery /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   };
 };
 

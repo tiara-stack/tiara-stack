@@ -48,11 +48,17 @@ const makeSingleSubCommand = <
             InteractionContextType.Guild,
             InteractionContextType.PrivateChannel,
           )
-          .addSubcommand(() => subCommand.data as never) as never,
+
+          .addSubcommand(
+            () =>
+              subCommand.data /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       (command) =>
-        command.subCommands({
-          [subCommandName]: subCommand.handler,
-        } as never),
+        command.subCommands(
+          {
+            [subCommandName]: subCommand.handler,
+          } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ),
     );
   });
 
@@ -63,7 +69,8 @@ export const registerGlobalCommandLayer = <E, R>(makeCommand: Effect.Effect<Buil
       const commandDefinition = yield* makeCommand;
       const command = CommandHelper.makeGlobalCommand(
         commandDefinition.data,
-        commandDefinition.handler as never,
+
+        commandDefinition.handler /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       );
 
       yield* registry.register(Ix.builder.add(command).catchAllCause(Effect.log));

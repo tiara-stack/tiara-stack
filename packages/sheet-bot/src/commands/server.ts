@@ -504,7 +504,10 @@ const makeServerCommand = Effect.gen(function* () {
 const makeGlobalServerCommand = Effect.gen(function* () {
   const serverCommand = yield* makeServerCommand;
 
-  return CommandHelper.makeGlobalCommand(serverCommand.data, serverCommand.handler as never);
+  return CommandHelper.makeGlobalCommand(
+    serverCommand.data,
+    serverCommand.handler /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 });
 
 export const serverCommandLayer = Layer.effectDiscard(
