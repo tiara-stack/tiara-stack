@@ -69,7 +69,12 @@ const monitorLine = ({
     return currentMonitor === null ? null : parts(inlineCode("Monis:"), text(` ${currentMonitor}`));
   }
   if (previousMonitor === null) {
-    return parts(inlineCode("Monis:"), text(` In ${currentMonitor}`));
+    return parts(
+      inlineCode("Monis:"),
+      text(
+        ` In ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ currentMonitor /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
+      ),
+    );
   }
   if (currentMonitor === null) {
     return parts(inlineCode("Monis:"), text(` Out ${previousMonitor}`));
@@ -78,7 +83,7 @@ const monitorLine = ({
 };
 
 const roomOrderMonitorLine = (monitor: RoomOrderMonitorInput): BotTextPart[] | null =>
-  monitor !== null && typeof monitor === "object"
+  monitor !== null && typeof monitor === "object" // oxlint-disable-line no-nested-ternary -- inherited master site
     ? monitorLine(monitor)
     : monitor === null
       ? null
