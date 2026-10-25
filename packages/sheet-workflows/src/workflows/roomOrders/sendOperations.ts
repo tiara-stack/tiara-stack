@@ -58,7 +58,7 @@ const rejectPin =
     },
     InteractiveDeclaredFailure | RoomOrderSendOperationsError
   > =>
-    Predicate.isTagged("BotUnauthenticated")(error) ||
+    Predicate.isTagged("BotUnauthenticated")(error) || // oxlint-disable-line no-nested-ternary -- inherited master site
     Predicate.isTagged("BotAdmissionDenied")(error)
       ? Effect.fail(interactiveAuthorizationRevoked(policy))
       : Predicate.isTagged("BotResourceNotFound")(error) ||

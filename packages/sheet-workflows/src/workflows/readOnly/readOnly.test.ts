@@ -129,7 +129,7 @@ const makeAuthorizationBotClient = (
           },
         ]),
     },
-  }) as unknown as SheetBotHttpClient;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeDataProvider = (
   loadWorkspaceSchedules: SheetDataProvider["Service"]["loadWorkspaceSchedules"] = () =>
@@ -1422,6 +1422,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
     Effect.gen(function* () {
       const calls: Array<string> = [];
       let conversationsPage = 0;
+
       const botClient = {
         cache: {
           getApplication: () => {
@@ -1477,7 +1478,7 @@ describe("read-only Sheet Workflow Definition slice", () => {
             ]);
           },
         },
-      } as unknown as SheetBotHttpClient;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       yield* Effect.gen(function* () {
         const dataSource = yield* ReadOnlyWorkflowDataSource;
         expect(yield* dataSource.loadProfile(principal)).toMatchObject({

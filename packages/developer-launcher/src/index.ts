@@ -42,7 +42,7 @@ import {
   type LauncherResult,
   type PortChecker,
 } from "./types";
-import { Cause, Effect, Exit, FileSystem, Match } from "effect";
+import { Cause, Effect, Exit, FileSystem, Match, Predicate } from "effect";
 import {
   makeLifecycleStreamWriter,
   renderLifecyclePlan,
@@ -836,19 +836,28 @@ const modeOutput = (
       };
     }
     const plan =
-      validation.config.mode === "fast"
+      validation.config.mode === "fast" // oxlint-disable-line no-nested-ternary -- inherited master site
         ? buildModePlan(validation.config as FastModeConfig, "up", services)
         : validation.config.mode === "compose"
           ? buildModePlan(
               validation.config as ComposeModeConfig,
-              command.action as "up" | "build" | "down" | "seed" | "reset",
+
+              command.action /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as
+                | "up"
+                | "build"
+                | "down"
+                | "seed"
+                | "reset" /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
               services,
               null,
               command.options.service !== null,
             )
           : buildModePlan(
               validation.config as KubernetesModeConfig,
-              command.action as "validate" | "preview",
+
+              command.action /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as
+                | "validate"
+                | "preview" /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
               services,
               command.options.tag,
               false,
@@ -882,23 +891,29 @@ const modeOutput = (
                               [
                                 "prometheus",
                                 Number(
-                                  (validation.config as FastModeConfig).serviceEnvironments[
-                                    "sheet-auth"
-                                  ].PROMETHEUS_PORT,
+                                  (
+                                    validation.config /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FastModeConfig
+                                  ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+                                    .serviceEnvironments["sheet-auth"].PROMETHEUS_PORT,
                                 ),
                               ] as const,
                             ]
                           : []),
                         ...(services.includes("sheet-workflows") &&
-                        (validation.config as FastModeConfig).serviceEnvironments["sheet-workflows"]
-                          .SHEET_WORKFLOWS_ROLE === "combined"
+                        (
+                          validation.config /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FastModeConfig
+                        ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+                          .serviceEnvironments["sheet-workflows"].SHEET_WORKFLOWS_ROLE ===
+                          "combined"
                           ? [
                               [
                                 "sheet-workflows runner",
                                 Number(
-                                  (validation.config as FastModeConfig).serviceEnvironments[
-                                    "sheet-workflows"
-                                  ].WORKFLOWS_RUNNER_LISTEN_PORT,
+                                  (
+                                    validation.config /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as FastModeConfig
+                                  ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+                                    .serviceEnvironments["sheet-workflows"]
+                                    .WORKFLOWS_RUNNER_LISTEN_PORT,
                                 ),
                               ] as const,
                             ]
@@ -961,7 +976,7 @@ const modeOutput = (
       );
     } catch (cause) {
       const reason =
-        cause instanceof Error
+        cause instanceof Error // oxlint-disable-line no-nested-ternary -- inherited master site
           ? redactExecutionText(cause.message)
           : typeof cause === "string"
             ? redactExecutionText(cause)
@@ -1050,8 +1065,10 @@ const doctorOutput = (
     };
   });
 
-const isCommandParseError = (error: unknown): error is CommandParseError =>
-  error instanceof Error && error.name === "CommandParseError";
+const isCommandParseError = Predicate.and(Predicate.isError)(
+  (error: unknown): error is CommandParseError =>
+    Predicate.hasProperty(error, "name") && error.name === "CommandParseError",
+);
 
 const runLauncherEffect = async <A>(
   program: Effect.Effect<A, never, FileSystem.FileSystem | HttpClient.HttpClient>,
@@ -1071,7 +1088,7 @@ const launcherResult = (
 ): LauncherResult => {
   const result: LauncherResult = {
     exitCode: output.ok ? 0 : 2,
-    stdout: jsonStream
+    stdout: jsonStream // oxlint-disable-line no-nested-ternary -- inherited master site
       ? output.ok
         ? renderLifecyclePlan(output, help)
         : renderLifecycleTerminal(output)
@@ -1189,7 +1206,7 @@ export const executeDevelopmentPlan = async (
 
   try {
     const executionOutput =
-      requestedOutput === "capture" ? "capture" : json || jsonStream ? "stderr" : requestedOutput;
+      requestedOutput === "capture" ? "capture" : json || jsonStream ? "stderr" : requestedOutput; // oxlint-disable-line no-nested-ternary -- inherited master site
     const execution = await runDevelopmentExecution(
       context,
       executionOutput === undefined ? runOptions : { ...runOptions, output: executionOutput },
@@ -1213,7 +1230,7 @@ export const executeDevelopmentPlan = async (
       throw new Error("Development execution failed after its terminal event");
     }
     const reason =
-      cause instanceof Error
+      cause instanceof Error // oxlint-disable-line no-nested-ternary -- inherited master site
         ? redactExecutionText(cause.message)
         : typeof cause === "string"
           ? redactExecutionText(cause)
@@ -1266,7 +1283,7 @@ const runParsedCommand = (
         Effect.succeed({
           output: emptyOutput(helpCommand.command, helpCommand.mode),
           help:
-            helpCommand.mode === null
+            helpCommand.mode === null // oxlint-disable-line no-nested-ternary -- inherited master site
               ? helpText
               : helpCommand.mode === "preview"
                 ? previewHelpText

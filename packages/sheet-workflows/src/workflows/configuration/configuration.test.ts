@@ -154,7 +154,7 @@ const makeBot = (overrides: {
         overrides.replaceConversationPermissionOverwrites ??
         (() => Effect.die("Unexpected replaceConversationPermissionOverwrites call")),
     },
-  }) as unknown as SheetBotHttpClient;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeOperations = (
   workspaces: TrustedSheetPersistence["Service"]["workspaces"],

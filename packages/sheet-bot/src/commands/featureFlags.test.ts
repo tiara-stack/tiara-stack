@@ -20,10 +20,15 @@ const makeResponse = (messages: Array<string | undefined>) =>
       messages.push(payload.content);
       return Effect.void;
     },
-  }) as Pick<CommandInteractionResponseContext, "editReply">;
+  }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Pick<
+    CommandInteractionResponseContext,
+    "editReply"
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const interaction = (userId: string): APIInteraction =>
-  ({ user: { id: userId } }) as APIInteraction;
+  ({
+    user: { id: userId },
+  }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as APIInteraction /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 describe("feature flag command protected enqueue path", () => {
   it.effect("uses the protected client and preserves local queue reporting", () =>

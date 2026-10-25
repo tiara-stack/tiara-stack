@@ -78,7 +78,7 @@ export const rollbackValuesForRangeForWorkflow = (
   }
 
   const endColumn = endMatch?.[1] ?? start.column;
-  const endRow = endMatch?.[2]
+  const endRow = endMatch?.[2] // oxlint-disable-line no-nested-ternary -- inherited master site
     ? Number(endMatch[2])
     : options.inferEndRowFromValues
       ? start.row + Math.max(0, values.length - 1)
@@ -126,11 +126,14 @@ export const appendRangeForCellsForWorkflow = (
   );
   const startColumn = Math.min(...columns.map(([, column]) => column));
   const endColumn = Math.max(...columns.map(([, column]) => column));
-  const columnMap = Object.fromEntries(columns) as {
+
+  const columnMap = Object.fromEntries(
+    columns,
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
     readonly playerColumn: number;
     readonly teamColumn?: number;
     readonly oshiColumn?: number;
-  };
+  } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
   return {
     range: `'${sheet.replaceAll("'", "''")}'!${numberToColumn(startColumn)}:${numberToColumn(endColumn)}`,

@@ -450,7 +450,7 @@ const parseTeams = (
         (isvKind === "combined" && isvRanges.length === 1) ||
         (isvKind === "split" && isvRanges.length === 3);
       const isv =
-        isvKind === "combined" && isvRanges.length === 1
+        isvKind === "combined" && isvRanges.length === 1 // oxlint-disable-line no-nested-ternary -- inherited master site
           ? (() => {
               const range = parseLocalLegacyRange(
                 isvRanges[0],
@@ -467,7 +467,8 @@ const parseTeams = (
                 const [lead, backline, talent] = isvRanges.map((range, rangeIndex) =>
                   parseLocalLegacyRange(
                     range,
-                    `${path}.isv.${["lead", "backline", "talent"][rangeIndex]}`,
+
+                    `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ path /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}.isv.${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ ["lead", "backline", "talent"][rangeIndex] /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
                     tabs,
                     diagnostics,
                     sheet,
@@ -492,7 +493,7 @@ const parseTeams = (
       const tagsKind = text(row[6]);
       const tagsText = text(row[7]);
       const tags =
-        tagsKind === "constants"
+        tagsKind === "constants" // oxlint-disable-line no-nested-ternary -- inherited master site
           ? { kind: "constants" as const, values: splitComma(tagsText) }
           : tagsKind === "ranges"
             ? (() => {
@@ -844,13 +845,13 @@ export const parseLegacyConfiguration = (
   const expectedTitle = input.expectedTitle ?? legacySettingsExpectedTitle;
   const matchingSettingsTabs = input.tabs.filter((tab) => tab.title === expectedTitle);
   const settingsTab =
-    input.boundSheetId === undefined
+    input.boundSheetId === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
       ? matchingSettingsTabs.length === 1
         ? matchingSettingsTabs[0]
         : undefined
       : input.tabs.find((tab) => tab.sheetId === input.boundSheetId);
   const source: SheetConfigurationSource =
-    settingsTab === undefined
+    settingsTab === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
       ? input.boundSheetId === undefined
         ? { kind: "legacy", binding: { status: "unresolved", expectedTitle } }
         : {
@@ -878,7 +879,7 @@ export const parseLegacyConfiguration = (
       diagnostic(
         input.boundSheetId === undefined ? "LegacySourceUnresolved" : "LegacySourceChanged",
         "source.binding",
-        input.boundSheetId === undefined
+        input.boundSheetId === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
           ? matchingSettingsTabs.length > 1
             ? `The legacy settings tab title is ambiguous: ${expectedTitle}.`
             : `The legacy settings tab could not be found: ${expectedTitle}.`

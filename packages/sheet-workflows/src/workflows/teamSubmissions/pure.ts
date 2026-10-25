@@ -273,7 +273,10 @@ type ExplicitTeamLabel = {
 // fallow-ignore-next-line code-duplication
 const sectionAliasLookup = new Map<string, ParsedTeamEntry["teamType"]>(
   Object.entries(teamTypeAliases).flatMap(([type, aliases]) =>
-    aliases.map((alias) => [normalizeSectionAlias(alias), type as ParsedTeamEntry["teamType"]]),
+    aliases.map((alias) => [
+      normalizeSectionAlias(alias),
+      type /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ParsedTeamEntry["teamType"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+    ]),
   ),
 );
 
@@ -462,7 +465,7 @@ const parsedEntryFromLine = (
   stableKey: string,
 ) => {
   const suffix =
-    line.type === "alt"
+    line.type === "alt" // oxlint-disable-line no-nested-ternary -- inherited master site
       ? ` (alt ${index})`
       : line.type === "fullFill" && totalFullFill > 1
         ? ` (full fill ${index})`
@@ -522,7 +525,7 @@ const scanSubmissionLine = (
   }
   const explicitOshi = explicitOshiCandidate(line);
   const unlabeledOshi =
-    scanner.parsedLines.length > 0 && !powerPairPattern.test(line) && line.length <= 80
+    scanner.parsedLines.length > 0 && !powerPairPattern.test(line) && line.length <= 80 // oxlint-disable-line no-nested-ternary -- inherited master site
       ? isEmojiOnly(line) || containsEmoji(line)
         ? line
         : null
@@ -627,7 +630,7 @@ export const parseTeamSubmissionMessage = (
     entries,
     oshiCandidate,
     disposition:
-      entries.length > 0 ? "accepted" : oshiCandidate === null ? "notSubmission" : "oshiOnly",
+      entries.length > 0 ? "accepted" : oshiCandidate === null ? "notSubmission" : "oshiOnly", // oxlint-disable-line no-nested-ternary -- inherited master site
   };
 };
 
@@ -738,8 +741,8 @@ export const mergeRollbackSnapshots = (
 
 const confirmationLineForEntry = (entry: ParsedTeamEntry) => {
   const oshi =
-    entry.oshi.status === "matched"
-      ? ` | oshi: ${entry.oshi.value}`
+    entry.oshi.status === "matched" // oxlint-disable-line no-nested-ternary -- inherited master site
+      ? ` | oshi: ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ entry.oshi.value /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`
       : entry.oshi.candidate
         ? ` | oshi: ${entry.oshi.candidate} (${entry.oshi.status}, not assigned)`
         : "";

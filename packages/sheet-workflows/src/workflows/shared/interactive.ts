@@ -96,7 +96,7 @@ const mapBotAuthorizationFailure = (policy: string, error: unknown) =>
 
 const mapBotAdmissionOrResourceFailure = (policy: string, resource: string, error: unknown) => {
   const authorizationFailure = mapBotAuthorizationFailure(policy, error);
-  return Option.isSome(authorizationFailure)
+  return Option.isSome(authorizationFailure) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? authorizationFailure
     : Predicate.isTagged("BotResourceNotFound")(error)
       ? Option.some(interactiveResourceNotFound(resource))

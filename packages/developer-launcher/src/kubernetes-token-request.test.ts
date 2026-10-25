@@ -194,7 +194,9 @@ describe("Kubernetes TokenRequest client", () => {
     let exists = false;
     const methods: string[] = [];
     const listener: RequestListener = (request, response) => {
-      methods.push(`${request.method} ${request.url}`);
+      methods.push(
+        `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ request.method /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */} ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ request.url /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
+      );
       response.setHeader("content-type", "application/json");
       if (request.method === "GET" && !exists) {
         response.statusCode = 404;

@@ -805,7 +805,7 @@ const promoteSnapshot = (
         ? activation.failure.reason
         : "activation-failed";
     const active =
-      activeTargetResult._tag === "Success" && activeTargetResult.success === requestedTarget
+      activeTargetResult._tag === "Success" && activeTargetResult.success === requestedTarget // oxlint-disable-line no-nested-ternary -- inherited master site
         ? { revision: snapshot.revision, digest: snapshot.completion.filesDigest }
         : activeTargetResult._tag === "Success" && activeTargetResult.success === previousTarget
           ? previous

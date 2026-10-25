@@ -107,7 +107,7 @@ export const deriveMemberKickHour = (eventStartEpochMs: number, acceptedAt: numb
   );
 
 const canonicalSort = (values: ReadonlyArray<string>): ReadonlyArray<string> =>
-  [...values].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  [...values].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)); // oxlint-disable-line no-nested-ternary -- inherited master site
 
 const validateRoleReceipt = (
   receipt: SetMemberRoleReceipt,

@@ -9,7 +9,9 @@ import { workflowInvocationIdFromString } from "sheet-workflow-http-client";
 import { readConfigurationAttachment } from "./sheet";
 import { requireSheetConfigurationManageAccess } from "./sheet";
 
-const interaction = { user: { id: "123456789012345679" } } as unknown as APIInteraction;
+const interaction = {
+  user: { id: "123456789012345679" },
+} as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as APIInteraction /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 describe("Sheet Configuration attachment transport", () => {
   it.effect("drains a rejected redirect response before failing", () =>

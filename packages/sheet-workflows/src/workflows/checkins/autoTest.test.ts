@@ -259,31 +259,38 @@ const makePreparationFixture = (options: {
         getHourlyMessage: options.getHourlyMessage,
       },
     };
-    const operations = yield* makeOperations({} as SheetBotHttpClient, () => Effect.void, {
-      persistence,
-      provider: {
-        loadCheckin: () =>
-          Effect.succeed({
-            eventStartEpochMs: 0,
-            schedules: [
-              {
-                hour: options.hour,
-                fills,
-                overfillCount: 0,
-                monitor: { accountId: "monitor-1", name: "Monitor" },
-              },
-            ],
-          }),
-        loadLegacyScheduleTimeReference: ({ referenceInstantEpochMs }) =>
-          Effect.succeed(scheduleTimeReferenceFromLegacy(referenceInstantEpochMs, [options.hour])),
-        loadRoomOrder: () =>
-          Effect.succeed({
-            eventStartEpochMs: 0,
-            schedules: [{ hour: options.hour, fills: [], monitor: null }],
-            teamsByPlayerName: new Map(),
-          }),
+
+    const operations = yield* makeOperations(
+      {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+      () => Effect.void,
+      {
+        persistence,
+        provider: {
+          loadCheckin: () =>
+            Effect.succeed({
+              eventStartEpochMs: 0,
+              schedules: [
+                {
+                  hour: options.hour,
+                  fills,
+                  overfillCount: 0,
+                  monitor: { accountId: "monitor-1", name: "Monitor" },
+                },
+              ],
+            }),
+          loadLegacyScheduleTimeReference: ({ referenceInstantEpochMs }) =>
+            Effect.succeed(
+              scheduleTimeReferenceFromLegacy(referenceInstantEpochMs, [options.hour]),
+            ),
+          loadRoomOrder: () =>
+            Effect.succeed({
+              eventStartEpochMs: 0,
+              schedules: [{ hour: options.hour, fills: [], monitor: null }],
+              teamsByPlayerName: new Map(),
+            }),
+        },
       },
-    });
+    );
     return { operations, testExecution };
   });
 
@@ -312,7 +319,7 @@ const invalidAnchorCleanupError = (cleanupResult: unknown) =>
           }),
         deleteMessage: () => Effect.succeed(cleanupResult),
       },
-    } as unknown as SheetBotHttpClient;
+    } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     const operations = yield* makeOperations(bot, () => Effect.void);
     return errorFrom(
       yield* Effect.exit(
@@ -425,6 +432,7 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
   it.effect("rejects a forged anchor receipt and deletes its provisional message", () =>
     Effect.gen(function* () {
       const effects: Array<string> = [];
+
       const bot = {
         cache: {
           getWorkspace: ({ params }: { readonly params: { readonly workspaceId: string } }) =>
@@ -436,7 +444,9 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
         delivery: {
           respond: ({ payload }: Parameters<SheetBotHttpClient["delivery"]["respond"]>[0]) =>
             Effect.sync(() => {
-              effects.push(`respond:${payload.workspace?.client.clientId}`);
+              effects.push(
+                `respond:${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ payload.workspace?.client.clientId /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
+              );
               return {
                 deliveryKey: payload.deliveryKey,
                 operation: "respond" as const,
@@ -459,7 +469,7 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
               };
             }),
         },
-      } as unknown as SheetBotHttpClient;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const operations = yield* makeOperations(bot, () =>
         Effect.sync(() => effects.push("authorize")),
       );
@@ -532,6 +542,7 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
     Effect.gen(function* () {
       const effects: Array<string> = [];
       const prepared = preparation("Alpha", { checkin: false });
+
       const bot = {
         delivery: {
           sendMessage: ({
@@ -552,7 +563,7 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
               };
             }),
         },
-      } as unknown as SheetBotHttpClient;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const operations = yield* makeOperations(bot, () =>
         Effect.sync(() => effects.push("authorize")),
       );
@@ -580,11 +591,12 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
   it.effect("re-propagates an interrupted preview delivery", () =>
     Effect.gen(function* () {
       const prepared = preparation("Alpha", { checkin: false });
+
       const bot = {
         delivery: {
           sendMessage: () => Effect.failCause(Cause.interrupt(19)),
         },
-      } as unknown as SheetBotHttpClient;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const operations = yield* makeOperations(bot, () => Effect.void);
       const exit = yield* Effect.exit(
         operations.deliverMonitorPreview(
@@ -616,6 +628,7 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
         autoCheckinTestActionIdentities.deliverMonitor,
         "Alpha",
       );
+
       const bot = {
         delivery: {
           sendMessage: ({
@@ -640,7 +653,7 @@ const autoCheckinTestWorkflowDefinitionTests = () => {
               };
             }),
         },
-      } as unknown as SheetBotHttpClient;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const operations = yield* makeOperations(bot, () =>
         Effect.sync(() => effects.push("authorize")),
       );

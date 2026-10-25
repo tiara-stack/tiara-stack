@@ -172,10 +172,15 @@ describe("SheetWorkflowHttpClient protected enqueue boundary", () => {
               "discord-user-1",
               () => client.enqueueServicesDeliverStatus(input),
             )();
-            const userPayloads = requestRecords.slice(0, 2).map(({ payload }) => payload) as Array<{
+
+            const userPayloads = requestRecords
+              .slice(0, 2)
+              .map(
+                ({ payload }) => payload,
+              ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<{
               readonly invocationId: string;
               readonly input: ServicesDeliverStatusInput;
-            }>;
+            }> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
             expect(userReference.invocationId).toBe(userPayloads[0]?.invocationId);
             expect(userPayloads[0]?.invocationId).toBe(userPayloads[1]?.invocationId);
@@ -340,10 +345,13 @@ describe("SheetWorkflowHttpClient protected enqueue boundary", () => {
       expect(new Set(requestRecords.map(({ url }) => url))).toEqual(
         new Set(["https://workflows.example.test/workflows/slots.refreshButton/v/1/enqueue"]),
       );
-      const payloads = requestRecords.map(({ payload }) => payload) as Array<{
+
+      const payloads = requestRecords.map(
+        ({ payload }) => payload,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<{
         readonly invocationId: string;
         readonly input: unknown;
-      }>;
+      }> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       expect(new Set(payloads.map(({ invocationId }) => invocationId)).size).toBe(1);
       expect(payloads.map(({ input }) => input)).toEqual(
         Array.from({ length: 6 }, () => slotsRefreshInput),

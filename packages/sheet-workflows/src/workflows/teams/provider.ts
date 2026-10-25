@@ -138,7 +138,13 @@ const parseTeamConfigurations = (rows: ValueRows): Effect.Effect<ParsedTeamConfi
       ["teamNameRange", teamNameRange],
       ["isv", isv],
       ["tags", tags],
-    ].flatMap(([field, value]) => (Predicate.isUndefined(value) ? [field as string] : []));
+    ].flatMap(([field, value]) =>
+      Predicate.isUndefined(value)
+        ? [
+            field /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as string /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ]
+        : [],
+    );
     if (invalidFields.length > 0) {
       return Effect.succeed<ParsedTeamConfigurationRow>({
         configuration: undefined,
@@ -277,7 +283,7 @@ const teamNameFrom = (
   rowIndex: number,
   rawPlayerName: string | undefined,
 ): string | undefined =>
-  configuration.teamNameRange === "auto"
+  configuration.teamNameRange === "auto" // oxlint-disable-line no-nested-ternary -- inherited master site
     ? Predicate.isUndefined(rawPlayerName)
       ? undefined
       : `${rawPlayerName} | ${configuration.name}`

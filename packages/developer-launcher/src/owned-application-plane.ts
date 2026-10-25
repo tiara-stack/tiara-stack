@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { Effect, Match, Predicate, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
+import { LifecyclePhase } from "./owned-application-contract";
 import {
   makeSyntheticDevelopmentSeed,
   syntheticDevelopmentSeedId,
@@ -21,19 +22,6 @@ export class OwnedApplicationError extends Schema.TaggedErrorClass<OwnedApplicat
   { reason: Schema.String },
 ) {}
 const fail = (reason: string) => Effect.fail(new OwnedApplicationError({ reason }));
-const LifecyclePhase = Schema.Literals([
-  "reserved",
-  "provisioning",
-  "migrating",
-  "starting",
-  "ready",
-  "quarantined",
-  "deleting",
-  "deleted",
-  "resolving",
-  "fenced",
-]);
-type LifecyclePhase = typeof LifecyclePhase.Type;
 // Unknown allocation recovery may claim stable phases or an allocation interrupted by a crash.
 // Active sessions and an existing resolution/deletion claim remain blocked.
 const resolutionEligiblePlanePhases: ReadonlySet<LifecyclePhase> = new Set([
@@ -806,7 +794,7 @@ export const makeOwnedApplicationResourceAdapter = (
     const adapter: PreviewResourceAdapter = {
       ...base,
       planProfile: (input) =>
-        input.ownedGroups.includes(ownedApplicationResource)
+        input.ownedGroups.includes(ownedApplicationResource) // oxlint-disable-line no-nested-ternary -- inherited master site
           ? input.profile === options.profile &&
             input.ownedGroups.length === 1 &&
             input.selectedRoles.includes("sheet-db-server") &&

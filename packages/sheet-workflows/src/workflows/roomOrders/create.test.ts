@@ -108,7 +108,8 @@ const errorFrom = <A, E>(exit: Exit.Exit<A, E>): E => {
 const makeOperations = (
   persistence: TrustedSheetPersistence["Service"],
   provider: typeof RoomOrderCreateProvider.Service,
-  bot: SheetBotHttpClient = {} as SheetBotHttpClient,
+
+  bot: SheetBotHttpClient = {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
 ) =>
   Effect.gen(function* () {
     return yield* RoomOrderCreateOperations;
@@ -695,6 +696,7 @@ describe("room-order creation Workflow Definition slice", () => {
           },
         },
       };
+
       const bot = {
         delivery: {
           respond: ({ payload }: any) =>
@@ -711,7 +713,7 @@ describe("room-order creation Workflow Definition slice", () => {
               return { ...cleaned, target: { _tag: "Message" as const, message: foreignMessage } };
             }),
         },
-      } as unknown as SheetBotHttpClient;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const base = makeTrustedSheetPersistenceMock();
       return Effect.gen(function* () {
         const operations = yield* makeOperations(
@@ -760,6 +762,7 @@ describe("room-order creation Workflow Definition slice", () => {
           },
         },
       };
+
       const bot = {
         delivery: {
           respond: () =>
@@ -770,7 +773,7 @@ describe("room-order creation Workflow Definition slice", () => {
           deleteMessage: () =>
             Effect.fail(new BotDependencyUnavailable({ message: "cleanup unavailable" })),
         },
-      } as unknown as SheetBotHttpClient;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const base = makeTrustedSheetPersistenceMock();
       return Effect.gen(function* () {
         const operations = yield* makeOperations(
@@ -807,6 +810,7 @@ describe("room-order creation Workflow Definition slice", () => {
 
   it.live("parses room-order schedule data and retries transient formatting reads", () => {
     let formatAttempts = 0;
+
     const client = {
       spreadsheets: {
         values: {
@@ -904,7 +908,7 @@ describe("room-order creation Workflow Definition slice", () => {
           });
         },
       },
-    } as unknown as sheets_v4.Sheets;
+    } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     return Effect.gen(function* () {
       const view = yield* makeRoomOrderCreateProvider(client).load("sheet-1", "Run One");
       expect(formatAttempts).toBe(2);
@@ -932,7 +936,7 @@ describe("room-order creation Workflow Definition slice", () => {
             Promise.resolve({
               data: {
                 valueRanges:
-                  ranges[0] === "'Thee''s Sheet Settings'!O8:P"
+                  ranges[0] === "'Thee''s Sheet Settings'!O8:P" // oxlint-disable-line no-nested-ternary -- inherited master site
                     ? [
                         { values: [["Start Time", "1700000000"]] },
                         {
@@ -956,7 +960,7 @@ describe("room-order creation Workflow Definition slice", () => {
                         },
                         { values: [] },
                       ]
-                    : ranges[0] === "'Thee''s Sheet Settings'!E8:M"
+                    : ranges[0] === "'Thee''s Sheet Settings'!E8:M" // oxlint-disable-line no-nested-ternary -- inherited master site
                       ? [
                           { values: [] },
                           {
@@ -974,7 +978,7 @@ describe("room-order creation Workflow Definition slice", () => {
         },
         get: () => Promise.resolve({ data: { sheets: [] } }),
       },
-    } as unknown as sheets_v4.Sheets;
+    } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     return Effect.gen(function* () {
       const failure = yield* Effect.flip(
         makeRoomOrderCreateProvider(client).load("sheet-1", "Run One"),

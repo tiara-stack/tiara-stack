@@ -169,7 +169,7 @@ describe("preview session controller HTTP routes", () => {
           url: request.url,
           authorization: Option.getOrUndefined(Headers.get(request.headers, "authorization")),
         });
-        const responseBody = request.url.endsWith("/credential/issue/reserve")
+        const responseBody = request.url.endsWith("/credential/issue/reserve") // oxlint-disable-line no-nested-ternary -- inherited master site
           ? {
               reservationId: "issue-reservation-a",
               session: {
@@ -189,9 +189,9 @@ describe("preview session controller HTTP routes", () => {
                 endedAt: null,
               },
             }
-          : request.url.endsWith("/credential/issue/release")
+          : request.url.endsWith("/credential/issue/release") // oxlint-disable-line no-nested-ternary -- inherited master site
             ? { released: true }
-            : request.url.endsWith("/work/admit")
+            : request.url.endsWith("/work/admit") // oxlint-disable-line no-nested-ternary -- inherited master site
               ? {
                   admissionId: "admission-a",
                   sessionId: "session-a",

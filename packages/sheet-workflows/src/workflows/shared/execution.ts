@@ -19,10 +19,12 @@ export const workflowContractExecutionSchema = <Contract extends AnyWorkflowCont
 export const decodeWorkflowContractInputOrDie = <Contract extends AnyWorkflowContract>(
   contract: Contract,
   input: unknown,
-) =>
-  (
-    Schema.decodeUnknownEffect(contract.input)(input) as Effect.Effect<
-      WorkflowContractInput<Contract>,
-      Schema.SchemaError
-    >
-  ).pipe(Effect.orDie);
+) => {
+  const decoded = Schema.decodeUnknownEffect(contract.input)(
+    input,
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
+    WorkflowContractInput<Contract>,
+    Schema.SchemaError
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+  return decoded.pipe(Effect.orDie);
+};

@@ -74,7 +74,10 @@ const makeStatusCommand = Effect.gen(function* () {
 const makeGlobalStatusCommand = Effect.gen(function* () {
   const statusCommand = yield* makeStatusCommand;
 
-  return CommandHelper.makeGlobalCommand(statusCommand.data, statusCommand.handler as never);
+  return CommandHelper.makeGlobalCommand(
+    statusCommand.data,
+    statusCommand.handler /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 });
 
 export const statusCommandLayer = Layer.effectDiscard(

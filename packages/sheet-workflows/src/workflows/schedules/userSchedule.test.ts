@@ -142,7 +142,10 @@ const makeBot = (
       readonly message: unknown;
     };
   }) => Effect.Effect<unknown, unknown>,
-): SheetBotHttpClient => ({ delivery: { respond } }) as unknown as SheetBotHttpClient;
+): SheetBotHttpClient =>
+  ({
+    delivery: { respond },
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const basePersistence = () => makeTrustedSheetPersistenceMock();
 
@@ -606,6 +609,7 @@ describe("user-schedule delivery Workflow Definition slice", () => {
         ],
       ] as const;
       let request = 0;
+
       const client = {
         spreadsheets: {
           values: {
@@ -615,7 +619,7 @@ describe("user-schedule delivery Workflow Definition slice", () => {
             },
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const loaded = yield* makeUserScheduleProvider(client).load("sheet-1", 2);
       expect(loaded).toEqual({
         eventStartEpochMs,
@@ -741,13 +745,14 @@ describe("user-schedule delivery Workflow Definition slice", () => {
         ],
       ] as const;
       let request = 0;
+
       const client = {
         spreadsheets: {
           values: {
             batchGet: () => Promise.resolve({ data: { valueRanges: responses[request++] ?? [] } }),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       const loaded = yield* makeUserScheduleProvider(client).loadAll("sheet-1");
 
@@ -761,6 +766,7 @@ describe("user-schedule delivery Workflow Definition slice", () => {
   it.live("retries transient provider reads but not permanent failures", () =>
     Effect.gen(function* () {
       let transientAttempts = 0;
+
       const transientClient = {
         spreadsheets: {
           values: {
@@ -793,7 +799,7 @@ describe("user-schedule delivery Workflow Definition slice", () => {
             },
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       expect(yield* makeUserScheduleProvider(transientClient).load("sheet-1", 2)).toEqual({
         eventStartEpochMs,
         players: [{ accountId: "account-target", name: "Target" }],
@@ -804,16 +810,18 @@ describe("user-schedule delivery Workflow Definition slice", () => {
 
       let permanentAttempts = 0;
       const permanentFailure = yield* Effect.flip(
-        makeUserScheduleProvider({
-          spreadsheets: {
-            values: {
-              batchGet: () => {
-                permanentAttempts += 1;
-                return Promise.reject({ response: { status: 403 } });
+        makeUserScheduleProvider(
+          {
+            spreadsheets: {
+              values: {
+                batchGet: () => {
+                  permanentAttempts += 1;
+                  return Promise.reject({ response: { status: 403 } });
+                },
               },
             },
-          },
-        } as unknown as sheets_v4.Sheets).load("sheet-1", 2),
+          } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+        ).load("sheet-1", 2),
       );
       expect(permanentFailure.operation).toBe("read-configuration");
       expect(permanentAttempts).toBe(1);

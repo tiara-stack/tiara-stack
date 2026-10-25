@@ -269,8 +269,20 @@ export const teamSubmissionButtonLayer = Layer.effectDiscard(
 
     yield* registry.register(
       Ix.builder
-        .add(makeMessageComponent(confirm.data, confirm.handler as never))
-        .add(makeMessageComponent(reject.data, reject.handler as never))
+
+        .add(
+          makeMessageComponent(
+            confirm.data,
+            confirm.handler /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ),
+        )
+
+        .add(
+          makeMessageComponent(
+            reject.data,
+            reject.handler /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ),
+        )
         .catchAllCause(Effect.log),
     );
   }),

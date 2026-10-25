@@ -9,7 +9,7 @@ export interface TeamListField {
 }
 
 export const truncateWithEllipsis = (value: string, limit: number): string =>
-  limit <= 0 ? "" : value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
+  limit <= 0 ? "" : value.length <= limit ? value : `${value.slice(0, limit - 1)}…`; // oxlint-disable-line no-nested-ternary -- inherited master site
 
 export const boundTeamListFields = (
   fields: ReadonlyArray<TeamListField>,

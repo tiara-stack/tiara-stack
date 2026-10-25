@@ -234,7 +234,7 @@ const retrySchedule = Schedule.exponential("100 millis").pipe(Schedule.jittered)
 
 // Provider clients expose status through several error shapes; keep the classification exhaustive.
 const responseStatus = (cause: unknown): number | undefined =>
-  Predicate.hasProperty(cause, "response") &&
+  Predicate.hasProperty(cause, "response") && // oxlint-disable-line no-nested-ternary -- inherited master site
   Predicate.isObject(cause.response) &&
   Predicate.hasProperty(cause.response, "status") &&
   Predicate.isNumber(cause.response.status)
@@ -246,7 +246,7 @@ const responseStatus = (cause: unknown): number | undefined =>
 // fallow-ignore-next-line complexity
 const responseCode = (cause: unknown): SheetSnapshotProviderCode => {
   const status = responseStatus(cause);
-  return status === 401 || status === 403
+  return status === 401 || status === 403 // oxlint-disable-line no-nested-ternary -- inherited master site
     ? "AccessDenied"
     : status === 429
       ? "RateLimited"

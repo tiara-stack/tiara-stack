@@ -42,7 +42,10 @@ const applyRoomEncAndDoormat = (room: Room): Room => {
   const tiererTalent =
     tierers.length === 0
       ? 0
-      : Array.max(tierers as Array.NonEmptyArray<PlayerTeam>, PlayerTeam.byTalent).talent;
+      : Array.max(
+          tierers /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array.NonEmptyArray<PlayerTeam> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          PlayerTeam.byTalent,
+        ).talent;
 
   let encIndex = -1;
   let bestEffectValue = -Infinity;

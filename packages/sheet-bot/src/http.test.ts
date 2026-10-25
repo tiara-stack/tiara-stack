@@ -77,14 +77,24 @@ describe("discordInteractionMessageToRef", () => {
     Effect.gen(function* () {
       const responseReference = Schema.decodeUnknownSync(ResponseReference)("response-1");
       const deliveryKey = Schema.decodeUnknownSync(DeliveryKey)("delivery-1");
-      const rest = Layer.succeed(DiscordREST, {
-        updateOriginalWebhookMessage: () =>
-          Effect.succeed({ id: "message-1", channel_id: "channel-1" } as Discord.MessageResponse),
-        withFiles:
-          () =>
-          <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-            effect,
-      } as unknown as typeof DiscordREST.Service);
+
+      const rest = Layer.succeed(
+        DiscordREST,
+        {
+          updateOriginalWebhookMessage: () =>
+            Effect.succeed(
+              {
+                id: "message-1",
+                channel_id: "channel-1",
+              } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Discord.MessageResponse /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+            ),
+          withFiles:
+            () =>
+            <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+              effect,
+        } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof DiscordREST.Service /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+      );
+
       const store = {
         resolveResponseReference: () =>
           Effect.succeed({
@@ -100,7 +110,7 @@ describe("discordInteractionMessageToRef", () => {
         }: {
           readonly effect: Effect.Effect<unknown, unknown, never>;
         }) => effect,
-      } as unknown as typeof BotCapabilityStore.Service;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof BotCapabilityStore.Service /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const httpClient = yield* makeDeliveryHttpClient(rest, store);
 
       const receipt = yield* httpClient.delivery.respond({
@@ -145,7 +155,7 @@ describe("SheetBotApi permission-overwrite delivery", () => {
     ({
       executeDelivery: ({ effect }: { readonly effect: Effect.Effect<unknown, unknown, never> }) =>
         effect,
-    }) as unknown as typeof BotCapabilityStore.Service;
+    }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof BotCapabilityStore.Service /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
   it.effect("forwards permission overwrites with Discord target types", () =>
     Effect.gen(function* () {
@@ -158,7 +168,7 @@ describe("SheetBotApi permission-overwrite delivery", () => {
                 updates.push({ channelId, payload });
                 return {};
               }),
-          }) as unknown as typeof DiscordREST.Service,
+          }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof DiscordREST.Service /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       );
       const httpClient = yield* makeDeliveryHttpClient(rest, makeStore());
 
@@ -200,7 +210,7 @@ describe("SheetBotApi permission-overwrite delivery", () => {
                 updates.push("unexpected update");
                 return {};
               }),
-          }) as unknown as typeof DiscordREST.Service,
+          }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof DiscordREST.Service /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       );
       const httpClient = yield* makeDeliveryHttpClient(rest, makeStore());
       const exit = yield* Effect.exit(

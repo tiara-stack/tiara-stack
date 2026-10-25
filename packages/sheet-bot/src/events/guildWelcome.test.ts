@@ -88,10 +88,12 @@ describe("makeGuildWelcomeHandler", () => {
         Effect.sync(() => {
           const payload =
             request.body._tag === "Uint8Array"
-              ? (JSON.parse(new TextDecoder().decode(request.body.body)) as {
+              ? (JSON.parse(
+                  new TextDecoder().decode(request.body.body),
+                ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
                   readonly input: unknown;
                   readonly invocationId: string;
-                })
+                }) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
               : undefined;
           if (payload !== undefined) {
             requestRecords.push(payload);

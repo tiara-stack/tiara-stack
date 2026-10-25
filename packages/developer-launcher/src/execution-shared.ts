@@ -133,7 +133,7 @@ export const terminalOutput = (
   return {
     ...output,
     readiness:
-      status === "completed" && output.readiness !== "ready"
+      status === "completed" && output.readiness !== "ready" // oxlint-disable-line no-nested-ternary -- inherited master site
         ? "completed"
         : status === "stopped" && output.readiness !== "ready"
           ? "stopped"

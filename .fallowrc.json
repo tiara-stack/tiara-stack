@@ -7,19 +7,38 @@
     "packages/sheet-db-schema/effect-sql-migrations/0003_migration.ts",
     "packages/sheet-db-schema/effect-sql-migrations/0004_migration.ts",
     "packages/sheet-bot/src/reconcileDeliveryMain.ts",
-    "deploy/compose/scripts/seed.ts",
-    "packages/typhoon-core/src/error/index.ts"
+    "packages/typhoon-core/src/error/index.ts",
+    "deploy/compose/scripts/seed.ts"
   ],
   "framework": [
     {
       "name": "tiara-test-entrypoints",
       "enablers": ["vite-plus"],
       "entryPoints": [
+        "packages/tooling-config/test/builtin-adoption-integration.test.mjs",
         "packages/tooling-config/test/effect-policy.test.mjs",
-        "packages/tooling-config/test/generated-route-adoption.test.mjs"
+        "packages/tooling-config/test/generated-route-adoption.test.mjs",
+        "packages/tooling-config/test/nested-ternary-integration.test.mjs"
       ],
       "entryPointRole": "test"
+    },
+    {
+      "name": "tiara-command-support-entrypoints",
+      "enablers": ["vite-plus"],
+      "entryPoints": [
+        "scripts/check-agent-configs.ts",
+        "deploy/compose/scripts/generate-secrets.ts",
+        "deploy/compose/scripts/migrate-sheet-db.ts",
+        "deploy/kubernetes/scripts/parity-gate.ts"
+      ],
+      "entryPointRole": "support"
     }
+  ],
+  "ignoreCommandEntries": [
+    "check:agent-configs",
+    "compose:generate-secrets",
+    "compose:migrate-sheet-db",
+    "kubernetes:parity-gate"
   ],
   "ignorePatterns": [
     "packages/*/effect-sql-migrations/**",

@@ -131,7 +131,7 @@ export const isCheckinMessagePreparationRetry = (
 
 export const checkinMessageUpdatedBy = (principal: EffectivePrincipal): string =>
   Predicate.hasProperty(principal, "serviceId")
-    ? `service:${principal.serviceId}`
+    ? `service:${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ principal.serviceId /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`
     : (principal.discordAccount?.accountId ?? "unknown-user");
 
 const isMessageSetArgumentConflict = (error: unknown): boolean => {
@@ -335,7 +335,7 @@ export const selectCheckinTemplate = (options: {
   readonly savedTemplate: string | null | undefined;
   readonly fallbackTemplate: string;
 }): string =>
-  Predicate.isString(options.explicitTemplate)
+  Predicate.isString(options.explicitTemplate) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? options.explicitTemplate
     : Predicate.isString(options.savedTemplate) && options.savedTemplate.trim().length > 0
       ? options.savedTemplate
@@ -593,7 +593,7 @@ export const makeSheetDataProvider = (
             conversationId: conversation.id,
             hour,
           });
-      const template = Predicate.isString(input.template)
+      const template = Predicate.isString(input.template) // oxlint-disable-line no-nested-ternary -- inherited master site
         ? input.template
         : Predicate.isString(savedMessage) && savedMessage.trim().length > 0
           ? savedMessage

@@ -27,7 +27,7 @@ export const selectRolloutGateDecision = ({
     matched,
     executionPath: row?.executionPath ?? "legacy",
     reason:
-      Predicate.isNotUndefined(storedReason) && storedReason.length > 0
+      Predicate.isNotUndefined(storedReason) && storedReason.length > 0 // oxlint-disable-line no-nested-ternary -- inherited master site
         ? storedReason
         : matched
           ? "reason-missing"

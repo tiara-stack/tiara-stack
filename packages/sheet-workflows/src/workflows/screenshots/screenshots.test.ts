@@ -103,7 +103,7 @@ const makeScreenshotDeliveryClient = (options: {
           };
         }),
     },
-  }) as unknown as SheetBotHttpClient;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const captureOperations = (options: {
   readonly effects: Array<string>;
@@ -202,6 +202,7 @@ describe("screenshot capture workflow", () => {
     () =>
       Effect.gen(function* () {
         const calls: Array<string> = [];
+
         const client = {
           spreadsheets: {
             get: () => {
@@ -244,7 +245,7 @@ describe("screenshot capture workflow", () => {
               },
             },
           },
-        } as unknown as sheets_v4.Sheets;
+        } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
         const target = yield* makeScreenshotSourceProvider(client).resolve("sheet_1", "alpha", 2);
 
@@ -268,7 +269,7 @@ describe("screenshot capture workflow", () => {
               Promise.resolve({ data: { valueRanges: [{ values: [["beta", 2, "Schedule"]] }] } }),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       const error = yield* Effect.flip(
         makeScreenshotSourceProvider(client).resolve("sheet_1", "alpha", 2),

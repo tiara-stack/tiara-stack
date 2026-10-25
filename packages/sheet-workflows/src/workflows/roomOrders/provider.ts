@@ -67,7 +67,7 @@ export const roomOrderPreviousMonitorFromSchedules = (
   const previous = indexSchedulesByHour(
     schedules.filter(({ channel }) => channel === conversationName),
   ).get(hour - 1);
-  return previous === undefined ? undefined : previous.break ? null : previous.monitor;
+  return previous === undefined ? undefined : previous.break ? null : previous.monitor; // oxlint-disable-line no-nested-ternary -- inherited master site
 };
 
 const makeRoomOrderNavigationProvider = (

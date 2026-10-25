@@ -76,7 +76,7 @@ const requestedHourRows = (
   availableRows: number | undefined,
   maximumRows: number,
 ): number =>
-  endRow === undefined
+  endRow === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
     ? availableRows === undefined
       ? maximumRows + 1
       : Math.max(0, availableRows - startRow + 1)

@@ -134,13 +134,14 @@ describe("channel filler selection", () => {
         ],
       ] as const;
       let request = 0;
+
       const client = {
         spreadsheets: {
           values: {
             batchGet: () => Promise.resolve({ data: { valueRanges: responses[request++] ?? [] } }),
           },
         },
-      } as unknown as sheets_v4.Sheets;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       const loaded = yield* makeUserScheduleProvider(client).loadAll("sheet-1");
 

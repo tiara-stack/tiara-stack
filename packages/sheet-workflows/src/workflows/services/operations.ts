@@ -40,7 +40,7 @@ const safeStringify = (value: unknown): string => {
 
 const formatPrivateError = (error: unknown): string =>
   boundPrivateDetail(
-    Predicate.isError(error)
+    Predicate.isError(error) // oxlint-disable-line no-nested-ternary -- inherited master site
       ? error.message
       : Predicate.isString(error)
         ? error

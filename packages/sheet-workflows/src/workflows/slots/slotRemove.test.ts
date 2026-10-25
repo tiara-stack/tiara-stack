@@ -66,7 +66,9 @@ describe("slot button removal workflow", () => {
           return Effect.succeed(removal);
         },
         respond: (execution) => {
-          calls.push(`${execution.status}:${execution.messageId}`);
+          calls.push(
+            `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ execution.status /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}:${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ execution.messageId /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
+          );
           return Effect.succeed(response);
         },
       });
@@ -89,7 +91,9 @@ describe("slot button removal workflow", () => {
         load: () => Effect.succeed(null),
         remove: () => Effect.die("remove should not run"),
         respond: (execution) => {
-          calls.push(`${execution.status}:${execution.messageId}`);
+          calls.push(
+            `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ execution.status /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}:${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ execution.messageId /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
+          );
           return Effect.succeed(response);
         },
       });

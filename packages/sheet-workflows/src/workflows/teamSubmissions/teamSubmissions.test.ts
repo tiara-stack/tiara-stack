@@ -73,6 +73,7 @@ const makeSheetsClient = (operations: {
     calls[name] += 1;
     return operation?.() ?? Promise.resolve({ data: {} });
   };
+
   const client = {
     spreadsheets: {
       values: {
@@ -81,7 +82,7 @@ const makeSheetsClient = (operations: {
         append: counted("append", operations.append),
       },
     },
-  } as unknown as sheets_v4.Sheets;
+  } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as sheets_v4.Sheets /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   return { calls, client };
 };
 

@@ -323,7 +323,7 @@ const bestEffort = <A, R>(
 ): Effect.Effect<Option.Option<A>, never, R> =>
   Effect.exit(effect).pipe(
     Effect.flatMap((exit) =>
-      Exit.isSuccess(exit)
+      Exit.isSuccess(exit) // oxlint-disable-line no-nested-ternary -- inherited master site
         ? Effect.succeed(Option.some(exit.value))
         : Cause.hasInterruptsOnly(exit.cause)
           ? Effect.interrupt

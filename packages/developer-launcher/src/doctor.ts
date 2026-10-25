@@ -217,7 +217,8 @@ const runToolCheck = async (
   if (check.id === "kubernetes-credential-set" && (result.stdout?.trim() ?? "") === "") {
     return makeDiagnostic(
       "required-dependency-failed",
-      `${check.dependency} was not found in ${check.args[check.args.indexOf("--namespace") + 1]}`,
+
+      `${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ check.dependency /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */} was not found in ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ check.args[check.args.indexOf("--namespace") + 1] /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
       check.remediation,
       { mode: check.mode, dependency: check.dependency },
     );

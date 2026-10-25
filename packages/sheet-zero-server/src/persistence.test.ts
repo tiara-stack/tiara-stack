@@ -37,9 +37,12 @@ describe("trusted Sheet persistence policy", () => {
         const { persistence } = yield* resetFixture;
 
         expect(Object.keys(persistence)).toEqual(Object.keys(trustedSheetPersistenceCatalog));
-        for (const group of Object.keys(trustedSheetPersistenceCatalog) as Array<
+
+        for (const group of Object.keys(
+          trustedSheetPersistenceCatalog,
+        ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
           keyof typeof trustedSheetPersistenceCatalog
-        >) {
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */) {
           const persistedGroup = persistence[group];
           expect(persistedGroup).toBeDefined();
           expect(Object.keys(persistedGroup)).toEqual(trustedSheetPersistenceCatalog[group]);

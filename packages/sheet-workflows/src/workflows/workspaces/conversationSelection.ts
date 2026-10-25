@@ -30,7 +30,7 @@ const conversationPosition = ({ position }: BotConversation): number =>
 const byPositionThenId = (left: BotConversation, right: BotConversation): number => {
   const positionDifference = conversationPosition(left) - conversationPosition(right);
   if (positionDifference !== 0) return positionDifference;
-  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0;
+  return left.id < right.id ? -1 : left.id > right.id ? 1 : 0; // oxlint-disable-line no-nested-ternary -- inherited master site
 };
 
 export const selectWorkspaceConversation = (

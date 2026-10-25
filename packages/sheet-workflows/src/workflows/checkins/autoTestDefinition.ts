@@ -526,7 +526,7 @@ export const makeCheckinsTestAutoWorkflowBody = <R>(actions: {
       ({ deliveryState }) =>
         deliveryState === "unknown" || deliveryState === "committed-and-unknown",
     );
-    const previewDeliveryState: PreviewDeliveryState = previewHasCommitted
+    const previewDeliveryState: PreviewDeliveryState = previewHasCommitted // oxlint-disable-line no-nested-ternary -- inherited master site
       ? previewHasUnknown
         ? "committed-and-unknown"
         : "committed"

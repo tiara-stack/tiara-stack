@@ -367,7 +367,7 @@ const makeKubernetesHttpRequest = (
       return yield* Effect.fail(
         new PreviewRelayProviderError({
           reason:
-            response.status === 404
+            response.status === 404 // oxlint-disable-line no-nested-ternary -- inherited master site
               ? "owner-label-mismatch"
               : response.status === 409
                 ? "listener-collision"
@@ -387,7 +387,7 @@ const makeKubernetesHttpRequestMessage = (
   body: unknown,
 ) => {
   const base =
-    method === "GET"
+    method === "GET" // oxlint-disable-line no-nested-ternary -- inherited master site
       ? HttpClientRequest.get(url)
       : method === "POST"
         ? HttpClientRequest.post(url)
@@ -483,7 +483,14 @@ const listenerLeaseMetadata = (lease: unknown) => {
 const listenerLeaseHasOwner = (
   labels: PreviewRelayOwnerLabels,
   observed: Record<string, unknown>,
-) => labelsMatch(labels, observed as Record<string, string>);
+) =>
+  labelsMatch(
+    labels,
+    observed /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+      string,
+      string
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 
 const listenerLeaseHasHolder = (identity: PreviewRelayIdentity, holder: unknown) =>
   holder === listenerLeaseHolder(identity);
@@ -532,7 +539,12 @@ const isOwnedAttachmentLease = (
     !previewRelayHostRoles.some((candidate) => candidate === role)
   )
     return false;
-  const identity = { sessionId, role: role as PreviewRelayRole, processId };
+
+  const identity = {
+    sessionId,
+    role: role /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as PreviewRelayRole /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+    processId,
+  };
   if (!sessionIdentityIsValid(identity)) return false;
   const listener = Schema.decodeUnknownOption(PreviewRelayHostListenerSchema)({
     role: identity.role,
@@ -1074,7 +1086,7 @@ export const makeConfiguredPreviewRelayPlatformClient = (
             "No adapter verified an actual Telepresence attachment to the session/role/process target; the authorization result remains unsupported.",
         };
       const authorization = yield* Effect.forEach(
-        targets as PreviewRelayScopedAttachmentTarget[],
+        targets /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as PreviewRelayScopedAttachmentTarget[] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         (target) => options.scopedAttachmentAuthorizationProbe!(target),
       );
       if (
@@ -1106,7 +1118,11 @@ export const makeConfiguredPreviewRelayPlatformClient = (
     const role = labels["tiara-stack.io/role"];
     if (sessionId === undefined || !previewRelayHostRoles.some((candidate) => candidate === role))
       return undefined;
-    return relayNameFor(sessionId, role as PreviewRelayRole);
+
+    return relayNameFor(
+      sessionId,
+      role /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as PreviewRelayRole /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+    );
   };
   const ownedResourceName = (
     providerResourceId: string,
@@ -1140,12 +1156,22 @@ export const makeConfiguredPreviewRelayPlatformClient = (
   };
   const owned = (value: unknown, labels: PreviewRelayOwnerLabels) => {
     if (typeof value !== "object" || value === null || !("metadata" in value)) return false;
-    const metadata = (value as { metadata?: { labels?: Record<string, string> } }).metadata;
+
+    const metadata = (
+      value /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+        metadata?: { labels?: Record<string, string> };
+      }
+    ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.metadata;
     return metadata?.labels !== undefined && labelsMatch(labels, metadata.labels);
   };
   const ownedSession = (value: unknown, labels: PreviewRelayOwnerLabels) => {
     if (typeof value !== "object" || value === null || !("metadata" in value)) return false;
-    const metadata = (value as { metadata?: { labels?: Record<string, string> } }).metadata;
+
+    const metadata = (
+      value /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+        metadata?: { labels?: Record<string, string> };
+      }
+    ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.metadata;
     return metadata?.labels !== undefined && sessionIdentityLabelsMatch(labels, metadata.labels);
   };
   const safeOwnedOrAbsent = (
@@ -2272,7 +2298,7 @@ export const makePreviewRelayProvider = (
       ? decoded.value
       : undefined;
   const unavailableReason =
-    config === undefined
+    config === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
       ? "provider-configuration-missing"
       : client === undefined
         ? "provider-client-unavailable"

@@ -1064,7 +1064,7 @@ export const makePreviewGateway = (options: {
               guardApplicationSocket,
               applicationRequest: (input) => {
                 const applicationRequest = connection.applicationRequest;
-                return applicationRequest === undefined
+                return applicationRequest === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
                   ? Effect.fail(failure("unsupported"))
                   : route.target.kind === "application"
                     ? Effect.gen(function* () {
@@ -1168,7 +1168,7 @@ export const makePreviewGateway = (options: {
                 );
               },
               applicationSocket: (input) =>
-                connection.applicationSocket === undefined || route.target.kind !== "application"
+                connection.applicationSocket === undefined || route.target.kind !== "application" // oxlint-disable-line no-nested-ternary -- inherited master site
                   ? Effect.fail(failure("unsupported"))
                   : principal.effectivePrincipal === undefined
                     ? Effect.fail(failure("unsupported"))

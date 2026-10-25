@@ -300,7 +300,9 @@ describe("runner staged-source supervisor", () => {
         }),
       restart: ({ revision }) =>
         Effect.sync(() => {
-          calls.push(`restart:${revision}`);
+          calls.push(
+            `restart:${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ revision /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}`,
+          );
         }),
       verifyReadiness: ({ revision }) =>
         Effect.sync(() => {

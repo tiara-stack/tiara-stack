@@ -31,6 +31,7 @@ describe("selected autonomous check-in generation", () => {
       const workspaceId = Schema.decodeUnknownSync(WorkspaceId)("workspace-1");
       const chapterStart = Date.UTC(2026, 8, 9, 3);
       const hour82Start = Date.UTC(2026, 8, 10, 12);
+
       const persistence = {
         workspaces: {
           getWorkspaceConfigByWorkspaceId: () =>
@@ -81,7 +82,7 @@ describe("selected autonomous check-in generation", () => {
               }),
             ),
         },
-      } as unknown as TrustedSheetPersistence["Service"];
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as TrustedSheetPersistence["Service"] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const checkinProvider = {
         loadCheckin: () =>
           Effect.succeed({

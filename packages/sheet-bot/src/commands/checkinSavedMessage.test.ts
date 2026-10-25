@@ -396,6 +396,7 @@ describe("saved check-in message command", () => {
         submittedAt: now,
         updatedAt: now,
       };
+
       const modalData = {
         custom_id: "checkin:saved:123456789012345680:123456789012345681:49:1750000000000:1:1",
         components: [
@@ -404,7 +405,7 @@ describe("saved check-in message command", () => {
             components: [{ type: 4, custom_id: "template", value: "hello" }],
           },
         ],
-      } as unknown as APIModalSubmission;
+      } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as APIModalSubmission /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       const events: string[] = [];
       let enqueueCount = 0;
       let observedUserId: string | undefined;

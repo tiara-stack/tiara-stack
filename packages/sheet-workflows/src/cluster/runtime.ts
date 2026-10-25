@@ -148,7 +148,7 @@ const availableSheetWorkflowShardGroups = ["dispatch", "autoCheckin", "browser"]
 export const assignedSheetWorkflowShardGroups = (
   role: "combined" | "api" | "producer" | "runner" | "browser-runner",
 ): ReadonlyArray<(typeof availableSheetWorkflowShardGroups)[number]> =>
-  role === "browser-runner" ? ["browser"] : role === "producer" ? [] : ["dispatch", "autoCheckin"];
+  role === "browser-runner" ? ["browser"] : role === "producer" ? [] : ["dispatch", "autoCheckin"]; // oxlint-disable-line no-nested-ternary -- inherited master site
 
 const configuredRunnerAddress = Effect.gen(function* () {
   const runnerHost = yield* config.workflowsRunnerHost;

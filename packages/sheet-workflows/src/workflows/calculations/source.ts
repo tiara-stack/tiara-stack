@@ -240,7 +240,7 @@ const teamRows = (
       ? undefined
       : normalizePlayerName(originalPlayerName);
     const teamName =
-      indexes.configuration.teamNameRange === "auto"
+      indexes.configuration.teamNameRange === "auto" // oxlint-disable-line no-nested-ternary -- inherited master site
         ? Predicate.isUndefined(originalPlayerName)
           ? undefined
           : `${originalPlayerName} | ${indexes.configuration.name}`
@@ -433,12 +433,12 @@ export const decodeCalculationSource = (
   return {
     ...base,
     players: decoded.players,
-    failure: decoded.duplicatePlayerNames
+    failure: decoded.duplicatePlayerNames // oxlint-disable-line no-nested-ternary -- inherited master site
       ? calculationInvalidRequest(
           calculationInvalidRequestCodes.invalidSource,
           "The calculation source contains duplicate player names",
         )
-      : decoded.missingPlayerNames
+      : decoded.missingPlayerNames // oxlint-disable-line no-nested-ternary -- inherited master site
         ? calculationInvalidRequest(
             calculationInvalidRequestCodes.invalidSource,
             "The calculation source does not contain every requested player",

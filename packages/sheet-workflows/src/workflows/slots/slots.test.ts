@@ -89,7 +89,7 @@ const makeBot = (overrides: {
       deleteMessage: overrides.deleteMessage ?? (() => Effect.die("Unexpected deleteMessage call")),
       respond: overrides.respond ?? (() => Effect.die("Unexpected respond call")),
     },
-  }) as unknown as SheetBotHttpClient;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetBotHttpClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeOperations = (
   slotState: TrustedSheetPersistence["Service"]["slotState"],
@@ -464,7 +464,9 @@ describe("slot Workflow Definition slices", () => {
         slotState,
         makeBot({
           deleteMessage: ({ payload }) => {
-            calls.push(`delete:${(payload.message as { messageId: string }).messageId}`);
+            calls.push(
+              `delete:${(payload.message /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as { messageId: string }) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.messageId}`,
+            );
             return Effect.succeed({
               deliveryKey: payload.deliveryKey,
               operation: "deleteMessage" as const,
