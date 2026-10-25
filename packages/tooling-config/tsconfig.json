@@ -5,6 +5,7 @@
   "compilerOptions": {
     "outDir": "./.ts-out",
     "rootDir": ".",
+    "allowImportingTsExtensions": true,
     "tsBuildInfoFile": "./.ts-out/.tsbuildinfo"
   }
 }
