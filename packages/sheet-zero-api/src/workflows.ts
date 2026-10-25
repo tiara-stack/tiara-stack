@@ -42,7 +42,7 @@ export const makeSheetWorkflowZeroClients = <Requirements = never>(
 ): SheetWorkflowZeroClients<Requirements> =>
   mapWorkflowContractTree(SheetWorkflowContracts, (contract) =>
     makeWorkflowZeroClient(contract, executor),
-  ) as SheetWorkflowZeroClients<Requirements>;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetWorkflowZeroClients<Requirements> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 export const sheetWorkflowZeroProcedureManifest = workflowZeroProcedureManifest(
   SheetWorkflowContractCatalog,
@@ -63,7 +63,7 @@ export type SheetWorkflowZeroObservationContract =
 type SheetWorkflowRunQuery = Query<"workflowRun", Schema, unknown>;
 
 const asSheetWorkflowRunQuery = <Return>(query: Query<"workflowRun", Schema, Return>) =>
-  query as unknown as SheetWorkflowRunQuery;
+  query as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetWorkflowRunQuery /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const observationStatuses = {
   Pending: ["pending", "running"],

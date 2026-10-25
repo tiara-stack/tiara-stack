@@ -47,12 +47,24 @@ const IssueAnnotations = Schema.StructWithRest(IssueAnnotationsFields, [Annotati
 // These AST fields are transport-only placeholders for now. They preserve
 // payload shape across the wire, but decoded values are plain data rather than
 // live SchemaAST instances.
-const SchemaIssueAst = Schema.Unknown as Schema.Codec<SchemaAST.AST, SchemaAST.AST>;
-const SchemaIssueFilterAst = Schema.Unknown as Schema.Codec<
-  SchemaAST.Filter<unknown>,
-  SchemaAST.Filter<unknown>
->;
-const SchemaIssueUnionAst = Schema.Unknown as Schema.Codec<SchemaAST.Union, SchemaAST.Union>;
+
+const SchemaIssueAst =
+  Schema.Unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Schema.Codec<
+    SchemaAST.AST,
+    SchemaAST.AST
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
+const SchemaIssueFilterAst =
+  Schema.Unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Schema.Codec<
+    SchemaAST.Filter<unknown>,
+    SchemaAST.Filter<unknown>
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
+const SchemaIssueUnionAst =
+  Schema.Unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Schema.Codec<
+    SchemaAST.Union,
+    SchemaAST.Union
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 type FilterStruct = {
   _tag: "Filter";

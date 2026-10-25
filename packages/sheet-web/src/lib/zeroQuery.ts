@@ -9,7 +9,7 @@ export const decodeOptionalQueryResult = <A extends Schema.Codec<unknown, unknow
   schema: A,
   value: unknown,
 ): Effect.Effect<Option.Option<A["Type"]>, Schema.SchemaError, A["DecodingServices"]> =>
-  Option.isOption(value)
+  Option.isOption(value) // oxlint-disable-line no-nested-ternary -- inherited master site
     ? Option.isNone(value)
       ? Effect.succeed(Option.none())
       : Schema.decodeUnknownEffect(schema)(value.value).pipe(Effect.map(Option.some))

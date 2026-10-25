@@ -26,18 +26,27 @@ const DebugFormatConfig = Config.boolean("EFFECT_ZERO_DEBUG_FORMAT").pipe(
 );
 
 const readBooleanConfig = (name: string, config: Config.Config<boolean>) =>
-  config.parse(ConfigProvider.fromEnv({ env: process.env as Record<string, string> })).pipe(
-    Effect.catch((error) =>
-      Effect.gen(function* () {
-        if (process.env[name] !== undefined) {
-          yield* Console.warn(
-            `effect-zero: Failed to parse ${name}; using false. ${String(error)}`,
-          );
-        }
-        return false;
+  config
+    .parse(
+      ConfigProvider.fromEnv({
+        env: process.env /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
+          string,
+          string
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       }),
-    ),
-  );
+    )
+    .pipe(
+      Effect.catch((error) =>
+        Effect.gen(function* () {
+          if (process.env[name] !== undefined) {
+            yield* Console.warn(
+              `effect-zero: Failed to parse ${name}; using false. ${String(error)}`,
+            );
+          }
+          return false;
+        }),
+      ),
+    );
 
 export type GeneratorOptions = {
   readonly config?: string | undefined;
@@ -87,9 +96,9 @@ const validateOutputPathEffect = (outputPath: string): Effect.Effect<string, Err
     return resolved;
   });
 
-export const formatGeneratedFileEffect = (
+const formatGeneratedFileEffectWithStatus = (
   outputPath: string,
-): Effect.Effect<void, unknown, ChildProcessSpawner.ChildProcessSpawner | Path.Path> =>
+): Effect.Effect<boolean, unknown, ChildProcessSpawner.ChildProcessSpawner | Path.Path> =>
   Effect.gen(function* () {
     const resolvedOutputPath = yield* validateOutputPathEffect(outputPath);
     const debugFormat = yield* readBooleanConfig("EFFECT_ZERO_DEBUG_FORMAT", DebugFormatConfig);
@@ -99,12 +108,12 @@ export const formatGeneratedFileEffect = (
       runFormatter("pnpm", ["exec", "vp", "fmt", resolvedOutputPath], cwd),
     );
     if (Result.isSuccess(first)) {
-      return;
+      return true;
     }
 
     const second = yield* Effect.result(runFormatter("vp", ["fmt", resolvedOutputPath], cwd));
     if (Result.isSuccess(second)) {
-      return;
+      return true;
     }
 
     yield* Console.warn(
@@ -118,6 +127,14 @@ export const formatGeneratedFileEffect = (
         second.failure instanceof Error ? second.failure.message : JSON.stringify(second.failure),
       );
     }
+    return false;
+  });
+
+export const formatGeneratedFileEffect = (
+  outputPath: string,
+): Effect.Effect<void, unknown, ChildProcessSpawner.ChildProcessSpawner | Path.Path> =>
+  Effect.gen(function* () {
+    yield* formatGeneratedFileEffectWithStatus(outputPath);
   });
 
 export const generateEffect = (
@@ -232,7 +249,20 @@ export const writeGeneratedFileEffect = ({
     yield* fs.writeFileString(outputPath, content);
 
     if (format) {
-      yield* formatGeneratedFileEffect(outputPath);
+      const formattedSuccessfully = yield* formatGeneratedFileEffectWithStatus(outputPath);
+      if (formattedSuccessfully) {
+        const formatted = yield* fs.readFileString(outputPath);
+        const signatureStatus = checkSignature(formatted);
+        if (signatureStatus === "no-signature") {
+          return yield* new EffectZeroCliGenerateError({
+            message: `effect-zero: ${outputPath} lost its generated signature while formatting.`,
+          });
+        }
+        if (signatureStatus === "modified") {
+          const signatureLineEnd = formatted.indexOf("\n");
+          yield* fs.writeFileString(outputPath, signContent(formatted.slice(signatureLineEnd + 1)));
+        }
+      }
     }
 
     return outputPath;

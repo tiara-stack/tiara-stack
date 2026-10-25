@@ -48,14 +48,26 @@ export const defaultColumnSchema = <
 ): DefaultColumnSchema<D, K, Config> => {
   if (kind === "integer") {
     if (dialect === "sqlite" && config?.mode === "boolean") {
-      return Schema.Boolean as DefaultColumnSchema<D, K, Config>;
+      return Schema.Boolean /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as DefaultColumnSchema<
+        D,
+        K,
+        Config
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     }
-    return (dialect === "postgresql" ? Schema.Int : Schema.Number) as DefaultColumnSchema<
+
+    return (
+      dialect === "postgresql" ? Schema.Int : Schema.Number
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as DefaultColumnSchema<
       D,
       K,
       Config
-    >;
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
-  return (defaultKindSchemas[kind] ?? Schema.String) as DefaultColumnSchema<D, K, Config>;
+  return (defaultKindSchemas[kind] ??
+    Schema.String) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as DefaultColumnSchema<
+    D,
+    K,
+    Config
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };

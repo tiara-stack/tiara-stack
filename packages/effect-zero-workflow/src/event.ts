@@ -89,7 +89,9 @@ export const defineEvent = <
   readonly value: Value;
   readonly error?: Error | undefined;
 }) => {
-  const errorSchema = options.error ?? (Schema.Never as unknown as Error);
+  const errorSchema =
+    options.error ??
+    (Schema.Never as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Error) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
   const deferred = (deferredName: string) =>
     DurableDeferred.make(deferredName, {

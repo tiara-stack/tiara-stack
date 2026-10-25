@@ -38,153 +38,203 @@ import { Route as AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayou
 import { Route as AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutDailyRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/_channelLayout/daily'
 import { Route as AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutCalendarRouteImport } from './routes/_authenticated/dashboard/guilds/$guildId.schedule.$channel/_channelLayout/calendar'
 
-const ReadyRoute = ReadyRouteImport.update({
-  id: '/ready',
-  path: '/ready',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LiveRoute = LiveRouteImport.update({
-  id: '/live',
-  path: '/live',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedRoute = AuthenticatedRouteImport.update({
-  id: '/_authenticated',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const DocsSplatRoute = DocsSplatRouteImport.update({
-  id: '/docs/$',
-  path: '/docs/$',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
+const ReadyRoute = ReadyRouteImport.update(
+  {
+    id: '/ready',
+    path: '/ready',
+    getParentRoute: () => rootRouteImport,
+  } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+)
+const LiveRoute = LiveRouteImport.update(
+  {
+    id: '/live',
+    path: '/live',
+    getParentRoute: () => rootRouteImport,
+  } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+)
+const AuthenticatedRoute = AuthenticatedRouteImport.update(
+  {
+    id: '/_authenticated',
+    getParentRoute: () => rootRouteImport,
+  } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+)
+const IndexRoute = IndexRouteImport.update(
+  {
+    id: '/',
+    path: '/',
+    getParentRoute: () => rootRouteImport,
+  } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+)
+const DocsSplatRoute = DocsSplatRouteImport.update(
+  {
+    id: '/docs/$',
+    path: '/docs/$',
+    getParentRoute: () => rootRouteImport,
+  } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+)
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update(
+  {
+    id: '/dashboard',
+    path: '/dashboard',
+    getParentRoute: () => AuthenticatedRoute,
+  } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+)
 const AuthenticatedDashboardIndexRoute =
-  AuthenticatedDashboardIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedDashboardRoute,
-  } as any)
-const AuthOauthStartRoute = AuthOauthStartRouteImport.update({
-  id: '/auth/oauth/start',
-  path: '/auth/oauth/start',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthOauthCallbackRoute = AuthOauthCallbackRouteImport.update({
-  id: '/auth/oauth/callback',
-  path: '/auth/oauth/callback',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiDocsSearchRoute = ApiDocsSearchRouteImport.update({
-  id: '/api/docs/search',
-  path: '/api/docs/search',
-  getParentRoute: () => rootRouteImport,
-} as any)
+  AuthenticatedDashboardIndexRouteImport.update(
+    {
+      id: '/',
+      path: '/',
+      getParentRoute: () => AuthenticatedDashboardRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
+const AuthOauthStartRoute = AuthOauthStartRouteImport.update(
+  {
+    id: '/auth/oauth/start',
+    path: '/auth/oauth/start',
+    getParentRoute: () => rootRouteImport,
+  } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+)
+const AuthOauthCallbackRoute = AuthOauthCallbackRouteImport.update(
+  {
+    id: '/auth/oauth/callback',
+    path: '/auth/oauth/callback',
+    getParentRoute: () => rootRouteImport,
+  } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+)
+const ApiDocsSearchRoute = ApiDocsSearchRouteImport.update(
+  {
+    id: '/api/docs/search',
+    path: '/api/docs/search',
+    getParentRoute: () => rootRouteImport,
+  } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+)
 const AuthenticatedSettingsNotificationsRoute =
-  AuthenticatedSettingsNotificationsRouteImport.update({
-    id: '/settings/notifications',
-    path: '/settings/notifications',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
+  AuthenticatedSettingsNotificationsRouteImport.update(
+    {
+      id: '/settings/notifications',
+      path: '/settings/notifications',
+      getParentRoute: () => AuthenticatedRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDeveloperOauthClientsRoute =
-  AuthenticatedDeveloperOauthClientsRouteImport.update({
-    id: '/developer/oauth-clients',
-    path: '/developer/oauth-clients',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
+  AuthenticatedDeveloperOauthClientsRouteImport.update(
+    {
+      id: '/developer/oauth-clients',
+      path: '/developer/oauth-clients',
+      getParentRoute: () => AuthenticatedRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardShiftsRoute =
-  AuthenticatedDashboardShiftsRouteImport.update({
-    id: '/shifts',
-    path: '/shifts',
-    getParentRoute: () => AuthenticatedDashboardRoute,
-  } as any)
+  AuthenticatedDashboardShiftsRouteImport.update(
+    {
+      id: '/shifts',
+      path: '/shifts',
+      getParentRoute: () => AuthenticatedDashboardRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardPreferencesRoute =
-  AuthenticatedDashboardPreferencesRouteImport.update({
-    id: '/preferences',
-    path: '/preferences',
-    getParentRoute: () => AuthenticatedDashboardRoute,
-  } as any)
+  AuthenticatedDashboardPreferencesRouteImport.update(
+    {
+      id: '/preferences',
+      path: '/preferences',
+      getParentRoute: () => AuthenticatedDashboardRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardGuildsRouteRoute =
-  AuthenticatedDashboardGuildsRouteRouteImport.update({
-    id: '/guilds',
-    path: '/guilds',
-    getParentRoute: () => AuthenticatedDashboardRoute,
-  } as any)
+  AuthenticatedDashboardGuildsRouteRouteImport.update(
+    {
+      id: '/guilds',
+      path: '/guilds',
+      getParentRoute: () => AuthenticatedDashboardRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardGuildsIndexRoute =
-  AuthenticatedDashboardGuildsIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedDashboardGuildsRouteRoute,
-  } as any)
+  AuthenticatedDashboardGuildsIndexRouteImport.update(
+    {
+      id: '/',
+      path: '/',
+      getParentRoute: () => AuthenticatedDashboardGuildsRouteRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardGuildsGuildIdRoute =
-  AuthenticatedDashboardGuildsGuildIdRouteImport.update({
-    id: '/$guildId',
-    path: '/$guildId',
-    getParentRoute: () => AuthenticatedDashboardGuildsRouteRoute,
-  } as any)
+  AuthenticatedDashboardGuildsGuildIdRouteImport.update(
+    {
+      id: '/$guildId',
+      path: '/$guildId',
+      getParentRoute: () => AuthenticatedDashboardGuildsRouteRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardGuildsGuildIdIndexRoute =
-  AuthenticatedDashboardGuildsGuildIdIndexRouteImport.update({
-    id: '/',
-    path: '/',
-    getParentRoute: () => AuthenticatedDashboardGuildsGuildIdRoute,
-  } as any)
+  AuthenticatedDashboardGuildsGuildIdIndexRouteImport.update(
+    {
+      id: '/',
+      path: '/',
+      getParentRoute: () => AuthenticatedDashboardGuildsGuildIdRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardGuildsGuildIdSettingsRoute =
-  AuthenticatedDashboardGuildsGuildIdSettingsRouteImport.update({
-    id: '/settings',
-    path: '/settings',
-    getParentRoute: () => AuthenticatedDashboardGuildsGuildIdRoute,
-  } as any)
+  AuthenticatedDashboardGuildsGuildIdSettingsRouteImport.update(
+    {
+      id: '/settings',
+      path: '/settings',
+      getParentRoute: () => AuthenticatedDashboardGuildsGuildIdRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardGuildsGuildIdScheduleRoute =
-  AuthenticatedDashboardGuildsGuildIdScheduleRouteImport.update({
-    id: '/schedule',
-    path: '/schedule',
-    getParentRoute: () => AuthenticatedDashboardGuildsGuildIdRoute,
-  } as any)
+  AuthenticatedDashboardGuildsGuildIdScheduleRouteImport.update(
+    {
+      id: '/schedule',
+      path: '/schedule',
+      getParentRoute: () => AuthenticatedDashboardGuildsGuildIdRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardGuildsGuildIdSettingsSheetRoute =
-  AuthenticatedDashboardGuildsGuildIdSettingsSheetRouteImport.update({
-    id: '/sheet',
-    path: '/sheet',
-    getParentRoute: () => AuthenticatedDashboardGuildsGuildIdSettingsRoute,
-  } as any)
+  AuthenticatedDashboardGuildsGuildIdSettingsSheetRouteImport.update(
+    {
+      id: '/sheet',
+      path: '/sheet',
+      getParentRoute: () => AuthenticatedDashboardGuildsGuildIdSettingsRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardGuildsGuildIdSettingsServerRoute =
-  AuthenticatedDashboardGuildsGuildIdSettingsServerRouteImport.update({
-    id: '/server',
-    path: '/server',
-    getParentRoute: () => AuthenticatedDashboardGuildsGuildIdSettingsRoute,
-  } as any)
+  AuthenticatedDashboardGuildsGuildIdSettingsServerRouteImport.update(
+    {
+      id: '/server',
+      path: '/server',
+      getParentRoute: () => AuthenticatedDashboardGuildsGuildIdSettingsRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRoute =
-  AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRouteImport.update({
-    id: '/checkin-messages',
-    path: '/checkin-messages',
-    getParentRoute: () => AuthenticatedDashboardGuildsGuildIdSettingsRoute,
-  } as any)
+  AuthenticatedDashboardGuildsGuildIdSettingsCheckinMessagesRouteImport.update(
+    {
+      id: '/checkin-messages',
+      path: '/checkin-messages',
+      getParentRoute: () => AuthenticatedDashboardGuildsGuildIdSettingsRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardGuildsGuildIdSettingsChannelsRoute =
-  AuthenticatedDashboardGuildsGuildIdSettingsChannelsRouteImport.update({
-    id: '/channels',
-    path: '/channels',
-    getParentRoute: () => AuthenticatedDashboardGuildsGuildIdSettingsRoute,
-  } as any)
+  AuthenticatedDashboardGuildsGuildIdSettingsChannelsRouteImport.update(
+    {
+      id: '/channels',
+      path: '/channels',
+      getParentRoute: () => AuthenticatedDashboardGuildsGuildIdSettingsRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRoute =
-  AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRouteImport.update({
-    id: '/$channel/',
-    path: '/$channel/',
-    getParentRoute: () => AuthenticatedDashboardGuildsGuildIdScheduleRoute,
-  } as any)
+  AuthenticatedDashboardGuildsGuildIdScheduleChannelIndexRouteImport.update(
+    {
+      id: '/$channel/',
+      path: '/$channel/',
+      getParentRoute: () => AuthenticatedDashboardGuildsGuildIdScheduleRoute,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  )
 const AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutRoute =
   AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutRouteImport.update(
     {
       id: '/$channel/_channelLayout',
       path: '/$channel',
       getParentRoute: () => AuthenticatedDashboardGuildsGuildIdScheduleRoute,
-    } as any,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   )
 const AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutDailyRoute =
   AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutDailyRouteImport.update(
@@ -193,7 +243,7 @@ const AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutDailyRoute 
       path: '/daily',
       getParentRoute: () =>
         AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutRoute,
-    } as any,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   )
 const AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutCalendarRoute =
   AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutCalendarRouteImport.update(
@@ -202,7 +252,7 @@ const AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutCalendarRou
       path: '/calendar',
       getParentRoute: () =>
         AuthenticatedDashboardGuildsGuildIdScheduleChannelChannelLayoutRoute,
-    } as any,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   )
 
 export interface FileRoutesByFullPath {

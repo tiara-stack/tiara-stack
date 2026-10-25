@@ -77,9 +77,13 @@ describe("ZeroFunctionReference", () => {
 
   it("reuses query atoms for the same client, reference, and arguments", () => {
     const api = ZeroFunctionReference.makeReferences(Api, ["public"]);
+
     const client = {
       stream: () => Stream.empty,
-    } as unknown as ZeroApiClient.FunctionClient<typeof Api, "public">;
+    } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ZeroApiClient.FunctionClient<
+      typeof Api,
+      "public"
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     const first = ZeroApiAtom.makeQuery(client, api.items.get, { id: "item-1" });
     const equivalentApi = ZeroFunctionReference.makeReferences(Api, ["public"]);
     const otherApi = ZeroFunctionReference.makeReferences(OtherApi, ["public"]);
@@ -90,7 +94,10 @@ describe("ZeroFunctionReference", () => {
     expect(first).not.toBe(ZeroApiAtom.makeQuery(client, api.items.get, { id: "item-2" }));
     expect(first).not.toBe(
       ZeroApiAtom.makeQuery(
-        client as unknown as ZeroApiClient.FunctionClient<typeof OtherApi, "public">,
+        client as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ZeroApiClient.FunctionClient<
+          typeof OtherApi,
+          "public"
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         otherApi.items.get,
         { id: "item-1" },
       ),
@@ -102,12 +109,16 @@ describe("ZeroFunctionReference", () => {
   it("uses type-safe structural keys for atom arguments", () => {
     const api = ZeroFunctionReference.makeReferences(Api, ["public"]);
     const streamedArguments: Array<unknown> = [];
+
     const client = {
       stream: (_reference: unknown, argument: unknown) => {
         streamedArguments.push(argument);
         return Stream.empty;
       },
-    } as unknown as ZeroApiClient.FunctionClient<typeof Api, "public">;
+    } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ZeroApiClient.FunctionClient<
+      typeof Api,
+      "public"
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     const iso = "2026-07-29T00:00:00.000Z";
     const ordered = ZeroApiAtom.makeQuery(client, api.items.flexible, { a: 1, b: 2 });
 

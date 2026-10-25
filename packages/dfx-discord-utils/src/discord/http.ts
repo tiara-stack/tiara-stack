@@ -199,9 +199,10 @@ export const discordHttpApiHandlersLayer: Layer.Layer<
               rest
                 .createInteractionResponse(payload.interactionId, payload.interactionToken, {
                   params: { with_response: true },
+
                   payload: withoutInteractionMessageMentions(
                     payload.payload,
-                  ) as Discord.CreateInteractionResponseRequest,
+                  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Discord.CreateInteractionResponseRequest /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
                 })
                 .pipe(
                   Effect.flatMap(
@@ -215,7 +216,10 @@ export const discordHttpApiHandlersLayer: Layer.Layer<
             handleBotRestError(
               rest.createMessage(
                 channelId,
-                withoutMessageMentions(payload) as Discord.MessageCreateRequest,
+
+                withoutMessageMentions(
+                  payload,
+                ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Discord.MessageCreateRequest /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
               ),
               `Failed to send message to channel ${channelId}`,
             ),
@@ -225,7 +229,10 @@ export const discordHttpApiHandlersLayer: Layer.Layer<
               rest.updateMessage(
                 channelId,
                 messageId,
-                withoutMessageMentions(payload) as Discord.MessageEditRequestPartial,
+
+                withoutMessageMentions(
+                  payload,
+                ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Discord.MessageEditRequestPartial /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
               ),
               `Failed to update message ${messageId} in channel ${channelId}`,
             ),
@@ -237,7 +244,7 @@ export const discordHttpApiHandlersLayer: Layer.Layer<
                 rest.updateOriginalWebhookMessage(application.id, interactionToken, {
                   payload: withoutMessageMentions(
                     payload,
-                  ) as Discord.IncomingWebhookUpdateRequestPartial,
+                  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Discord.IncomingWebhookUpdateRequestPartial /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
                 }),
                 "Failed to update original interaction response",
               ),
@@ -253,9 +260,15 @@ export const discordHttpApiHandlersLayer: Layer.Layer<
                       fs.readFile(file.path).pipe(
                         Effect.map(
                           (content) =>
-                            new File([content as BlobPart], file.name, {
-                              type: file.contentType,
-                            }),
+                            new File(
+                              [
+                                content /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as BlobPart /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+                              ],
+                              file.name,
+                              {
+                                type: file.contentType,
+                              },
+                            ),
                         ),
                       ),
                     { concurrency: 2 },
@@ -264,7 +277,7 @@ export const discordHttpApiHandlersLayer: Layer.Layer<
                     rest.updateOriginalWebhookMessage(application.id, interactionToken, {
                       payload: withoutMessageMentions(
                         payload.payload,
-                      ) as Discord.IncomingWebhookUpdateRequestPartial,
+                      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Discord.IncomingWebhookUpdateRequestPartial /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
                     }),
                   );
                 }),

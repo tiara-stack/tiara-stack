@@ -15,7 +15,11 @@ import type {
 } from "./types.js";
 
 const identifierFromModel = (model: EffectSqlModel): string | undefined => {
-  const ast = (model as { readonly ast?: { readonly annotations?: Record<string, unknown> } }).ast;
+  const ast = (
+    model /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+      readonly ast?: { readonly annotations?: Record<string, unknown> };
+    }
+  ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.ast;
   const id = ast?.annotations?.identifier ?? ast?.annotations?.id ?? ast?.annotations?.title;
   return typeof id === "string" ? id : undefined;
 };
@@ -65,22 +69,28 @@ type ModelClass<Self, Fields extends Record<string, AnyColumn>> = VariantSchema.
 // map instead of repeating (and potentially widening) the bridge downstream.
 const asModelClass = <Self, Fields extends Record<string, AnyColumn>>(
   value: object,
-): ModelClass<Self, Fields> => value as ModelClass<Self, Fields>;
+): ModelClass<Self, Fields> =>
+  value /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ModelClass<
+    Self,
+    Fields
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const nullableFieldSchema = <Column extends AnyColumn>(
   column: Column,
 ): NullableFieldSchema<Column> =>
   column.data.notNull || column.data.primaryKey
-    ? (column.data.fieldSchema as NullableFieldSchema<Column>)
+    ? (column.data
+        .fieldSchema /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as NullableFieldSchema<Column>) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
     : (Schema.NullOr(column.data.fieldSchema) as NullableFieldSchema<Column>);
 
 const modelField = <Column extends AnyColumn>(column: Column): ModelField<Column> => {
   const schema = nullableFieldSchema(column);
+
   return Match.value(column.data.generation).pipe(
     Match.when("database", () => Model.Generated(schema)),
     Match.when("application", () => Model.GeneratedByApp(schema)),
     Match.orElse(() => schema),
-  ) as ModelField<Column>;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ModelField<Column> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 const attachTableName = <Column extends AnyColumn>(tableName: string, column: Column): Column =>
@@ -109,7 +119,12 @@ export const defineTable = <
 
   const columns = {} as Record<string, EffectSqlColumn<D>>;
   const configuredColumns = options.columns as TableColumns<Model>;
-  for (const fieldName of Object.keys(model.fields) as Array<FieldName<Model>>) {
+
+  for (const fieldName of Object.keys(
+    model.fields,
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
+    FieldName<Model>
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */) {
     const configured = configuredColumns?.[fieldName];
     if (configured === false) {
       continue;
@@ -130,7 +145,12 @@ export const defineTable = <
   return finalizeTable(dialect, model, {
     name,
     schema: options.schema,
-    columns: columns as DefinedTableColumns<D, ModelTableColumns<Model, Columns>>,
+
+    columns:
+      columns /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as DefinedTableColumns<
+        D,
+        ModelTableColumns<Model, Columns>
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     primaryKey: options.primaryKey,
     indexes: options.indexes,
   });
@@ -156,7 +176,11 @@ const finalizeTable = <
   for (const [fieldName, column] of Object.entries(columns)) {
     if (column.data.primaryKey) {
       primaryKey.add(fieldName);
-      columns[fieldName as keyof Columns] = column.notNull() as Columns[keyof Columns];
+
+      columns[
+        fieldName /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof Columns /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+      ] =
+        column.notNull() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Columns[keyof Columns] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     }
   }
 
@@ -171,14 +195,20 @@ const finalizeTable = <
     if (!column) {
       throw new Error(`effect-sql-schema: primary key ${options.name}.${key} was not generated`);
     }
-    columns[key as keyof Columns] = column.primaryKey() as Columns[keyof Columns];
+
+    columns[
+      key /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof Columns /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+    ] =
+      column.primaryKey() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Columns[keyof Columns] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   for (const [fieldName, column] of Object.entries(columns)) {
-    columns[fieldName as keyof Columns] = attachTableName(
+    columns[
+      fieldName /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof Columns /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+    ] = attachTableName(
       options.name,
       column,
-    ) as Columns[keyof Columns];
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Columns[keyof Columns] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   return {
@@ -189,7 +219,12 @@ const finalizeTable = <
     sqlName: options.name,
     schema: options.schema,
     columns: columns as Columns,
-    primaryKey: [...primaryKey] as Array<FieldName<Model>>,
+
+    primaryKey: [
+      ...primaryKey,
+    ] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
+      FieldName<Model>
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     indexes: options.indexes ?? [],
   };
 };
@@ -215,8 +250,17 @@ export const defineClass =
   ) => {
     const table = tableDefinition(definition);
     const primaryKey = new Set<string>(definition.primaryKey ?? []);
-    const columns = {} as PrimaryKeyColumns<Fields, PrimaryKey>;
-    const fields = {} as ModelFields<PrimaryKeyColumns<Fields, PrimaryKey>>;
+
+    const columns =
+      {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as PrimaryKeyColumns<
+        Fields,
+        PrimaryKey
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
+    const fields =
+      {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ModelFields<
+        PrimaryKeyColumns<Fields, PrimaryKey>
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     for (const [fieldName, column] of Object.entries(definition.fields) as Array<
       [keyof Fields & string, EffectSqlColumn<D>]
@@ -237,11 +281,20 @@ export const defineClass =
       }
       const namedColumn = column.asField(fieldName) as EffectSqlColumn<D>;
       const normalizedColumn = primaryKey.has(fieldName) ? namedColumn.primaryKey() : namedColumn;
-      columns[fieldName] = normalizedColumn as PrimaryKeyColumns<Fields, PrimaryKey>[keyof Fields &
-        string];
-      fields[fieldName] = modelField(normalizedColumn) as ModelFields<
+
+      columns[fieldName] =
+        normalizedColumn /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as PrimaryKeyColumns<
+          Fields,
+          PrimaryKey
+        >[keyof Fields &
+          string] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
+      fields[fieldName] = modelField(
+        normalizedColumn,
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ModelFields<
         PrimaryKeyColumns<Fields, PrimaryKey>
-      >[keyof Fields & string];
+      >[keyof Fields &
+        string] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     }
 
     const makeClass = Model.Class<Self>(identifier);
@@ -254,7 +307,11 @@ export const defineClass =
       name: table.name,
       schema: table.schema,
       columns,
-      primaryKey: definition.primaryKey as readonly FieldName<typeof klass>[] | undefined,
+
+      primaryKey:
+        definition.primaryKey /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as
+          | readonly FieldName<typeof klass>[]
+          | undefined /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       indexes: definition.indexes,
     });
 

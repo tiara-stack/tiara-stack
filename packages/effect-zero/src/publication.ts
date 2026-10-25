@@ -305,7 +305,9 @@ const typeAlterPublicationResult = ({
             ...destructiveTableSet(dropRemovedTables, diff.removed),
           },
         ],
-        snapshot: diff.effectiveCurrent as JsonValue,
+
+        snapshot:
+          diff.effectiveCurrent /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as JsonValue /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       };
 };
 
@@ -327,7 +329,9 @@ const changedColumnPublicationResult = (
             ...destructiveTableSet(dropRemovedTables, diff.removed),
           },
         ],
-        snapshot: snapshot as JsonValue,
+
+        snapshot:
+          snapshot /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as JsonValue /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       }
     : undefined;
 };
@@ -349,7 +353,9 @@ const tableSetPublicationResult = (
   }
   return {
     statements,
-    snapshot: diff.effectiveCurrent as JsonValue,
+
+    snapshot:
+      diff.effectiveCurrent /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as JsonValue /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   };
 };
 
@@ -365,7 +371,11 @@ const generateStatements = ({
   readonly statements: NonNullable<MigrationExtensionContext["statements"]>;
 }): MigrationExtensionResult => {
   if (!previous) {
-    return { statements: [{ sql: createPublicationSql(current) }], snapshot: current as JsonValue };
+    return {
+      statements: [{ sql: createPublicationSql(current) }],
+      snapshot:
+        current /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as JsonValue /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+    };
   }
 
   if (previous.name !== current.name) {
@@ -374,7 +384,9 @@ const generateStatements = ({
         { sql: `DROP PUBLICATION IF EXISTS ${quoteIdentifier(previous.name)};`, destructive: true },
         { sql: createPublicationSql(current) },
       ],
-      snapshot: current as JsonValue,
+
+      snapshot:
+        current /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as JsonValue /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     };
   }
 
@@ -472,7 +484,9 @@ order by ns.nspname, c.relname`,
         .sort((left, right) => tableKey(left).localeCompare(tableKey(right))),
     };
 
-    return Schema.decodeUnknownSync(PublicationSnapshotSchema)(snapshot) as JsonValue;
+    return Schema.decodeUnknownSync(PublicationSnapshotSchema)(
+      snapshot,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as JsonValue /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   });
 export const zeroPublication = (options: ZeroPublicationOptions): MigrationExtensionLike => {
   const resolved = {
@@ -508,5 +522,5 @@ export const zeroPublication = (options: ZeroPublicationOptions): MigrationExten
 
       return introspectPublication(resolved.name);
     },
-  } as MigrationExtensionLike;
+  } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as MigrationExtensionLike /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };

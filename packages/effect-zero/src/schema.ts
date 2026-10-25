@@ -19,7 +19,7 @@ const normalizeTables = <const Tables extends Record<string, SchemaTable>>(
 ): NormalizedTables<Tables> => {
   const normalized: Record<string, EffectZeroTable> = {};
   for (const [key, table] of Object.entries(tables)) {
-    normalized[key] = isEffectSqlTable(table)
+    normalized[key] = isEffectSqlTable(table) // oxlint-disable-line no-nested-ternary -- inherited master site
       ? fromSqlTable(table, {
           name: key,
           serverName: prefixedIdentifierName(prefix, table.sqlName ?? table.name),
@@ -34,7 +34,8 @@ const normalizeTables = <const Tables extends Record<string, SchemaTable>>(
   // Object.entries necessarily widens the source keys while the loop preserves
   // each table's model at runtime. Restore that mapped key/model relationship at
   // this single construction boundary instead of erasing the result with never.
-  return normalized as NormalizedTables<Tables>;
+
+  return normalized /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as NormalizedTables<Tables> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 export const schema = <const Tables extends Record<string, SchemaTable>>(

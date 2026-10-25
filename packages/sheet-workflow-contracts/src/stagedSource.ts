@@ -34,7 +34,7 @@ export const stagedSourceDigestInput = (revision: string, files: ReadonlyArray<S
   JSON.stringify({
     revision,
     files: [...files]
-      .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0))
+      .sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0)) // oxlint-disable-line no-nested-ternary -- inherited master site
       .map(({ path, contentEncoding, content, mode }) => [path, contentEncoding, content, mode]),
   });
 

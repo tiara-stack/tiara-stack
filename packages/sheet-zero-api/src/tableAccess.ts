@@ -100,7 +100,11 @@ export const defineZeroTableAccess = <
   >(
     query: Query,
     primaryKey: Value,
-  ): OneResult<Query> => wherePrimaryKey(query, primaryKey).one() as OneResult<Query>;
+  ): OneResult<Query> =>
+    wherePrimaryKey(
+      query,
+      primaryKey,
+    ).one() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as OneResult<Query> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
   const listActiveWhere = <Query extends Whereable<Query>>(query: Query): Query =>
     options.softDelete ? query.where(options.softDelete, "IS", null) : query;
@@ -112,7 +116,9 @@ export const defineZeroTableAccess = <
     query: Query,
     primaryKey: Value,
   ): OneResult<Query> =>
-    listActiveWhere(wherePrimaryKey(query, primaryKey)).one() as OneResult<Query>;
+    listActiveWhere(
+      wherePrimaryKey(query, primaryKey),
+    ).one() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as OneResult<Query> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
   const listWhere = <Query extends Whereable<Query>>(
     query: Query,
@@ -131,7 +137,10 @@ export const defineZeroTableAccess = <
     existing?: ExistingCreatedAt<CreatedAt>,
   ): WithTimestamps<Value, Options> => {
     if (!options.timestamps) {
-      return value as WithTimestamps<Value, Options>;
+      return value /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WithTimestamps<
+        Value,
+        Options
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     }
 
     const now = Date.now();
@@ -141,7 +150,11 @@ export const defineZeroTableAccess = <
     return {
       ...value,
       [createdAt]: normalizeTimestamp(
-        (value[createdAt] ?? existing?.[createdAt as CreatedAt] ?? now) as number,
+        (value[createdAt] ??
+          existing?.[
+            createdAt /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as CreatedAt /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+          ] ??
+          now) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as number /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       ),
       [updatedAt]: now,
     } as WithTimestamps<Value, Options>;
@@ -151,7 +164,10 @@ export const defineZeroTableAccess = <
     value: Value,
   ): WithUpdatedAt<Value, Options> => {
     if (!options.timestamps) {
-      return value as WithUpdatedAt<Value, Options>;
+      return value /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WithUpdatedAt<
+        Value,
+        Options
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     }
 
     return {
@@ -164,7 +180,10 @@ export const defineZeroTableAccess = <
     primaryKey: Value,
   ): WithUpdatedAt<WithSoftDelete<Value, Options>, Options> => {
     if (!options.softDelete && !options.timestamps) {
-      return primaryKey as WithUpdatedAt<WithSoftDelete<Value, Options>, Options>;
+      return primaryKey /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WithUpdatedAt<
+        WithSoftDelete<Value, Options>,
+        Options
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     }
 
     const now = Date.now();

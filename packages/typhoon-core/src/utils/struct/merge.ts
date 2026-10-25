@@ -19,4 +19,4 @@ export const merge = <const S extends Array.NonEmptyReadonlyArray<object>>(objec
         ...(merge(tail) as object),
       }),
     }),
-  ) as Merge<S>;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Merge<S> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;

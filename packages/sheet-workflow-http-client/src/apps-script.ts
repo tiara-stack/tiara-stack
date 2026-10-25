@@ -35,6 +35,6 @@ export const makeSheetWorkflowEnqueueClients = (
         enqueueOptions: { readonly invocationId: InvocationId },
       ) => makeWorkflowHttpEnqueueClient(contract, httpClient, options)(input, enqueueOptions),
     }),
-  ) as SheetWorkflowEnqueueClients;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetWorkflowEnqueueClients /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 export type { SheetWorkflowHttpClientOptions } from "./options";

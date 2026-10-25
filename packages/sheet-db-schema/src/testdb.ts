@@ -276,9 +276,12 @@ type HasSameKeys<Left, Right> =
   Exclude<Left, Right> extends never ? (Exclude<Right, Left> extends never ? true : false) : false;
 const canonicalSeedTableParity: HasSameKeys<keyof typeof zeroSchema.tables, keyof SheetSeeds> =
   true;
+
 const canonicalSeedTableNames = Object.keys(
   zeroSchema.tables,
-) as typeof canonicalSeedTableParity extends true ? ReadonlyArray<SheetTableName> : never;
+) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as typeof canonicalSeedTableParity extends true
+  ? ReadonlyArray<SheetTableName>
+  : never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 export const truncateCanonicalTablesSql = `truncate table ${canonicalTableNames
   .map(quote)
@@ -336,8 +339,14 @@ export const makeTestSheetZeroDatabase = <Context = undefined>(
     const bootstrapMs = performance.now() - bootstrapStartedAt;
 
     const db = drizzle({ client: pg });
-    const zqlDb = zeroDrizzle(zeroSchema, db as unknown as DrizzleDatabase);
-    const context = options.context as Context;
+
+    const zqlDb = zeroDrizzle(
+      zeroSchema,
+      db as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as DrizzleDatabase /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+    );
+
+    const context =
+      options.context /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Context /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     let truncateResetMs: number | undefined;
     let rollbackRoundTripMs: number | undefined;
@@ -404,12 +413,17 @@ export const makeTestSheetZeroDatabase = <Context = undefined>(
       Effect.tryPromise({
         try: () =>
           zqlDb.transaction(async (tx) => {
-            const dynamic = tx as unknown as DynamicTransaction;
+            const dynamic =
+              tx as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as DynamicTransaction /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
             for (const table of canonicalSeedTableNames) {
               const rows = seeds[table];
               if (!rows) continue;
               for (const row of rows) {
-                await dynamic.mutate[table]!.insert(row as Readonly<Record<string, unknown>>);
+                await dynamic.mutate[table]!.insert(
+                  row /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Readonly<
+                    Record<string, unknown>
+                  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+                );
               }
             }
           }),
@@ -420,12 +434,18 @@ export const makeTestSheetZeroDatabase = <Context = undefined>(
       Effect.tryPromise({
         try: () =>
           zqlDb.run(
-            (builder as unknown as DynamicBuilder)[table] as Query<
+            (
+              builder as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as DynamicBuilder
+            ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */[
+              table
+            ] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Query<
               any,
               SheetZeroSchema,
               SheetRows[K]
-            >,
-          ) as Promise<ReadonlyArray<SheetRows[K]>>,
+            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Promise<
+            ReadonlyArray<SheetRows[K]>
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         catch: databaseError(`read ${table} rows`),
       });
 

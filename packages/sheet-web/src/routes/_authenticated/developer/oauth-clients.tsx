@@ -131,7 +131,9 @@ const splitScope = (scope: string | undefined) =>
     .filter((value) => value.length > 0) ?? [];
 
 const scopeIsAllowed = (scope: string) =>
-  allowedScopes.includes(scope as (typeof allowedScopes)[number]);
+  allowedScopes.includes(
+    scope /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as (typeof allowedScopes)[number] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 
 const catalogScopes = (scope: string | undefined) => splitScope(scope).filter(scopeIsAllowed);
 
@@ -1335,7 +1337,7 @@ function Badge({
   tone?: "default" | "green" | "muted";
 }) {
   const className =
-    tone === "green"
+    tone === "green" // oxlint-disable-line no-nested-ternary -- inherited master site
       ? "border-emerald-300/30 bg-emerald-950/30 text-emerald-100"
       : tone === "muted"
         ? "border-white/10 bg-white/5 text-white/50"

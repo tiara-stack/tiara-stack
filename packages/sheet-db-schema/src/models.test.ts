@@ -24,8 +24,11 @@ describe("sheet-db-schema model exports", () => {
   });
 
   it("accepts app-generated timestamps in insert and update variants", () => {
-    const messageSlotInsert = messageSlot.insert as VariantWithFields;
-    const messageRoomOrderEntryUpdate = messageRoomOrderEntry.update as VariantWithFields;
+    const messageSlotInsert =
+      messageSlot.insert /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as VariantWithFields /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
+    const messageRoomOrderEntryUpdate =
+      messageRoomOrderEntry.update /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as VariantWithFields /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(
       Schema.decodeUnknownSync(messageSlotInsert)({
@@ -73,8 +76,11 @@ describe("sheet-db-schema model exports", () => {
   });
 
   it("omits app-generated timestamps from JSON write variants", () => {
-    const jsonCreate = messageSlot.jsonCreate as VariantWithFields;
-    const jsonUpdate = messageSlot.jsonUpdate as VariantWithFields;
+    const jsonCreate =
+      messageSlot.jsonCreate /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as VariantWithFields /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+
+    const jsonUpdate =
+      messageSlot.jsonUpdate /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as VariantWithFields /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(Object.keys(jsonCreate.fields)).not.toContain("createdAt");
     expect(Object.keys(jsonCreate.fields)).not.toContain("updatedAt");

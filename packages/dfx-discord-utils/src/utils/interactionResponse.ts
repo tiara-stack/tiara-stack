@@ -307,4 +307,8 @@ export const provideInteractionResponse = <A, E, R, const Mode extends Interacti
       MessageComponentInteractionResponse,
       interactionResponse,
     );
-  }) as Effect.Effect<A, E, InteractionResponseEnvironment<Mode, R>>;
+  }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
+    A,
+    E,
+    InteractionResponseEnvironment<Mode, R>
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;

@@ -193,7 +193,7 @@ export const getGeneratedSchema = ({
     name: "customType",
     typeParameters: [{ name: "T" }],
     returnType: "T",
-    statements: ["return null as unknown as T;"],
+    statements: ["return null!;"],
   });
 
   const usedNames = new Set<string>([schemaObjectName, "builder", "zql"]);

@@ -47,10 +47,12 @@ describe("Drizzle lowering", () => {
     }) {}
 
     const exports = await lowerToDrizzleExports(schema({ users: User }));
-    const users = exports.users as {
-      readonly active: { readonly default: unknown; readonly hasDefault: boolean };
-      readonly createdAt: { readonly default: unknown; readonly hasDefault: boolean };
-    };
+
+    const users =
+      exports.users /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+        readonly active: { readonly default: unknown; readonly hasDefault: boolean };
+        readonly createdAt: { readonly default: unknown; readonly hasDefault: boolean };
+      } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
     expect(users.active.default).toBe(1);
     expect(users.active.hasDefault).toBe(true);
@@ -75,8 +77,11 @@ describe("Drizzle lowering", () => {
     expect(lowered).toMatchObject({ dialect: "sqlite" });
 
     const table = (
-      lowered as { readonly tables?: Record<string, { readonly primaryKey?: unknown }> }
-    ).tables?.memberships;
+      lowered /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
+        readonly tables?: Record<string, { readonly primaryKey?: unknown }>;
+      }
+    ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.tables
+      ?.memberships;
     expect(table?.primaryKey).toEqual(["userId", "orgId"]);
   });
 

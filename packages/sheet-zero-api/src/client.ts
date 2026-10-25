@@ -83,7 +83,12 @@ export const makeWorkflowZeroObserver = <
           ) => Stream.Stream<Option.Option<ZeroMaterializedWorkflowRunRow>, unknown>;
         };
       };
-      const group = (client.grouped as unknown as Readonly<Record<string, QueryGroup | undefined>>)[
+
+      const group = (
+        client.grouped as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Readonly<
+          Record<string, QueryGroup | undefined>
+        >
+      ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */[
         workflowContractZeroGroupIdentifier(contract)
       ];
       if (group === undefined) {

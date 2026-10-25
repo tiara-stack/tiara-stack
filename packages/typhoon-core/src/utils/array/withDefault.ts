@@ -34,9 +34,9 @@ export const wrapEither =
   (array: S) =>
     new ArrayWithDefault({
       array: pipe(
-        array as ReadonlyArray<
+        array /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReadonlyArray<
           Result.Result<Result.Result.Success<Array.ReadonlyArray.Infer<S>>, unknown>
-        >,
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         Array.map(Result.getOrElse(options.default)),
       ),
       default: options.default,
@@ -49,7 +49,9 @@ export const wrapOption =
   (array: S) =>
     new ArrayWithDefault({
       array: pipe(
-        array as ReadonlyArray<Option.Option<Option.Option.Value<Array.ReadonlyArray.Infer<S>>>>,
+        array /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReadonlyArray<
+          Option.Option<Option.Option.Value<Array.ReadonlyArray.Infer<S>>>
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
         Array.map(Option.getOrElse(options.default)),
       ),
       default: options.default,
@@ -62,9 +64,9 @@ export type Infer<A extends ArrayWithDefault<ReadonlyArray<unknown>>> = Array.Re
 >;
 
 export const toArray = <S extends ArrayWithDefault<ReadonlyArray<unknown>>>(a: S) =>
-  a.array as InferArray<S>;
+  a.array /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as InferArray<S> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 export const getDefault = <S extends ArrayWithDefault<ReadonlyArray<unknown>>>(a: S) =>
-  a.default() as Infer<S>;
+  a.default() /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Infer<S> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 export const zip =
   <T extends ArrayWithDefault<ReadonlyArray<object>>>(b: T) =>
@@ -85,7 +87,15 @@ export const zip =
           Array.makeBy(maxLength - Array.length(arrayB), () => getDefault(b)),
         ),
       ),
-      Array.map(([a, b]) => ({ ...a, ...b }) as Infer<S> & Infer<T>),
+
+      Array.map(
+        ([a, b]) =>
+          ({
+            ...a,
+            ...b,
+          }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Infer<S> &
+            Infer<T> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+      ),
       wrap({ default: () => ({ ...getDefault(a), ...getDefault(b) }) }),
     );
   };
@@ -109,7 +119,17 @@ export const zipArray =
           Array.makeBy(maxLength - Array.length(arrayB), () => getDefault(b)),
         ),
       ),
-      Array.map(([a, b]) => [...a, ...b] as [...Infer<S>, ...Infer<T>]),
+
+      Array.map(
+        ([a, b]) =>
+          [
+            ...a,
+            ...b,
+          ] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as [
+            ...Infer<S>,
+            ...Infer<T>,
+          ] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+      ),
       wrap({
         default: () => [...getDefault(a), ...getDefault(b)] as [...Infer<S>, ...Infer<T>],
       }),
@@ -124,9 +144,11 @@ export const map =
       Array.map(mapper),
       wrap({
         default: () =>
-          mapper(getDefault(a)) as Array.ReadonlyArray.Infer<
+          mapper(
+            getDefault(a),
+          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array.ReadonlyArray.Infer<
             Array.ReadonlyArray.With<InferArray<S>, B>
-          >,
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       }),
     );
 
@@ -151,16 +173,36 @@ export const replaceKeysFromHead =
           wrap({
             default: () =>
               pipe(
-                Array.head(toArray(a)) as Option.Option<Infer<S>>,
+                Array.head(
+                  toArray(a),
+                ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Option.Option<
+                  Infer<S>
+                > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
                 Option.map(Struct.pick(keys)),
                 (v) =>
                   pipe(
                     keys,
-                    Array.map((key) => [key, Option.flatMap(v, Struct.get(key as never))] as const),
+
+                    Array.map(
+                      (key) =>
+                        [
+                          key,
+                          Option.flatMap(
+                            v,
+                            Struct.get(
+                              key /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+                            ),
+                          ),
+                        ] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as const /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+                    ),
                     Record.fromEntries,
                   ),
-              ) as SimplifyObject<Pick<Infer<S>, Keys[number]>>,
+              ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SimplifyObject<
+                Pick<Infer<S>, Keys[number]>
+              > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
           }),
-        ) as ArrayWithDefault<ReadonlyArray<SimplifyObject<Pick<Infer<S>, Keys[number]>>>>,
+        ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ArrayWithDefault<
+          ReadonlyArray<SimplifyObject<Pick<Infer<S>, Keys[number]>>>
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       ),
-    ) as unknown as S;
+    ) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as S /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;

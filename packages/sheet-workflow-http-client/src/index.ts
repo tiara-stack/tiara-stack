@@ -73,7 +73,7 @@ export const makeSheetWorkflowHttpClients = (
 ): SheetWorkflowHttpClients =>
   mapWorkflowContractTree(SheetWorkflowContracts, (contract) =>
     makeWorkflowHttpClient(contract, httpClient, options),
-  ) as SheetWorkflowHttpClients;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetWorkflowHttpClients /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 export const makeRolloutGateHttpClient = (
   httpClient: HttpClient.HttpClient,

@@ -37,12 +37,13 @@ describe("State Plane migration admission", () => {
         .slice(0, -1)
         .map(([migration_id, name]) => ({ migration_id, name }));
       const statements: string[] = [];
+
       const sql = Object.assign(() => Effect.succeed([]), {
         unsafe: (statement: string) => {
           statements.push(statement);
           return { withoutTransform: Effect.succeed(history) };
         },
-      }) as unknown as SqlClient.SqlClient;
+      }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SqlClient.SqlClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
       let applicationWorkStarted = false;
       const startup = Effect.gen(function* () {
         yield* admitSheetDbMigrationHistory;

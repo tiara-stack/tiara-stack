@@ -86,7 +86,7 @@ export const BotTextPart: Schema.Codec<BotTextPart> = Schema.suspend(
         form: Schema.optional(BotClientTermForm),
         casing: Schema.optional(BotClientTermCasing),
       }),
-    ]) as Schema.Codec<BotTextPart>,
+    ]) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Schema.Codec<BotTextPart> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
 );
 
 export const BotText = Schema.Union([Schema.String, Schema.Array(BotTextPart)]);

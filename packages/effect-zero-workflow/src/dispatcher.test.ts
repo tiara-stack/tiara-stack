@@ -68,14 +68,22 @@ const makeTestLayer = (
 const events = Effect.gen(function* () {
   const store = yield* WorkflowStore;
   return yield* Ref.get(
-    (store as WorkflowStoreService & { readonly events: Ref.Ref<Events> }).events,
+    (
+      store /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WorkflowStoreService & {
+        readonly events: Ref.Ref<Events>;
+      }
+    ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.events,
   );
 });
 
 const failure = Effect.gen(function* () {
   const store = yield* WorkflowStore;
   return yield* Ref.get(
-    (store as WorkflowStoreService & { readonly failure: Ref.Ref<unknown> }).failure,
+    (
+      store /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WorkflowStoreService & {
+        readonly failure: Ref.Ref<unknown>;
+      }
+    ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */.failure,
   );
 });
 

@@ -5,10 +5,15 @@ import { introspectMigrationExtensionsEffect, runMigrationExtensionsEffect } fro
 import type { ResolvedConfig } from "../types";
 import { emptySnapshot } from "../snapshot";
 
-const schema = { _tag: "EffectSqlSchema", tables: {} } as never;
+const schema = {
+  _tag: "EffectSqlSchema",
+  tables: {},
+} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 const previous = emptySnapshot("postgresql");
 const current = emptySnapshot("postgresql");
-const sql = {} as SqlClient.SqlClient;
+
+const sql =
+  {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SqlClient.SqlClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const config = (extensions: ResolvedConfig["extensions"]): ResolvedConfig => ({
   dialect: "postgresql",
@@ -82,7 +87,12 @@ describe("migration extension helpers", () => {
             {
               _tag: "EffectSqlKitMigrationExtension",
               name: "invalid",
-              generate: () => ({ statements: [], snapshot: undefined }) as never,
+
+              generate: () =>
+                ({
+                  statements: [],
+                  snapshot: undefined,
+                }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
             },
           ]),
           schema,
@@ -139,7 +149,11 @@ describe("migration extension helpers", () => {
               _tag: "EffectSqlKitMigrationExtension",
               name: "also-invalid",
               generate: () => ({ statements: [], snapshot: null }),
-              introspect: () => ({ value: undefined }) as never,
+
+              introspect: () =>
+                ({
+                  value: undefined,
+                }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
             },
           ]),
           schema,

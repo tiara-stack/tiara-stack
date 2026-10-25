@@ -21,7 +21,7 @@ const makeInteraction = (id: string, token: string) =>
     application_id: application.id,
     id,
     token,
-  }) as never;
+  }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeRest = (
   calls: Array<{
@@ -46,10 +46,17 @@ const makeRest = (
       () =>
       <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         effect,
-  }) as never;
+  }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const makeCommandHelper = () =>
-  new WrappedCommandHelper({ data: {}, target: undefined } as never, Option.none(), []);
+  new WrappedCommandHelper(
+    {
+      data: {},
+      target: undefined,
+    } /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+    Option.none(),
+    [],
+  );
 
 const provideDiscord = <A, E, R>(
   effect: Effect.Effect<A, E, R>,
@@ -183,7 +190,11 @@ describe("interaction response service", () => {
       yield* provideDiscord(
         provideInteraction(program, "interaction-1", "token-1"),
         calls,
-      ) as Effect.Effect<void, never, never>;
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
+        void,
+        never,
+        never
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(calls).toHaveLength(1);
       expect(calls[0]).toMatchObject({
@@ -219,7 +230,11 @@ describe("interaction response service", () => {
       yield* provideDiscord(
         provideInteraction(program, "interaction-1", "token-1"),
         calls,
-      ) as Effect.Effect<void, never, never>;
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
+        void,
+        never,
+        never
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(calls.map((call) => call.method)).toEqual(["edit", "followUp"]);
     }),
@@ -249,7 +264,11 @@ describe("interaction response service", () => {
       yield* provideDiscord(
         provideInteraction(program, "interaction-1", "token-1"),
         calls,
-      ) as Effect.Effect<void, never, never>;
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
+        void,
+        never,
+        never
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(calls.map((call) => call.method)).toEqual(["edit", "followUp"]);
     }),
@@ -277,7 +296,11 @@ describe("interaction response service", () => {
           "token-1",
         ),
         calls,
-      ) as Effect.Effect<any, never, never>;
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
+        any,
+        never,
+        never
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(result.data).toMatchObject({
         content: "The button did not set a response.",
@@ -301,10 +324,15 @@ describe("interaction response service", () => {
             () => Effect.void,
           );
           const fiber = yield* command
-            .handler({
-              data: command.data,
-              target: undefined,
-            } as unknown as CommandHelper<typeof command.data>)
+
+            .handler(
+              {
+                data: command.data,
+                target: undefined,
+              } as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as CommandHelper<
+                typeof command.data
+              > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+            )
             .pipe(Effect.forkScoped);
           yield* TestClock.adjust(Duration.millis(2500));
           return yield* Fiber.join(fiber);
@@ -318,7 +346,13 @@ describe("interaction response service", () => {
           "token-1",
         ),
         calls,
-      ).pipe(Effect.provide(TestClock.layer())) as Effect.Effect<any, never, never>;
+      ).pipe(
+        Effect.provide(TestClock.layer()),
+      ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
+        any,
+        never,
+        never
+      > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
       expect(result.data).toMatchObject({
         content: "The command did not set a response in time.",

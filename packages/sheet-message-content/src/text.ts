@@ -139,7 +139,10 @@ const plainPartRenderers = {
   readonly [Type in BotTextPart["type"]]: (part: BotTextPartOf<Type>) => string;
 };
 
-const renderPlainPart = (part: BotTextPart): string => plainPartRenderers[part.type](part as never);
+const renderPlainPart = (part: BotTextPart): string =>
+  plainPartRenderers[part.type](
+    part /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 
 export const renderPlainText = (value: ReadonlyArray<BotTextPart>): string =>
   value.map(renderPlainPart).join("");

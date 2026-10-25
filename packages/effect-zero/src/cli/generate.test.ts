@@ -3,10 +3,11 @@ import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Result } from "effect";
+import { Effect, FileSystem, Result } from "effect";
 import {
   formatGeneratedFileEffect,
   generate,
+  generateEffect,
   writeGeneratedFile,
   writeGeneratedFileEffect,
 } from "./generate";
@@ -50,7 +51,37 @@ const withTempProject = <A, E, R>(f: (dir: string) => Effect.Effect<A, E, R>) =>
   );
 
 describe("cli generation", () => {
-  it.effect(
+  it.live(
+    "keeps the generated signature valid after formatting",
+    () =>
+      withTempProject((dir) =>
+        Effect.gen(function* () {
+          const fs = yield* FileSystem.FileSystem;
+          const options = {
+            config: path.join(dir, "effect-zero.config.ts"),
+            tsConfigPath: path.join(dir, "tsconfig.json"),
+            outputFilePath: path.join(dir, "formatted-schema.gen.ts"),
+          };
+
+          const first = yield* generateEffect(options);
+          const outputPath = yield* writeGeneratedFileEffect({ ...first, format: true });
+          const formatted = yield* fs.readFileString(outputPath);
+
+          expect(formatted).not.toBe(first.content);
+          expect(checkSignature(formatted)).toBe("valid");
+
+          const second = yield* generateEffect(options);
+          const repeatedPath = yield* writeGeneratedFileEffect(second);
+          const repeated = yield* fs.readFileString(repeatedPath);
+
+          expect(repeatedPath).toBe(outputPath);
+          expect(checkSignature(repeated)).toBe("valid");
+        }),
+      ).pipe(Effect.provide(NodeServices.layer)),
+    15_000,
+  );
+
+  it.live(
     "generates and signs a schema file",
     () =>
       withTempProject((dir) =>
@@ -72,7 +103,7 @@ describe("cli generation", () => {
     15_000,
   );
 
-  it.effect(
+  it.live(
     "refuses to overwrite modified generated files without force",
     () =>
       withTempProject((dir) =>
@@ -99,7 +130,7 @@ describe("cli generation", () => {
     15_000,
   );
 
-  it.effect(
+  it.live(
     "writeGeneratedFileEffect refuses manually modified generated files",
     () =>
       withTempProject((dir) =>
@@ -122,7 +153,7 @@ describe("cli generation", () => {
     15_000,
   );
 
-  it.effect("formatGeneratedFileEffect warns instead of failing when formatting fails", () =>
+  it.live("formatGeneratedFileEffect warns instead of failing when formatting fails", () =>
     withTempProject((dir) => formatGeneratedFileEffect(path.join(dir, "missing.ts"))).pipe(
       Effect.provide(NodeServices.layer),
     ),

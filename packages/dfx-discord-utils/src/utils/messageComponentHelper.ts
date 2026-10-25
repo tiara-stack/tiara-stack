@@ -104,4 +104,7 @@ export const makeMessageComponent = <E = never, R = never>(
   Ix.messageComponent(
     Ix.id(data.custom_id),
     provideInteractionToken(provideInteractionResponse("message-component", handler)),
-  ) as DfxMessageComponent<MessageComponentEnv<R>, E>;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as DfxMessageComponent<
+    MessageComponentEnv<R>,
+    E
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;

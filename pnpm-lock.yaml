@@ -42,9 +42,6 @@ catalogs:
     vite-plus:
       specifier: npm:@tiara-stack/vite-plus@0.2.4
       version: 0.2.4
-    vitest:
-      specifier: 4.1.9
-      version: 4.1.9
     yaml:
       specifier: 2.9.0
       version: 2.9.0

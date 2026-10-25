@@ -55,7 +55,7 @@ const splitScopeSet = (scope: unknown) =>
   new Set(typeof scope === "string" ? scope.split(" ").filter((value) => value.length > 0) : []);
 
 const payloadClientId = (payload: JWTPayload) =>
-  typeof payload.azp === "string"
+  typeof payload.azp === "string" // oxlint-disable-line no-nested-ternary -- inherited master site
     ? payload.azp
     : typeof payload.client_id === "string"
       ? payload.client_id
@@ -170,7 +170,10 @@ export const makeOAuthResourceTokenAuthorizer = <E = Unauthorized>(
     const makeUnauthorized =
       options.makeUnauthorized ??
       (({ message, cause }: { readonly message: string; readonly cause?: unknown }) =>
-        new Unauthorized({ message, cause }) as E);
+        new Unauthorized({
+          message,
+          cause,
+        }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as E) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     const requireScopes = (scope: unknown): Effect.Effect<ReadonlySet<string>, E> => {
       const scopeSet = splitScopeSet(scope);
       const missingScopes = requiredScopes.filter((scopeName) => !scopeSet.has(scopeName));

@@ -36,4 +36,4 @@ export const DefaultTaggedClass = <Tagged extends TaggedClass>(
       decode: SchemaGetter.passthrough(),
       encode: SchemaGetter.passthroughSupertype(),
     }),
-  ) as unknown as DefaultTaggedClass<Tagged>;
+  ) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as DefaultTaggedClass<Tagged> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;

@@ -42,7 +42,7 @@ const recordingSqlClient = () => {
         return Effect.succeed([]);
       }
       return query;
-    }) as unknown as SqlClient.SqlClient,
+    }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SqlClient.SqlClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
     { in: (values: ReadonlyArray<unknown>) => `(${values.join(",")})` },
   );
   return { queries, sql };

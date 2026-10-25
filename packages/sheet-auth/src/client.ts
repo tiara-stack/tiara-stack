@@ -545,6 +545,7 @@ export function createSheetAuthClient(baseURL: string): SheetAuthClient {
       "SHEET_AUTH_ISSUER must be an absolute HTTP(S) URL without query or fragment components",
     );
   const path = url.pathname.replace(/\/+$/, "") || "/";
+
   return createAuthClient({
     baseURL: url.origin,
     basePath: path,
@@ -552,7 +553,7 @@ export function createSheetAuthClient(baseURL: string): SheetAuthClient {
       credentials: "include" as const,
     },
     plugins: [oauthProviderClient(), sheetOAuthClient()],
-  }) as unknown as SheetAuthClient;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SheetAuthClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 }
 
 export const makeSheetAuthClient = <Error, Requirements>(

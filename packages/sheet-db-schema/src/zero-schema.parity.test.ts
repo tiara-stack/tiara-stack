@@ -96,7 +96,11 @@ describe("canonical schema artifact parity", () => {
   it("keeps public models as aliases of canonical tables", () => {
     expect(Object.keys(publicModels).sort()).toEqual(Object.keys(canonicalSchema.tables).sort());
     for (const [name, table] of Object.entries(canonicalSchema.tables)) {
-      expect(publicModels[name as keyof typeof publicModels]).toBe(table);
+      expect(
+        publicModels[
+          name /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as keyof typeof publicModels /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
+        ],
+      ).toBe(table);
     }
   });
 

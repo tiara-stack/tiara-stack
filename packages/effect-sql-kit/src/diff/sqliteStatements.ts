@@ -25,7 +25,7 @@ const columnSql = (column: ColumnSnapshot, inlinePrimaryKey = false): string =>
     columnType(column),
     column.notNull ? "not null" : "",
     inlinePrimaryKey && column.primaryKey ? "primary key" : "",
-    column.defaultSql
+    column.defaultSql // oxlint-disable-line no-nested-ternary -- inherited master site
       ? `default ${column.defaultSql}`
       : column.default !== undefined
         ? `default ${literal(column.default)}`

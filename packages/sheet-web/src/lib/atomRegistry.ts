@@ -72,7 +72,9 @@ const ensureAtomDataNode = <A>(
   options?: { revalidateIfStale?: boolean },
 ) => {
   const { revalidateIfStale = false } = options ?? {};
-  const registryImpl = registry as unknown as Registry;
+
+  const registryImpl =
+    registry as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Registry /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
   // Runtime safety check: fail fast if internal API changes
   if (
@@ -116,9 +118,14 @@ export const ensureResultAtomData = <A, E>(
         Exit.match(exit, {
           onSuccess: Effect.succeed,
           onFailure: Effect.failCause,
-        }) as Effect.Effect<A, E>,
+        }) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Effect.Effect<
+          A,
+          E
+        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       );
-    const registryImpl = registry as unknown as Registry;
+
+    const registryImpl =
+      registry as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Registry /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
     const node = ensureAtomDataNode(registry, atom, options);
     const currentValue = node._value;
     if (!isInitialAsyncResult(currentValue)) {

@@ -30,9 +30,11 @@ export interface WorkflowAuthorizationPolicyMetadata {
 
 const deepFreezeJson = <Value extends ZeroReadonlyJSONValue | undefined>(value: Value): Value => {
   if (Predicate.isObjectOrArray(value)) {
-    for (const nestedValue of Object.values(value) as ReadonlyArray<
+    for (const nestedValue of Object.values(
+      value,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as ReadonlyArray<
       ZeroReadonlyJSONValue | undefined
-    >) {
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */) {
       deepFreezeJson(nestedValue);
     }
     Object.freeze(value);
@@ -86,7 +88,13 @@ export const mapWorkflowContractTree = (
     Object.fromEntries(
       Object.entries(node).map(([key, value]) => [
         key,
-        mapWorkflowContractTree(value as Readonly<Record<string, unknown>>, map),
+
+        mapWorkflowContractTree(
+          value /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Readonly<
+            Record<string, unknown>
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+          map,
+        ),
       ]),
     ),
   );
@@ -127,9 +135,10 @@ export const defineWorkflowContract = <
 > => {
   Schema.decodeUnknownSync(WorkflowContractIdentity)(options.identity);
   Schema.decodeUnknownSync(WorkflowContractWireVersion)(options.wireVersion);
+
   const authorizationPolicy = Schema.decodeUnknownSync(WorkflowAuthorizationPolicyMetadataSchema)(
     options.authorizationPolicy,
-  ) as AuthorizationPolicy;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as AuthorizationPolicy /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   return Object.freeze({
     identity: options.identity,
     wireVersion: options.wireVersion,
@@ -176,7 +185,7 @@ export const makeRunReferenceSchema = <Contract extends AnyWorkflowContract>(
 ): RunReferenceSchema<Contract> => {
   const cached = runReferenceSchemaCache.get(contract);
   if (Predicate.isNotUndefined(cached)) {
-    return cached as RunReferenceSchema<Contract>;
+    return cached /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as RunReferenceSchema<Contract> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
   const schema = makeRunReferenceSchemaUncached(contract);
   runReferenceSchemaCache.set(contract, schema);
@@ -263,7 +272,7 @@ export const makeWorkflowResultSchema = <Contract extends AnyWorkflowContract>(
 ): WorkflowResultSchema<Contract> => {
   const cached = workflowResultSchemaCache.get(contract);
   if (Predicate.isNotUndefined(cached)) {
-    return cached as WorkflowResultSchema<Contract>;
+    return cached /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WorkflowResultSchema<Contract> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
   const schema = makeWorkflowResultSchemaUncached(contract);
   workflowResultSchemaCache.set(contract, schema);
@@ -317,7 +326,7 @@ export const makeWorkflowRunSchema = <Contract extends AnyWorkflowContract>(
 ): WorkflowRunSchema<Contract> => {
   const cached = workflowRunSchemaCache.get(contract);
   if (Predicate.isNotUndefined(cached)) {
-    return cached as WorkflowRunSchema<Contract>;
+    return cached /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as WorkflowRunSchema<Contract> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
   const schema = makeWorkflowRunSchemaUncached(contract);
   workflowRunSchemaCache.set(contract, schema);

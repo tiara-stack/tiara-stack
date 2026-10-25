@@ -548,7 +548,7 @@ export const serverConfigPatch = (
 };
 
 const runningFormValue = (value: boolean | null): OptionalBooleanFormValue =>
-  value === null ? "unset" : value ? "enabled" : "disabled";
+  value === null ? "unset" : value ? "enabled" : "disabled"; // oxlint-disable-line no-nested-ternary -- inherited master site
 
 const emptyChannelDraft = (): ChannelConfigDraft => ({
   running: "unset",

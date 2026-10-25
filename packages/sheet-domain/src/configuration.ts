@@ -677,7 +677,7 @@ export const parseSheetRange = (input: string, sheetId: number): SheetRange | un
   const startRow = Number(startRowText) - 1;
   const endColumn = columnIndex(match[5] ?? startColumnText) + 1;
   const endRow: number | "sheet-end" =
-    match[5] === undefined
+    match[5] === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
       ? startRow + 1
       : match[6] === undefined || match[6] === ""
         ? "sheet-end"

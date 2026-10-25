@@ -28,7 +28,7 @@ const makeServerTx = (
   ({
     location: "server",
     dbTransaction: { query },
-  }) as unknown as Transaction<SheetZeroSchema>;
+  }) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Transaction<SheetZeroSchema> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 describe("Sheet workflow Zero component installation", () => {
   it("mounts the stable public, service, and internal runs catalogs", () => {

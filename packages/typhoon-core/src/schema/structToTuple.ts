@@ -25,28 +25,45 @@ export const StructToTupleSchema = <
   fields: Fields,
 ): StructToTupleSchema<Keys, Fields> => {
   const TupleSchema = Schema.Tuple(
-    pipe(fields, Tuple.map(Schema.toEncoded)) as TupleFieldsSchema<Fields>,
+    pipe(
+      fields,
+      Tuple.map(Schema.toEncoded),
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as TupleFieldsSchema<Fields> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   );
   const StructSchema = Schema.Struct(
-    Object.fromEntries(Array.zip(keys, fields)) as StructSchema<Keys, Fields>,
+    Object.fromEntries(
+      Array.zip(keys, fields),
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as StructSchema<
+      Keys,
+      Fields
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   );
 
   const schema = StructSchema.pipe(
     Schema.decodeTo(TupleSchema, {
       decode: SchemaGetter.transform(
         (struct) =>
-          pipe(keys, Tuple.map(structGetter(struct))) as unknown as Schema.Tuple.Encoded<
+          pipe(
+            keys,
+            Tuple.map(structGetter(struct)),
+          ) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Schema.Tuple.Encoded<
             TupleFieldsSchema<Fields>
-          >,
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       ),
       encode: SchemaGetter.transform(
         (tuple) =>
-          pipe(Array.zip(keys, tuple), Record.fromEntries) as unknown as Schema.Struct.Type<
+          pipe(
+            Array.zip(keys, tuple),
+            Record.fromEntries,
+          ) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Schema.Struct.Type<
             StructSchema<Keys, Fields>
-          >,
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       ),
     }),
-  ) as unknown as StructToTupleSchema<Keys, Fields>;
+  ) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as StructToTupleSchema<
+    Keys,
+    Fields
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
   return Object.assign(schema, { keys, fields });
 };
@@ -75,7 +92,12 @@ export const StructToTupleValueSchema = <
   value: Value,
 ): StructToTupleValueSchema<Keys, Value> => {
   const TupleSchema = Schema.Tuple(
-    Array.makeBy(keys.length, () => Schema.toEncoded(value)) as TupleValuesSchema<Keys, Value>,
+    Array.makeBy(keys.length, () =>
+      Schema.toEncoded(value),
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as TupleValuesSchema<
+      Keys,
+      Value
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   );
   const StructSchema = Schema.Struct(
     Object.fromEntries(
@@ -83,25 +105,37 @@ export const StructToTupleValueSchema = <
         keys,
         Array.map((key) => [key, value]),
       ),
-    ) as StructValueSchema<Keys, Value>,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as StructValueSchema<
+      Keys,
+      Value
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
   );
 
   const schema = StructSchema.pipe(
     Schema.decodeTo(TupleSchema, {
       decode: SchemaGetter.transform(
         (struct) =>
-          pipe(keys, Tuple.map(structGetter(struct))) as unknown as Schema.Tuple.Encoded<
+          pipe(
+            keys,
+            Tuple.map(structGetter(struct)),
+          ) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Schema.Tuple.Encoded<
             TupleValuesSchema<Keys, Value>
-          >,
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       ),
       encode: SchemaGetter.transform(
         (tuple) =>
-          pipe(Array.zip(keys, tuple), Record.fromEntries) as unknown as Schema.Struct.Type<
+          pipe(
+            Array.zip(keys, tuple),
+            Record.fromEntries,
+          ) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Schema.Struct.Type<
             StructValueSchema<Keys, Value>
-          >,
+          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
       ),
     }),
-  ) as unknown as StructToTupleValueSchema<Keys, Value>;
+  ) as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as StructToTupleValueSchema<
+    Keys,
+    Value
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
   return Object.assign(schema, { keys, value });
 };

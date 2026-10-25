@@ -67,7 +67,11 @@ const makeProto = <Id extends string, Groups extends ZeroApiGroup.Any>(options: 
 }): ZeroApi<Id, Groups> => {
   function ZeroApi() {}
   Object.setPrototypeOf(ZeroApi, Proto);
-  return Object.assign(ZeroApi, options) as any;
+
+  return Object.assign(
+    ZeroApi,
+    options,
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as any /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 };
 
 export const make = <const Id extends string>(identifier: Id): ZeroApi<Id, never> =>

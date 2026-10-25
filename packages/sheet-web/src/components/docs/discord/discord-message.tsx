@@ -54,9 +54,9 @@ const formatRelativeTimestamp = (epochMs: number, referenceEpochMs: number) => {
   const differenceMs = epochMs - referenceEpochMs;
   const absoluteDifferenceMs = Math.abs(differenceMs);
   const [divisor, unit]: [number, Intl.RelativeTimeFormatUnit] =
-    absoluteDifferenceMs >= 86_400_000
+    absoluteDifferenceMs >= 86_400_000 // oxlint-disable-line no-nested-ternary -- inherited master site
       ? [86_400_000, "day"]
-      : absoluteDifferenceMs >= 3_600_000
+      : absoluteDifferenceMs >= 3_600_000 // oxlint-disable-line no-nested-ternary -- inherited master site
         ? [3_600_000, "hour"]
         : absoluteDifferenceMs >= 60_000
           ? [60_000, "minute"]
@@ -139,7 +139,10 @@ const SheetTextPartView = ({
   } satisfies {
     readonly [Type in BotTextPart["type"]]: (part: TextPartOf<Type>) => React.ReactNode;
   };
-  return views[part.type](part as never);
+
+  return views[part.type](
+    part /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
+  );
 };
 
 const SheetTextView = ({

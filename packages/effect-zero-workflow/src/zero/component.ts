@@ -28,9 +28,14 @@ export const makeZeroWorkflowComponent = <TSchema extends WorkflowZeroSchema>(
   // The component only uses its public run table. Narrowing the host schema
   // hides unrelated application tables while preserving the same transaction
   // and query implementations at runtime.
-  const workflowRun = options.workflowRun as unknown as Query<"workflowRun", WorkflowZeroSchema>;
+
+  const workflowRun =
+    options.workflowRun as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Query<
+      "workflowRun",
+      WorkflowZeroSchema
+    > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   const componentTransaction = (tx: Transaction<TSchema>) =>
-    tx as unknown as Transaction<WorkflowZeroSchema>;
+    tx as unknown /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Transaction<WorkflowZeroSchema> /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   const enqueueWorkflowInZeroTransaction = (
     tx: Transaction<TSchema>,
     context: WorkflowZeroContext,

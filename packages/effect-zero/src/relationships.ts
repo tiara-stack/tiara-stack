@@ -61,7 +61,10 @@ export function many(
         cardinality: "many",
       }),
     );
-    return Schema.decodeUnknownSync(RelationshipDefinitionSchema)(steps) as RelationshipDefinition;
+
+    return Schema.decodeUnknownSync(RelationshipDefinitionSchema)(
+      steps,
+    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as RelationshipDefinition /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
   }
 
   return [

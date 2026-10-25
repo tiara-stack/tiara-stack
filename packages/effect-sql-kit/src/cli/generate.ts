@@ -38,7 +38,7 @@ export const generateCommand = Command.make(
 
       yield* Console.log(
         result.written
-          ? `effect-sql-kit: generated ${loaded.config.out}/${result.tag}.ts`
+          ? `effect-sql-kit: generated ${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ loaded.config.out /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}/${/* oxlint-disable typescript/restrict-template-expressions -- inherited master site */ result.tag /* oxlint-enable typescript/restrict-template-expressions -- inherited master site */}.ts`
           : "effect-sql-kit: no schema changes, nothing to generate",
       );
     }),

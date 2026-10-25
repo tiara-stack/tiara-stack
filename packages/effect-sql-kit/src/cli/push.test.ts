@@ -5,10 +5,15 @@ import { buildPushStatementsEffect } from "./push";
 import type { ResolvedConfig } from "../types";
 import { emptySnapshot } from "../snapshot";
 
-const schema = { _tag: "EffectSqlSchema", tables: {} } as never;
+const schema = {
+  _tag: "EffectSqlSchema",
+  tables: {},
+} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as never /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 const live = emptySnapshot("postgresql");
 const desired = emptySnapshot("postgresql");
-const sql = {} as SqlClient.SqlClient;
+
+const sql =
+  {} /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as SqlClient.SqlClient /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
 
 const config = (extensions: ResolvedConfig["extensions"]): ResolvedConfig => ({
   dialect: "postgresql",

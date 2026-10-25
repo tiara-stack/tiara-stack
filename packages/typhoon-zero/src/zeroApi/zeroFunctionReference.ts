@@ -92,4 +92,7 @@ export const makeReferences = <
 ): References<Api, Visibility> =>
   collectVisibleByGroup(api, visibilities, (group, endpoint) =>
     makeReference(api.identifier, group.identifier, endpoint),
-  ) as References<Api, Visibility>;
+  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as References<
+    Api,
+    Visibility
+  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
