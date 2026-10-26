@@ -186,32 +186,39 @@ const workspacePackageNames = (manifests: WorkspacePackageManifests) => {
   return names;
 };
 
+const sheetWorkflowsPackageManifestPath = "packages/sheet-workflows/package.json";
+const pnpmLockPath = "pnpm-lock.yaml";
+
+const hasOnlyPlaywrightDependencyChangePaths = (changedPaths: ReadonlyArray<string>) =>
+  changedPaths.includes(sheetWorkflowsPackageManifestPath) &&
+  changedPaths.every((path) => path === sheetWorkflowsPackageManifestPath || path === pnpmLockPath);
+
+const withoutPlaywrightDependency = (manifest: WorkspacePackageManifest) => ({
+  ...manifest,
+  dependencies: Object.fromEntries(
+    Object.entries(manifest.dependencies ?? {}).filter(([name]) => name !== "playwright"),
+  ),
+});
+
+const isPlaywrightOnlyManifestChange = (
+  before: WorkspacePackageManifest,
+  after: WorkspacePackageManifest,
+) =>
+  before.dependencies?.playwright !== after.dependencies?.playwright &&
+  JSON.stringify(withoutPlaywrightDependency(before)) ===
+    JSON.stringify(withoutPlaywrightDependency(after));
+
 const playwrightOnlyDependencyChange = (
   previous: StagedSourceSnapshot,
   next: StagedSourceSnapshot,
   changedPaths: ReadonlyArray<string>,
 ) => {
-  const packagePath = "packages/sheet-workflows/package.json";
-  if (
-    !changedPaths.includes(packagePath) ||
-    changedPaths.some((path) => path !== packagePath && path !== "pnpm-lock.yaml")
-  )
-    return false;
+  if (!hasOnlyPlaywrightDependencyChangePaths(changedPaths)) return false;
   const before = workspacePackageManifests(previous).get("sheet-workflows")?.manifest;
   const after = workspacePackageManifests(next).get("sheet-workflows")?.manifest;
-  if (
-    before === undefined ||
-    after === undefined ||
-    before.dependencies?.playwright === after.dependencies?.playwright
-  )
-    return false;
-  const withoutPlaywright = (manifest: WorkspacePackageManifest) => ({
-    ...manifest,
-    dependencies: Object.fromEntries(
-      Object.entries(manifest.dependencies ?? {}).filter(([name]) => name !== "playwright"),
-    ),
-  });
-  return JSON.stringify(withoutPlaywright(before)) === JSON.stringify(withoutPlaywright(after));
+  return (
+    before !== undefined && after !== undefined && isPlaywrightOnlyManifestChange(before, after)
+  );
 };
 
 /** Propagate changed workspace packages to selected workflow consumers through workspace dependencies. */

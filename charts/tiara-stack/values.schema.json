@@ -535,7 +535,12 @@
             "enabled": { "type": "boolean" },
             "hook": { "type": "boolean" },
             "mode": { "type": "string", "enum": ["incremental", "full"] },
-            "nameSuffix": { "type": "string", "minLength": 1, "maxLength": 63, "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$" },
+            "nameSuffix": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 63,
+              "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+            },
             "backoffLimit": { "type": "integer", "minimum": 0 },
             "ttlSecondsAfterFinished": { "type": "integer", "minimum": 0 }
           }
@@ -632,7 +637,13 @@
                 "properties": { "enabled": { "const": true } }
               },
               "then": {
-                "required": ["releaseLabel", "controlUnavailableFor", "enqueueFailureFor", "readinessFor", "severity"]
+                "required": [
+                  "releaseLabel",
+                  "controlUnavailableFor",
+                  "enqueueFailureFor",
+                  "readinessFor",
+                  "severity"
+                ]
               }
             }
           ]

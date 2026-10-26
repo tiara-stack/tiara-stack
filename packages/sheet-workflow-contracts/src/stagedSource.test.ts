@@ -119,6 +119,39 @@ describe("staged source snapshot structural contract", () => {
       }),
     ).toBe(true);
   });
+
+  it("rejects browser profiles and saved browser authentication state while allowing source code", () => {
+    const forbiddenPaths = [
+      ".config/google-chrome/Default/Cookies",
+      ".config/BraveSoftware/Brave-Browser/Default/Preferences",
+      "Library/Application Support/Microsoft Edge/Default/Cookies",
+      "playwright/.auth/user.json",
+      "tests/fixtures/storageState.json",
+      "tests/fixtures/cookies.sqlite",
+    ];
+
+    for (const path of forbiddenPaths) {
+      const candidate = sealSnapshot("r1", [
+        utf8File("package.json", '{"name":"workspace"}'),
+        utf8File("pnpm-lock.yaml", "lockfileVersion: '9.0'"),
+        utf8File(path, "private browser state"),
+      ]);
+
+      expect(validateStagedSourceSnapshot(candidate, candidate.completion.filesDigest)).toBe(
+        "excluded-or-unsafe-path",
+      );
+    }
+
+    const source = sealSnapshot("r1", [
+      utf8File("package.json", '{"name":"workspace"}'),
+      utf8File("pnpm-lock.yaml", "lockfileVersion: '9.0'"),
+      utf8File("packages/sheet-workflows/src/browser-profile.ts", "export const profile = 1"),
+      utf8File("packages/sheet-workflows/src/storage-state-schema.ts", "export const schema = 1"),
+      utf8File("packages/sheet-workflows/src/cookies.ts", "export const cookies = []"),
+    ]);
+
+    expect(validateStagedSourceSnapshot(source, source.completion.filesDigest)).toBeUndefined();
+  });
 });
 
 describe("workflow recreation recovery contract", () => {

@@ -3112,7 +3112,6 @@ const addWorkflowGroupRoleRequirements = (context: PreviewValidationContext) => 
   if (ownership === "owned") {
     context.requiredRoles.add("sheet-workflows-api");
     context.requiredRoles.add("sheet-workflows-runner");
-    context.requiredRoles.add("sheet-workflows-browser-runner");
   } else if (ownership === "reused") {
     const webOnlyConsumer =
       context.selectedRoles.size === 1 && context.selectedRoles.has("sheet-web");

@@ -46,6 +46,19 @@ export const stagedSourceDigestInput = (revision: string, files: ReadonlyArray<S
 const excludedPath =
   /(^|\/)(node_modules|\.git|\.env(?:\.[^/]*)?|credentials?|secrets?|\.config\/gcloud|\.aws|\.kube|\.npmrc|\.netrc|\.cache\/ms-playwright|\.local-browsers|ms-playwright|browser-binaries|chromium|chrome-linux|firefox|webkit)(\/|$)|(^|\/)(?:google-service-account|service-account|credentials)\.json$|\.(?:pem|p12|pfx|key)$/i;
 
+const excludedBrowserProfilePaths = [
+  /(^|\/)\.config\/(?:google-chrome(?:-[^/]*)?|bravesoftware|microsoft-edge(?:-[^/]*)?|vivaldi)(\/|$)/i,
+  /(^|\/)\.mozilla\/firefox(\/|$)/i,
+  /(^|\/)library\/application support\/(?:google\/chrome|bravesoftware|microsoft edge(?: [^/]*)?|chromium|firefox|vivaldi)(\/|$)/i,
+  /(^|\/)appdata\/(?:local|roaming)\/(?:google\/chrome|microsoft\/edge|bravesoftware\/brave-browser|mozilla\/firefox)(\/|$)/i,
+] as const;
+
+const excludedBrowserStatePaths = [
+  /(^|\/)(?:\.auth|(?:browser|brave|chrome|chromium|edge)-(?:profile|user-data))(\/|$)/i,
+  /(^|\/)(?:storage[-_]?state|auth[-_]?state)(?:\.[^/]*)?(\/|$)/i,
+  /(^|\/)(?:cookies?(?:\.(?:json|txt|sqlite(?:-(?:shm|wal))?))?|cookie-jar(?:\.[^/]*)?)(\/|$)/i,
+] as const;
+
 /** Shared transfer path check so the host and runner reject the same files. */
 export const isSafeStagedSourcePath = Predicate.and(
   (path: string) => path.length > 0,
@@ -54,7 +67,10 @@ export const isSafeStagedSourcePath = Predicate.and(
     Predicate.and(
       (path: string) =>
         !path.split("/").some((part) => part === "" || part === "." || part === ".."),
-      (path: string) => !excludedPath.test(path),
+      (path: string) =>
+        !excludedPath.test(path) &&
+        !excludedBrowserProfilePaths.some((pattern) => pattern.test(path)) &&
+        !excludedBrowserStatePaths.some((pattern) => pattern.test(path)),
     ),
   ),
 );

@@ -168,6 +168,35 @@ describe("runner staged-source supervisor", () => {
     }).pipe(Effect.provide(testFileSystemLayer)),
   );
 
+  it.effect("rejects staged browser profile files before preparing the selected runner", () => {
+    const workspaceRoot = join("/tmp", `browser-runner-private-state-${randomUUID()}`);
+    return Effect.gen(function* () {
+      let preparationCalls = 0;
+      const environment = supervisorEnvironment(workspaceRoot, {
+        ...runtimeStorageDefaults,
+        prepareSnapshot: () => {
+          preparationCalls += 1;
+          return Effect.void;
+        },
+        restart: () => Effect.void,
+        verifyReadiness: () => Effect.succeed(true),
+      });
+      const candidate = snapshot("browser-private-state", [
+        utf8File(".config/google-chrome/Default/Cookies", "private browser data"),
+      ]);
+
+      const status = yield* activateInEnvironment(environment, candidate, browserIdentity);
+
+      expect(status).toMatchObject({
+        requestedRevision: "browser-private-state",
+        activeRevision: null,
+        unavailableRoles: ["browser-runner"],
+        failure: "excluded-or-unsafe-path",
+      });
+      expect(preparationCalls).toBe(0);
+    }).pipe(Effect.provide(testFileSystemLayer));
+  });
+
   it.effect("skips the snapshot root prepare sentinel and runs pending dependency setup", () => {
     const sourceRoot = join("/tmp", `runner-source-install-${randomUUID()}`);
     return Effect.gen(function* () {

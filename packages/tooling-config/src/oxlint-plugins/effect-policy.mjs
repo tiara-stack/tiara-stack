@@ -8,7 +8,7 @@ const baselinePath = path.join(
   root,
   "packages/tooling-config/src/oxlint-plugins/no-nested-ternary-baseline.json",
 );
-const BASELINE_SHA256 = "f598656a34ee05d40b1a143fe5ddd8dba1168c873eac407fad740feee34254ab";
+const BASELINE_SHA256 = "7c4393527e2027a032121b2fc088bd509d6f688208eebc28b5c86c1c9be316e9";
 const requestedBaselinePath = process.env.TIARA_NESTED_TERNARY_BASELINE_PATH;
 const testBaselineOverride =
   process.env.NODE_ENV === "test" &&

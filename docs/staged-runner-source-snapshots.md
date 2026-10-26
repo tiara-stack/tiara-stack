@@ -170,8 +170,11 @@ root-context build installs the
 offline use. The Dockerfile-specific ignore file
 `packages/sheet-workflows/Dockerfile.development.dockerignore` allows package
 manifests and patches while excluding host `node_modules`, credentials, and
-source secrets. The CI matrix uses the root context only for this development
-image. The chart has a
+source secrets. The shared staged-source contract also rejects common browser
+profile locations, Playwright `.auth` directories, and cookie or storage-state
+files before the snapshot is staged. Ordinary source modules with names such as
+`cookies.ts` remain eligible. The CI matrix uses the root context only for this
+development image. The chart has a
 `services.sheetWorkflowsRunner.developmentSource.enabled` switch, disabled by
 default. When enabled, it selects that image and mounts a pod-owned,
 size-limited `emptyDir` at `/workspace`; the pod keeps a read-only root

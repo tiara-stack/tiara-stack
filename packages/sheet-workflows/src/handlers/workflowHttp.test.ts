@@ -13,7 +13,9 @@ import { describe, expect, it } from "@effect/vitest";
 import { NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { SqlClient } from "effect/unstable/sql";
+import { Reactivity } from "effect/unstable/reactivity";
+import { SqlClient, Statement } from "effect/unstable/sql";
+import type { Connection } from "effect/unstable/sql/SqlConnection";
 import {
   defaultWorkflowRunListLimit,
   InvocationId,
@@ -55,8 +57,22 @@ import { ReadOnlyWorkflowAuthorization } from "@/workflows/readOnly/authorizatio
 const sheetDbMigrationArtifactDigest = getSheetDbMigrationArtifactDigest();
 
 const routeManifest = workflowHttpRouteManifest(SheetWorkflowContractCatalog);
-const browserReadinessSqlClient = ((..._parameters: ReadonlyArray<unknown>) =>
-  Effect.succeed([{ ready: true }])) as unknown as SqlClient.SqlClient;
+const makeBrowserReadinessSqlClient = () =>
+  Effect.gen(function* () {
+    const connection: Connection = {
+      execute: () => Effect.succeed([{ ready: true }]),
+      executeRaw: () => Effect.succeed(undefined),
+      executeStream: () => Stream.empty,
+      executeValues: () => Effect.succeed([]),
+      executeUnprepared: () => Effect.succeed([{ ready: true }]),
+    };
+
+    return yield* SqlClient.make({
+      acquirer: Effect.succeed(connection),
+      compiler: Statement.makeCompilerSqlite(),
+      spanAttributes: [],
+    }).pipe(Effect.provide(Reactivity.layer));
+  });
 
 const requestPath = (path: string) => path.replace(":invocationId", "not-an-invocation-id");
 
@@ -129,6 +145,7 @@ describe("sheet workflow HTTP contract boundary", () => {
         expect(routeManifest).toHaveLength(SheetWorkflowContractCatalog.length * 3);
         const routeKeys = routeManifest.map(({ method, path }) => `${method} ${path}`);
         expect(new Set(routeKeys).size).toBe(routeKeys.length);
+        const browserReadinessSqlClient = yield* makeBrowserReadinessSqlClient();
 
         const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
           new Response(JSON.stringify({ issuer: "https://issuer.example.com" }), {
@@ -140,10 +157,7 @@ describe("sheet workflow HTTP contract boundary", () => {
           const handler = yield* HttpRouter.toHttpEffect(
             workflowHttpRoutesLayer.pipe(
               Layer.provide(Layer.mock(WorkflowStore)({})),
-              Layer.provide(
-                Layer.succeed(SqlClient.SqlClient, ((..._parameters: ReadonlyArray<unknown>) =>
-                  Effect.succeed([{ ready: true }])) as unknown as SqlClient.SqlClient),
-              ),
+              Layer.provide(Layer.succeed(SqlClient.SqlClient, browserReadinessSqlClient)),
               Layer.provide(
                 ConfigProvider.layer(
                   ConfigProvider.fromUnknown({

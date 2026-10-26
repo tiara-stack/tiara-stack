@@ -1,12 +1,9 @@
 import assert from "node:assert/strict";
-import { pathToFileURL } from "node:url";
 
 const playwrightModule = process.env.TIA_BROWSER_SMOKE_PLAYWRIGHT_MODULE ?? "playwright";
 const { chromium } = await import(playwrightModule);
 
-const fixtureUrl = pathToFileURL(
-  `${process.cwd()}/packages/sheet-workflows/browser-runner-smoke.html`,
-);
+const fixtureUrl = new URL("./browser-runner-smoke.html", import.meta.url);
 const server = await chromium.launchServer({ headless: true });
 const child = server.process();
 const browser = await chromium.connect(server.wsEndpoint());

@@ -1772,37 +1772,42 @@ describe("staged source snapshots", () => {
     }),
   );
 
-  it.effect("rejects host dependencies, credentials, traversal, and incomplete manifests", () =>
-    Effect.gen(function* () {
-      const bad = [
-        snapshot("r", [["node_modules/x/index.js", "x"]]),
-        snapshot("r", [[".env", "secret"]]),
-        snapshot("r", [[".env.local", "secret"]]),
-        snapshot("r", [[".env.production", "secret"]]),
-        snapshot("r", [["secrets/google-service-account.json", "secret"]]),
-        snapshot("r", [["certs/client.pem", "secret"]]),
-        snapshot("r", [[".cache/ms-playwright/chromium", "binary"]]),
-        snapshot("r", [["../escape", "x"]]),
-        snapshot("r", [
-          ["src/duplicate.ts", "one"],
-          ["src/duplicate.ts", "two"],
-        ]),
-        {
-          ...sealStagedSourceSnapshot("r", [
-            ...snapshot("r").files,
-            utf8File("src/invalid.ts", "x", 0o1000),
+  it.effect(
+    "rejects host dependencies, credentials, browser state, traversal, and incomplete manifests",
+    () =>
+      Effect.gen(function* () {
+        const bad = [
+          snapshot("r", [["node_modules/x/index.js", "x"]]),
+          snapshot("r", [[".env", "secret"]]),
+          snapshot("r", [[".env.local", "secret"]]),
+          snapshot("r", [[".env.production", "secret"]]),
+          snapshot("r", [["secrets/google-service-account.json", "secret"]]),
+          snapshot("r", [["certs/client.pem", "secret"]]),
+          snapshot("r", [[".cache/ms-playwright/chromium", "binary"]]),
+          snapshot("r", [[".config/google-chrome/Default/Cookies", "private browser data"]]),
+          snapshot("r", [["playwright/.auth/user.json", "private browser data"]]),
+          snapshot("r", [["tests/fixtures/storageState.json", "private browser data"]]),
+          snapshot("r", [["../escape", "x"]]),
+          snapshot("r", [
+            ["src/duplicate.ts", "one"],
+            ["src/duplicate.ts", "two"],
           ]),
-        },
-        sealStagedSourceSnapshot("", snapshot("r").files),
-        sealStagedSourceSnapshot("r", [utf8File("package.json", "{}")]),
-      ];
-      for (const candidate of bad) {
-        const result = yield* Effect.exit(
-          validateStagedSnapshot(candidate as StagedSourceSnapshot),
-        );
-        expect(Exit.isFailure(result)).toBe(true);
-      }
-    }),
+          {
+            ...sealStagedSourceSnapshot("r", [
+              ...snapshot("r").files,
+              utf8File("src/invalid.ts", "x", 0o1000),
+            ]),
+          },
+          sealStagedSourceSnapshot("", snapshot("r").files),
+          sealStagedSourceSnapshot("r", [utf8File("package.json", "{}")]),
+        ];
+        for (const candidate of bad) {
+          const result = yield* Effect.exit(
+            validateStagedSnapshot(candidate as StagedSourceSnapshot),
+          );
+          expect(Exit.isFailure(result)).toBe(true);
+        }
+      }),
   );
 
   it.effect("rejects suffixed environment files before runtime effects", () =>
@@ -2148,6 +2153,46 @@ describe("staged source snapshots", () => {
         expect(restarted).toEqual(["browser-runner:r2:artifact"]);
       }),
   );
+
+  it("rebuilds selected workflow roles when a Playwright update changes another dependency", () => {
+    const before = snapshot("r1", [
+      [
+        "packages/sheet-workflows/package.json",
+        '{"name":"sheet-workflows","dependencies":{"playwright":"1.58.2","effect":"4.0.0-beta.67"}}',
+      ],
+    ]);
+    const after = snapshot("r2", [
+      [
+        "packages/sheet-workflows/package.json",
+        '{"name":"sheet-workflows","dependencies":{"playwright":"1.58.3","effect":"4.0.0-beta.68"}}',
+      ],
+    ]);
+
+    expect(
+      affectedRunnerRoles(before, after, ["workflow-api", "ordinary-runner", "browser-runner"]),
+    ).toEqual(["workflow-api", "ordinary-runner", "browser-runner"]);
+  });
+
+  it("rebuilds selected workflow roles when other runner source changes with Playwright", () => {
+    const before = snapshot("r1", [
+      [
+        "packages/sheet-workflows/package.json",
+        '{"name":"sheet-workflows","dependencies":{"playwright":"1.58.2"}}',
+      ],
+      ["packages/sheet-workflows/src/runner.ts", "export const runner = 'ordinary'"],
+    ]);
+    const after = snapshot("r2", [
+      [
+        "packages/sheet-workflows/package.json",
+        '{"name":"sheet-workflows","dependencies":{"playwright":"1.58.3"}}',
+      ],
+      ["packages/sheet-workflows/src/runner.ts", "export const runner = 'updated'"],
+    ]);
+
+    expect(
+      affectedRunnerRoles(before, after, ["workflow-api", "ordinary-runner", "browser-runner"]),
+    ).toEqual(["workflow-api", "ordinary-runner", "browser-runner"]);
+  });
 
   it("routes screenshot renderer source edits only to the browser runner", () => {
     const before = snapshot("r1", [
