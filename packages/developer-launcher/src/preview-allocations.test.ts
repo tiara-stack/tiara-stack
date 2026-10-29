@@ -2,7 +2,18 @@ import { it } from "@effect/vitest";
 import { NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import path from "node:path";
-import { Deferred, Duration, Effect, Fiber, FileSystem, Layer } from "effect";
+import {
+  Cause,
+  Deferred,
+  Duration,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Layer,
+  Option,
+  Schema,
+} from "effect";
 import { TestClock } from "effect/testing";
 import type * as SqlClientType from "effect/unstable/sql/SqlClient";
 import * as SqlClient from "effect/unstable/sql/SqlClient";
@@ -63,6 +74,103 @@ const testAdapter = (overrides: Partial<PreviewResourceAdapter> = {}): PreviewRe
   resolveUnknown: () => Effect.fail(new Error("provider resolution not configured")),
   ...overrides,
 });
+
+const makeDelayedCleanupTransactionSql = (sql: SqlClientType.SqlClient) =>
+  Effect.gen(function* () {
+    const reached = yield* Deferred.make<void>();
+    const resume = yield* Deferred.make<void>();
+    const originalWithTransaction = sql.withTransaction.bind(sql);
+    let holdNextTransaction = false;
+    const client = new Proxy(sql, {
+      get(target, property, receiver) {
+        if (property !== "withTransaction") return Reflect.get(target, property, receiver);
+        return (effect: Parameters<typeof sql.withTransaction>[0]) => {
+          if (!holdNextTransaction) return originalWithTransaction(effect);
+          holdNextTransaction = false;
+          return Effect.gen(function* () {
+            yield* Deferred.succeed(reached, undefined);
+            yield* Deferred.await(resume);
+            return yield* originalWithTransaction(effect);
+          });
+        };
+      },
+    });
+    return {
+      client,
+      reached,
+      resume,
+      holdNext: () => Effect.sync(() => (holdNextTransaction = true)),
+    };
+  });
+
+const makeVerifiedAbsentAllocationAdapter = (
+  now: () => number,
+  resources: Map<string, string>,
+  deletionCalls: { value: number },
+) =>
+  testAdapter({
+    allocate: ({ sessionId, ownerToken, resource }) =>
+      Effect.sync(() => {
+        const providerResourceId = `${sessionId}/${resource}`;
+        resources.set(providerResourceId, ownerToken);
+        return providerResourceId;
+      }),
+    resolveUnknown: ({ sessionId, resource, ownerToken, providerIdentities }) => {
+      const providerIdentity = providerIdentities[0];
+      if (providerIdentity === undefined)
+        return Effect.fail(new Error("provider identity missing"));
+      return Effect.succeed({
+        sessionId,
+        resource,
+        ownerToken,
+        ...providerIdentity,
+        verifiedAt: now(),
+        allocationSettled: true,
+        result: { status: "absent" as const },
+      });
+    },
+    deleteOwned: () =>
+      Effect.sync(() => {
+        deletionCalls.value += 1;
+      }),
+  });
+
+const makeVerifiedAbsentCleanupFixture = () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const sql = yield* SqlClient.SqlClient;
+    const delayedSql = yield* makeDelayedCleanupTransactionSql(sql);
+    const resources = new Map<string, string>();
+    const deletionCalls = { value: 0 };
+    const sessions = yield* makePreviewSessionController(now);
+    const started = yield* sessions.create({
+      owner: "owner",
+      checkout: "/tmp/cleanup-preserves-verified-absence",
+      manifests: {},
+      requestedRevision: "cleanup-preserves-verified-absence",
+    });
+    const allocations = yield* makePreviewAllocationController(
+      makeVerifiedAbsentAllocationAdapter(now, resources, deletionCalls),
+      now,
+      undefined,
+      true,
+      10 * 60_000,
+    ).pipe(Effect.provideService(SqlClient.SqlClient, delayedSql.client));
+    yield* allocations.observeCapacity({ ...observation, observedAt: now() });
+    yield* allocations.reserveAndAllocate({
+      sessionId: started.session.id,
+      demands: demand,
+      resources: ["runner"],
+    });
+    yield* sql`UPDATE preview_allocation_ledger SET provider_resource_id=NULL, state='quarantined' WHERE session_id=${started.session.id} AND resource='runner'`;
+    yield* sessions.stop(started.session.id, started.ownerIdentity);
+    return { allocations, delayedSql, deletionCalls, resources, started };
+  });
+
+const deletionAttemptStartRowsSchema = Schema.Array(
+  Schema.Struct({ deletion_started_at: Schema.Number }),
+);
 
 it.effect("blocks missing, unverified, and stale provider measurements", () =>
   withAllocations(() =>
@@ -633,7 +741,6 @@ it.effect(
         expect((yield* allocations.inspect(started.session.id)).cleanup).toBe("waiting");
         now.value += 5 * 60_000;
         failDatabaseDeletion = false;
-        expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("quarantined");
         expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("cleaned");
         expect(resources.has(`${started.session.id}/database`)).toBe(false);
         expect(resources.has(`${started.session.id}/index`)).toBe(false);
@@ -807,6 +914,1018 @@ it.effect("starts the five-minute deletion delay after a slow successful cleanup
       expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("cleaned");
       expect(resources.has(`${started.session.id}/runner`)).toBe(false);
     }),
+  ),
+);
+
+it.effect("keeps one deletion deadline in progress and permits a later explicit retry", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const resources = new Map<string, string>();
+    const sessions = yield* makePreviewSessionController(now);
+    const started = yield* sessions.create({
+      owner: "owner",
+      checkout: "/tmp/shared-cleanup-deadline",
+      manifests: {},
+      requestedRevision: "shared-deadline",
+    });
+    const deletionStarted = yield* Deferred.make<void>();
+    let deletionCalls = 0;
+    let allowRetryDeletion = false;
+    const allocations = yield* makePreviewAllocationController(
+      testAdapter({
+        allocate: ({ sessionId, ownerToken, resource }) =>
+          Effect.sync(() => {
+            const providerResourceId = `${sessionId}/${resource}`;
+            resources.set(providerResourceId, ownerToken);
+            return providerResourceId;
+          }),
+        proveCleanup: () => Effect.succeed(true),
+        deleteOwned: ({ providerResourceId, ownerToken }) =>
+          Effect.gen(function* () {
+            deletionCalls += 1;
+            if (allowRetryDeletion) {
+              expect(resources.get(providerResourceId)).toBe(ownerToken);
+              resources.delete(providerResourceId);
+              return;
+            }
+            yield* Deferred.succeed(deletionStarted, undefined);
+            yield* Effect.never;
+          }),
+      }),
+      now,
+      undefined,
+      true,
+      10 * 60_000,
+    );
+    yield* allocations.observeCapacity({ ...observation, observedAt: now() });
+    yield* allocations.reserveAndAllocate({
+      sessionId: started.session.id,
+      demands: demand,
+      resources: ["runner"],
+    });
+    yield* sessions.stop(started.session.id, started.ownerIdentity);
+    yield* allocations.markCleanupUnconfirmed({
+      sessionId: started.session.id,
+      reason: "gateway-cleanup-unconfirmed",
+    });
+    const preDeletionDeadlineAt = now() + Duration.toMillis(Duration.minutes(5));
+    expect(
+      yield* allocations.cleanup({
+        sessionId: started.session.id,
+        preDeletionDeadlineAt,
+      }),
+    ).toBe("waiting");
+    expect(deletionCalls).toBe(0);
+    expect((yield* allocations.inspect(started.session.id)).reservations[0]?.releasedAt).toBe(null);
+    yield* TestClock.adjust(Duration.minutes(5));
+
+    const cleanup = yield* allocations
+      .cleanup({
+        sessionId: started.session.id,
+        preDeletionDeadlineAt: now() + Duration.toMillis(Duration.minutes(5)),
+      })
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(deletionStarted);
+    expect(deletionCalls).toBe(1);
+    yield* TestClock.adjust(Duration.minutes(4));
+    expect(
+      yield* allocations.cleanup({
+        sessionId: started.session.id,
+        preDeletionDeadlineAt: now() + Duration.toMillis(Duration.minutes(5)),
+      }),
+    ).toBe("waiting");
+    expect(deletionCalls).toBe(1);
+    expect((yield* allocations.inspect(started.session.id)).reservations[0]?.releasedAt).toBe(null);
+    yield* TestClock.adjust(Duration.minutes(1));
+    yield* Effect.yieldNow;
+    expect(yield* Fiber.join(cleanup)).toBe("quarantined");
+    const failedAttempt = yield* allocations.inspect(started.session.id);
+    expect(failedAttempt.allocations[0]?.state).toBe("quarantined");
+    expect(failedAttempt.reservations[0]?.releasedAt).toBe(null);
+    expect(failedAttempt.cleanupTiming?.deletionAttempt.status).toBe("expired");
+    allowRetryDeletion = true;
+    const retryStartedAt = now();
+    expect(
+      yield* allocations.cleanup({
+        sessionId: started.session.id,
+        preDeletionDeadlineAt: now() + Duration.toMillis(Duration.minutes(5)),
+      }),
+    ).toBe("cleaned");
+    expect(deletionCalls).toBe(2);
+    const state = yield* allocations.inspect(started.session.id);
+    expect(state.allocations[0]?.state).toBe("deleted");
+    expect(state.reservations[0]?.releasedAt).not.toBe(null);
+    expect(state.cleanupTiming?.deletionAttempt.status).toBe("complete");
+    expect(state.cleanupTiming?.deletionAttempt.startedAt).toBe(retryStartedAt);
+    expect(state.cleanupTiming?.totalElapsedMs).toBe(Duration.toMillis(Duration.minutes(10)));
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
+it.effect("starts the persisted deletion phase only after cleanup proof is stable", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const sql = yield* SqlClient.SqlClient;
+    const resources = new Map<string, string>();
+    const sessions = yield* makePreviewSessionController(now);
+    const started = yield* sessions.create({
+      owner: "owner",
+      checkout: "/tmp/post-proof-deletion-phase",
+      manifests: {},
+      requestedRevision: "post-proof-deletion-phase",
+    });
+    let deletionCalls = 0;
+    const allocations = yield* makePreviewAllocationController(
+      testAdapter({
+        allocate: ({ sessionId, ownerToken, resource }) =>
+          Effect.sync(() => {
+            const providerResourceId = `${sessionId}/${resource}`;
+            resources.set(providerResourceId, ownerToken);
+            return providerResourceId;
+          }),
+        proveCleanup: () => Effect.succeed(true),
+        deleteOwned: ({ providerResourceId, ownerToken }) =>
+          Effect.sync(() => {
+            expect(resources.get(providerResourceId)).toBe(ownerToken);
+            deletionCalls += 1;
+            resources.delete(providerResourceId);
+          }),
+      }),
+      now,
+      undefined,
+      true,
+      10 * 60_000,
+    );
+    yield* allocations.observeCapacity({ ...observation, observedAt: now() });
+    yield* allocations.reserveAndAllocate({
+      sessionId: started.session.id,
+      demands: demand,
+      resources: ["runner"],
+    });
+    yield* sessions.stop(started.session.id, started.ownerIdentity);
+
+    const preDeletionDeadlineAt = now() + Duration.toMillis(Duration.minutes(5));
+    expect(
+      yield* allocations.cleanup({
+        sessionId: started.session.id,
+        preDeletionDeadlineAt,
+      }),
+    ).toBe("waiting");
+    const pendingStatus = yield* allocations.inspect(started.session.id);
+    expect(pendingStatus.cleanupTiming?.proofValidation.status).toBe("validating");
+    expect(pendingStatus.cleanupTiming?.proofValidation.remainingMs).toBe(
+      Duration.toMillis(Duration.minutes(5)),
+    );
+    expect(pendingStatus.cleanupTiming?.deletionAttempt.status).toBe("not-started");
+    const pendingTiming =
+      yield* sql`SELECT deletion_started_at FROM preview_cleanup_timing WHERE session_id=${started.session.id}`;
+    expect((pendingTiming[0] as Record<string, unknown> | undefined)?.deletion_started_at).toBe(
+      null,
+    );
+    expect(deletionCalls).toBe(0);
+    expect((yield* allocations.inspect(started.session.id)).reservations[0]?.releasedAt).toBe(null);
+
+    yield* TestClock.adjust(Duration.minutes(5));
+    const eligibleDeletionDeadlineAt = now() + Duration.toMillis(Duration.minutes(5));
+    expect(
+      yield* allocations.cleanup({
+        sessionId: started.session.id,
+        preDeletionDeadlineAt: eligibleDeletionDeadlineAt,
+      }),
+    ).toBe("cleaned");
+    expect(deletionCalls).toBe(1);
+    const eligibleTiming =
+      yield* sql`SELECT deletion_started_at FROM preview_cleanup_timing WHERE session_id=${started.session.id}`;
+    expect(
+      Number((eligibleTiming[0] as Record<string, unknown> | undefined)?.deletion_started_at),
+    ).toBe(eligibleDeletionDeadlineAt - Duration.toMillis(Duration.minutes(5)));
+    const completedStatus = yield* allocations.inspect(started.session.id);
+    expect(completedStatus.cleanupTiming?.totalElapsedMs).toBe(
+      Duration.toMillis(Duration.minutes(5)),
+    );
+    expect(completedStatus.cleanupTiming?.proofValidation.status).toBe("complete");
+    expect(completedStatus.cleanupTiming?.deletionAttempt.status).toBe("complete");
+    expect(completedStatus.cleanupTiming?.deletionAttempt.startedAt).toBe(
+      eligibleDeletionDeadlineAt - Duration.toMillis(Duration.minutes(5)),
+    );
+    expect(resources.has(`${started.session.id}/runner`)).toBe(false);
+    expect((yield* allocations.inspect(started.session.id)).reservations[0]?.releasedAt).not.toBe(
+      null,
+    );
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
+it.effect("migrates a legacy pre-proof timer before the first deletion attempt", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const sql = yield* SqlClient.SqlClient;
+    const resources = new Map<string, string>();
+    const sessions = yield* makePreviewSessionController(now);
+    const started = yield* sessions.create({
+      owner: "owner",
+      checkout: "/tmp/legacy-pre-proof-deletion-timer",
+      manifests: {},
+      requestedRevision: "legacy-pre-proof-deletion-timer",
+    });
+    let deletionCalls = 0;
+    const allocations = yield* makePreviewAllocationController(
+      testAdapter({
+        allocate: ({ sessionId, ownerToken, resource }) =>
+          Effect.sync(() => {
+            const providerResourceId = `${sessionId}/${resource}`;
+            resources.set(providerResourceId, ownerToken);
+            return providerResourceId;
+          }),
+        proveCleanup: () => Effect.succeed(true),
+        deleteOwned: ({ providerResourceId, ownerToken }) =>
+          Effect.sync(() => {
+            expect(resources.get(providerResourceId)).toBe(ownerToken);
+            deletionCalls += 1;
+            resources.delete(providerResourceId);
+          }),
+      }),
+      now,
+      undefined,
+      true,
+      10 * 60_000,
+    );
+    yield* allocations.observeCapacity({ ...observation, observedAt: now() });
+    yield* allocations.reserveAndAllocate({
+      sessionId: started.session.id,
+      demands: demand,
+      resources: ["runner"],
+    });
+    yield* sessions.stop(started.session.id, started.ownerIdentity);
+
+    const initialDeadline = now() + Duration.toMillis(Duration.minutes(5));
+    expect(
+      yield* allocations.cleanup({
+        sessionId: started.session.id,
+        preDeletionDeadlineAt: initialDeadline,
+      }),
+    ).toBe("waiting");
+    const proofRows =
+      yield* sql`SELECT proof_at FROM preview_cleanup_state WHERE session_id=${started.session.id}`;
+    const proofAt = Number((proofRows[0] as Record<string, unknown> | undefined)?.proof_at);
+
+    // A prior implementation could persist the shared timer while proof was still stabilizing.
+    yield* TestClock.adjust(Duration.minutes(4));
+    const legacyTimer = proofAt + 1;
+    const proofStableAt = proofAt + Duration.toMillis(Duration.minutes(5));
+    expect(legacyTimer).toBeLessThan(now());
+    expect(legacyTimer + Duration.toMillis(Duration.minutes(5)) - proofStableAt).toBe(1);
+    yield* sql`UPDATE preview_cleanup_timing SET deletion_started_at=${legacyTimer} WHERE session_id=${started.session.id}`;
+    const pendingProofState = yield* allocations.inspect(started.session.id);
+    expect(pendingProofState.cleanupTiming?.proofValidation.status).toBe("validating");
+    expect(pendingProofState.cleanupTiming?.deletionAttempt.status).toBe("unverified");
+    expect(pendingProofState.cleanupTiming?.deletionAttempt.startedAt).toBe(legacyTimer);
+    expect(pendingProofState.allocations[0]?.state).toBe("owned");
+    expect(pendingProofState.reservations[0]?.releasedAt).toBe(null);
+    expect(deletionCalls).toBe(0);
+    yield* TestClock.adjust(Duration.minutes(1));
+
+    const eligibleAttemptAt = now();
+    expect(
+      yield* allocations.cleanup({
+        sessionId: started.session.id,
+        preDeletionDeadlineAt: eligibleAttemptAt + Duration.toMillis(Duration.minutes(5)),
+      }),
+    ).toBe("cleaned");
+    const timingRows =
+      yield* sql`SELECT deletion_started_at FROM preview_cleanup_timing WHERE session_id=${started.session.id}`;
+    expect(
+      Number((timingRows[0] as Record<string, unknown> | undefined)?.deletion_started_at),
+    ).toBe(eligibleAttemptAt);
+    expect(deletionCalls).toBe(1);
+    const state = yield* allocations.inspect(started.session.id);
+    const deletionStartedAt = state.cleanupTiming?.deletionAttempt.startedAt;
+    expect(deletionStartedAt).toBe(eligibleAttemptAt);
+    expect((deletionStartedAt ?? -1) + Duration.toMillis(Duration.minutes(5))).toBe(
+      eligibleAttemptAt + Duration.toMillis(Duration.minutes(5)),
+    );
+    expect(state.reservations[0]?.releasedAt).not.toBe(null);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
+it.effect("does not rebase a legacy timer while a fresh deletion claim remains", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const sql = yield* SqlClient.SqlClient;
+    const resources = new Map<string, string>();
+    const sessions = yield* makePreviewSessionController(now);
+    const started = yield* sessions.create({
+      owner: "owner",
+      checkout: "/tmp/legacy-pre-proof-claim",
+      manifests: {},
+      requestedRevision: "legacy-pre-proof-claim",
+    });
+    let deletionCalls = 0;
+    let proofCalls = 0;
+    const allocations = yield* makePreviewAllocationController(
+      testAdapter({
+        allocate: ({ sessionId, ownerToken, resource }) =>
+          Effect.sync(() => {
+            const providerResourceId = `${sessionId}/${resource}`;
+            resources.set(providerResourceId, ownerToken);
+            return providerResourceId;
+          }),
+        proveCleanup: () =>
+          Effect.sync(() => {
+            proofCalls += 1;
+            return true;
+          }),
+        deleteOwned: ({ providerResourceId, ownerToken }) =>
+          Effect.sync(() => {
+            expect(resources.get(providerResourceId)).toBe(ownerToken);
+            deletionCalls += 1;
+            resources.delete(providerResourceId);
+          }),
+      }),
+      now,
+      undefined,
+      true,
+      10 * 60_000,
+    );
+    yield* allocations.observeCapacity({ ...observation, observedAt: now() });
+    yield* allocations.reserveAndAllocate({
+      sessionId: started.session.id,
+      demands: demand,
+      resources: ["runner"],
+    });
+    yield* sessions.stop(started.session.id, started.ownerIdentity);
+
+    expect(
+      yield* allocations.cleanup({
+        sessionId: started.session.id,
+        preDeletionDeadlineAt: now() + Duration.toMillis(Duration.minutes(5)),
+      }),
+    ).toBe("waiting");
+    const proofRows =
+      yield* sql`SELECT proof_at FROM preview_cleanup_state WHERE session_id=${started.session.id}`;
+    const proofAt = Number((proofRows[0] as Record<string, unknown> | undefined)?.proof_at);
+    yield* TestClock.adjust(Duration.minutes(4));
+
+    const legacyTimer = proofAt + 1;
+    yield* sql`UPDATE preview_cleanup_timing SET deletion_started_at=${legacyTimer} WHERE session_id=${started.session.id}`;
+    yield* sql`UPDATE preview_allocation_ledger SET state='deleting', updated_at=${now()} WHERE session_id=${started.session.id} AND resource='runner'`;
+    yield* TestClock.adjust(Duration.minutes(1));
+    expect(legacyTimer + Duration.toMillis(Duration.minutes(5)) - now()).toBe(1);
+
+    const activeClaimOutcome = yield* allocations.cleanup({
+      sessionId: started.session.id,
+      preDeletionDeadlineAt: now() + Duration.toMillis(Duration.minutes(5)),
+    });
+    const activeClaimTimingRows =
+      yield* sql`SELECT deletion_started_at FROM preview_cleanup_timing WHERE session_id=${started.session.id}`;
+    const activeClaimLedger = yield* allocations.inspect(started.session.id);
+    expect(activeClaimOutcome).toBe("quarantined");
+    expect(
+      Number(
+        (activeClaimTimingRows[0] as Record<string, unknown> | undefined)?.deletion_started_at,
+      ),
+    ).toBe(legacyTimer);
+    expect(activeClaimLedger.allocations[0]?.state).toBe("deleting");
+    expect(activeClaimLedger.reservations[0]?.releasedAt).toBe(null);
+    expect(deletionCalls).toBe(0);
+
+    yield* sql`UPDATE preview_allocation_ledger SET updated_at=${now() - 10 * 60_000 - 1} WHERE session_id=${started.session.id} AND resource='runner' AND state='deleting'`;
+    const proofCallsBeforeRetry = proofCalls;
+    const retryStartedAt = now();
+    const retryOutcome = yield* allocations.cleanup({
+      sessionId: started.session.id,
+      preDeletionDeadlineAt: retryStartedAt + Duration.toMillis(Duration.minutes(5)),
+    });
+    const retryTimingRows =
+      yield* sql`SELECT deletion_started_at FROM preview_cleanup_timing WHERE session_id=${started.session.id}`;
+    const retryState = yield* allocations.inspect(started.session.id);
+
+    expect(retryOutcome).toBe("cleaned");
+    expect(proofCalls).toBeGreaterThan(proofCallsBeforeRetry);
+    expect(
+      Number((retryTimingRows[0] as Record<string, unknown> | undefined)?.deletion_started_at),
+    ).toBe(retryStartedAt);
+    expect(deletionCalls).toBe(1);
+    expect(resources.size).toBe(0);
+    expect(retryState.reservations[0]?.releasedAt).not.toBe(null);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
+it.effect("preserves a committed deletion claim when outer timeout interrupts delayed SQL", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const sql = yield* SqlClient.SqlClient;
+    const claimWriteStarted = yield* Deferred.make<void>();
+    let delayNextClaimReturn = true;
+    const delayedClaimSql = new Proxy(sql, {
+      apply(target, thisArg, args) {
+        const statement = Reflect.apply(target, thisArg, args);
+        if (!delayNextClaimReturn || !statement.compile()[0].includes("SET state='deleting'"))
+          return statement;
+        return Effect.gen(function* () {
+          yield* statement;
+          delayNextClaimReturn = false;
+          yield* Deferred.succeed(claimWriteStarted, undefined);
+          // Simulate a committed claim whose SQL acknowledgment never arrives.
+          return yield* Effect.never;
+        });
+      },
+    });
+    const resources = new Map<string, string>();
+    const sessions = yield* makePreviewSessionController(now);
+    const started = yield* sessions.create({
+      owner: "owner",
+      checkout: "/tmp/outer-cleanup-timeout-before-adapter-timeout",
+      manifests: {},
+      requestedRevision: "outer-cleanup-timeout-before-adapter-timeout",
+    });
+    let deletionCalls = 0;
+    const allocations = yield* makePreviewAllocationController(
+      testAdapter({
+        allocate: ({ sessionId, ownerToken, resource }) =>
+          Effect.sync(() => {
+            const providerResourceId = `${sessionId}/${resource}`;
+            resources.set(providerResourceId, ownerToken);
+            return providerResourceId;
+          }),
+        proveCleanup: () => Effect.succeed(true),
+        deleteOwned: ({ providerResourceId, ownerToken }) =>
+          Effect.sync(() => {
+            expect(resources.get(providerResourceId)).toBe(ownerToken);
+            deletionCalls += 1;
+            resources.delete(providerResourceId);
+          }),
+      }),
+      now,
+      undefined,
+      true,
+      Duration.toMillis(Duration.minutes(10)),
+    ).pipe(Effect.provideService(SqlClient.SqlClient, delayedClaimSql));
+    yield* allocations.observeCapacity({ ...observation, observedAt: now() });
+    yield* allocations.reserveAndAllocate({
+      sessionId: started.session.id,
+      demands: demand,
+      resources: ["runner"],
+    });
+    yield* sessions.stop(started.session.id, started.ownerIdentity);
+
+    expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+    yield* TestClock.adjust(Duration.minutes(5));
+
+    const cleanupFiber = yield* Effect.forkChild(
+      Effect.exit(allocations.cleanup({ sessionId: started.session.id })),
+    );
+    yield* Deferred.await(claimWriteStarted);
+    const activeAttempt = yield* allocations.inspect(started.session.id);
+    expect(activeAttempt.cleanupTiming?.deletionAttempt.status).toBe("in-progress");
+    expect(activeAttempt.cleanupTiming?.deletionAttempt.startedAt).toBe(now());
+    expect(activeAttempt.allocations[0]?.state).toBe("deleting");
+    expect(activeAttempt.reservations[0]?.releasedAt).toBe(null);
+    yield* TestClock.adjust(Duration.minutes(5));
+    const firstAttempt = yield* Fiber.join(cleanupFiber);
+    expect(Exit.isFailure(firstAttempt)).toBe(true);
+    if (Exit.isFailure(firstAttempt)) {
+      const failure = Option.getOrUndefined(Cause.findErrorOption(firstAttempt.cause));
+      expect(failure).toMatchObject({ reason: "cleanup-deletion-deadline-exceeded" });
+    }
+    expect(deletionCalls).toBe(0);
+
+    yield* allocations.markCleanupUnconfirmed({
+      sessionId: started.session.id,
+      reason: "cleanup-deadline-exceeded",
+    });
+    const unresolved = yield* allocations.inspect(started.session.id);
+    expect(unresolved.cleanup).toBe("quarantined");
+    expect(unresolved.allocations[0]?.state).toBe("deleting");
+    expect(unresolved.reservations[0]?.releasedAt).toBe(null);
+
+    expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("quarantined");
+    expect(deletionCalls).toBe(0);
+    expect((yield* allocations.inspect(started.session.id)).allocations[0]?.state).toBe("deleting");
+
+    // The retry gets a new attempt only after the persisted claim is stale and proof is rechecked.
+    yield* TestClock.adjust(Duration.minutes(5));
+    expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("cleaned");
+    expect(deletionCalls).toBe(1);
+    const recovered = yield* allocations.inspect(started.session.id);
+    expect(recovered.allocations[0]?.state).toBe("deleted");
+    expect(recovered.reservations[0]?.releasedAt).not.toBe(null);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
+it.effect("does not delete after a concurrent failed proof invalidates a prepared cleanup", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const sql = yield* SqlClient.SqlClient;
+    const claimWriteReached = yield* Deferred.make<void>();
+    const resumeClaimWrite = yield* Deferred.make<void>();
+    let holdClaimWrite = true;
+    const delayedClaimSql = new Proxy(sql, {
+      apply(target, thisArg, args) {
+        const statement = Reflect.apply(target, thisArg, args);
+        const [query] = statement.compile();
+        if (!holdClaimWrite || !query.includes("SET state='deleting'")) return statement;
+        holdClaimWrite = false;
+        return Effect.gen(function* () {
+          yield* Deferred.succeed(claimWriteReached, undefined);
+          yield* Deferred.await(resumeClaimWrite);
+          return yield* statement;
+        });
+      },
+    });
+    const resources = new Map<string, string>();
+    const sessions = yield* makePreviewSessionController(now);
+    const started = yield* sessions.create({
+      owner: "owner",
+      checkout: "/tmp/cleanup-proof-invalidated-by-failed-proof",
+      manifests: {},
+      requestedRevision: "cleanup-proof-invalidated-by-failed-proof",
+    });
+    let proofCalls = 0;
+    let deletionCalls = 0;
+    const allocations = yield* makePreviewAllocationController(
+      testAdapter({
+        allocate: ({ sessionId, ownerToken, resource }) =>
+          Effect.sync(() => {
+            const providerResourceId = `${sessionId}/${resource}`;
+            resources.set(providerResourceId, ownerToken);
+            return providerResourceId;
+          }),
+        proveCleanup: () =>
+          Effect.sync(() => {
+            proofCalls += 1;
+            return proofCalls !== 3;
+          }),
+        deleteOwned: ({ providerResourceId, ownerToken }) =>
+          Effect.sync(() => {
+            expect(resources.get(providerResourceId)).toBe(ownerToken);
+            deletionCalls += 1;
+            resources.delete(providerResourceId);
+          }),
+      }),
+      now,
+      undefined,
+      true,
+      10 * 60_000,
+    ).pipe(Effect.provideService(SqlClient.SqlClient, delayedClaimSql));
+    yield* allocations.observeCapacity({ ...observation, observedAt: now() });
+    yield* allocations.reserveAndAllocate({
+      sessionId: started.session.id,
+      demands: demand,
+      resources: ["runner"],
+    });
+    yield* sessions.stop(started.session.id, started.ownerIdentity);
+
+    expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+    yield* TestClock.adjust(Duration.minutes(5));
+
+    const preparedCleanup = yield* allocations
+      .cleanup({ sessionId: started.session.id })
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(claimWriteReached);
+    const startedTimerRows =
+      yield* sql`SELECT deletion_started_at FROM preview_cleanup_timing WHERE session_id=${started.session.id}`;
+    const [startedTimer] = Schema.decodeUnknownSync(deletionAttemptStartRowsSchema)(
+      startedTimerRows,
+    );
+    expect(startedTimer?.deletion_started_at).toBe(now());
+    expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+    expect(proofCalls).toBe(3);
+
+    yield* Deferred.succeed(resumeClaimWrite, undefined);
+    const cleanupOutcome = yield* Fiber.join(preparedCleanup);
+    expect(deletionCalls).toBe(0);
+    expect(resources.has(`${started.session.id}/runner`)).toBe(true);
+    const state = yield* allocations.inspect(started.session.id);
+    expect(state.allocations[0]?.state).toBe("owned");
+    expect(state.reservations[0]?.releasedAt).toBeNull();
+    expect(state.cleanupTiming?.proofValidation.status).toBe("unverified");
+    expect(state.cleanupTiming?.deletionAttempt.status).toBe("unverified");
+    const timingRows =
+      yield* sql`SELECT deletion_started_at FROM preview_cleanup_timing WHERE session_id=${started.session.id}`;
+    const [timingRow] = Schema.decodeUnknownSync(deletionAttemptStartRowsSchema)(timingRows);
+    expect(timingRow?.deletion_started_at).toBe(now());
+    expect(cleanupOutcome).toBe("waiting");
+
+    expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+    expect(deletionCalls).toBe(0);
+    yield* TestClock.adjust(Duration.minutes(5));
+    expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("cleaned");
+    expect(deletionCalls).toBe(1);
+    expect(
+      (yield* allocations.inspect(started.session.id)).reservations[0]?.releasedAt,
+    ).not.toBeNull();
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
+it.effect("does not delete a known resource after concurrent unknown-owner resolution", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const sql = yield* SqlClient.SqlClient;
+    const claimWriteReached = yield* Deferred.make<void>();
+    const resumeClaimWrite = yield* Deferred.make<void>();
+    let holdClaimWrite = true;
+    const delayedClaimSql = new Proxy(sql, {
+      apply(target, thisArg, args) {
+        const statement = Reflect.apply(target, thisArg, args);
+        const [query] = statement.compile();
+        if (!holdClaimWrite || !query.includes("SET state='deleting'")) return statement;
+        holdClaimWrite = false;
+        return Effect.gen(function* () {
+          yield* Deferred.succeed(claimWriteReached, undefined);
+          yield* Deferred.await(resumeClaimWrite);
+          return yield* statement;
+        });
+      },
+    });
+    const resources = new Map<string, string>();
+    const sessions = yield* makePreviewSessionController(now);
+    const started = yield* sessions.create({
+      owner: "owner",
+      checkout: "/tmp/cleanup-proof-invalidated-by-resolution",
+      manifests: {},
+      requestedRevision: "cleanup-proof-invalidated-by-resolution",
+    });
+    let deletionCalls = 0;
+    const proofs: { readonly resource: string; readonly providerResourceId: string | null }[][] =
+      [];
+    const allocations = yield* makePreviewAllocationController(
+      testAdapter({
+        allocate: ({ sessionId, ownerToken, resource }) =>
+          Effect.sync(() => {
+            const providerResourceId = `${sessionId}/${resource}`;
+            resources.set(providerResourceId, ownerToken);
+            return providerResourceId;
+          }),
+        proveCleanup: ({ resources: proofResources }) =>
+          Effect.sync(() => {
+            proofs.push(
+              proofResources.map(({ resource, providerResourceId }) => ({
+                resource,
+                providerResourceId,
+              })),
+            );
+            return true;
+          }),
+        resolveUnknown: ({ sessionId, resource, ownerToken, providerIdentities }) =>
+          Effect.sync(() => ({
+            sessionId,
+            resource,
+            ownerToken,
+            ...providerIdentities[0]!,
+            verifiedAt: now(),
+            allocationSettled: true,
+            result: {
+              status: "found" as const,
+              providerResourceId: `${sessionId}/${resource}`,
+            },
+          })),
+        deleteOwned: ({ providerResourceId, ownerToken }) =>
+          Effect.sync(() => {
+            expect(resources.get(providerResourceId)).toBe(ownerToken);
+            deletionCalls += 1;
+            resources.delete(providerResourceId);
+          }),
+      }),
+      now,
+      undefined,
+      true,
+      10 * 60_000,
+    ).pipe(Effect.provideService(SqlClient.SqlClient, delayedClaimSql));
+    yield* allocations.observeCapacity({ ...observation, observedAt: now(), total: 10 });
+    yield* allocations.reserveAndAllocate({
+      sessionId: started.session.id,
+      demands: demand,
+      resources: ["unknown", "known"],
+    });
+    yield* sql`UPDATE preview_allocation_ledger SET provider_resource_id=NULL, state='quarantined' WHERE session_id=${started.session.id} AND resource='unknown'`;
+    yield* sessions.stop(started.session.id, started.ownerIdentity);
+
+    expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("quarantined");
+    yield* TestClock.adjust(Duration.minutes(5));
+
+    const preparedCleanup = yield* allocations
+      .cleanup({ sessionId: started.session.id })
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(claimWriteReached);
+    const startedTimerRows =
+      yield* sql`SELECT deletion_started_at FROM preview_cleanup_timing WHERE session_id=${started.session.id}`;
+    const [startedTimer] = Schema.decodeUnknownSync(deletionAttemptStartRowsSchema)(
+      startedTimerRows,
+    );
+    expect(startedTimer?.deletion_started_at).toBe(now());
+    expect(
+      yield* allocations.resolveUnknownAllocation({
+        sessionId: started.session.id,
+        resource: "unknown",
+      }),
+    ).toBe("resolved-owned");
+
+    yield* Deferred.succeed(resumeClaimWrite, undefined);
+    const cleanupOutcome = yield* Fiber.join(preparedCleanup);
+    expect(deletionCalls).toBe(0);
+    expect(resources.has(`${started.session.id}/known`)).toBe(true);
+    expect(resources.has(`${started.session.id}/unknown`)).toBe(true);
+    const state = yield* allocations.inspect(started.session.id);
+    expect(state.allocations.map(({ state: allocationState }) => allocationState)).toEqual([
+      "owned",
+      "owned",
+    ]);
+    expect(state.reservations[0]?.releasedAt).toBeNull();
+    expect(state.cleanupTiming?.proofValidation.status).toBe("unverified");
+    expect(state.cleanupTiming?.deletionAttempt.status).toBe("unverified");
+    const timingRows =
+      yield* sql`SELECT deletion_started_at FROM preview_cleanup_timing WHERE session_id=${started.session.id}`;
+    const [timingRow] = Schema.decodeUnknownSync(deletionAttemptStartRowsSchema)(timingRows);
+    expect(timingRow?.deletion_started_at).toBe(now());
+    expect(cleanupOutcome).toBe("waiting");
+
+    expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+    expect(deletionCalls).toBe(0);
+    yield* TestClock.adjust(Duration.minutes(5));
+    expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("cleaned");
+    expect(deletionCalls).toBe(2);
+    expect(proofs.at(-1)?.find(({ resource }) => resource === "unknown")?.providerResourceId).toBe(
+      `${started.session.id}/unknown`,
+    );
+    expect(
+      (yield* allocations.inspect(started.session.id)).reservations[0]?.releasedAt,
+    ).not.toBeNull();
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
+it.effect("preserves verified absence when stale cleanup reaches an unknown resource", () =>
+  Effect.gen(function* () {
+    const fixture = yield* makeVerifiedAbsentCleanupFixture();
+    const { allocations, delayedSql, deletionCalls, resources, started } = fixture;
+
+    expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("quarantined");
+    const providerResourceId = `${started.session.id}/runner`;
+    resources.delete(providerResourceId);
+    yield* TestClock.adjust(Duration.minutes(5));
+
+    yield* delayedSql.holdNext();
+    const staleCleanup = yield* allocations
+      .cleanup({ sessionId: started.session.id })
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(delayedSql.reached);
+    expect(
+      yield* allocations.resolveUnknownAllocation({
+        sessionId: started.session.id,
+        resource: "runner",
+      }),
+    ).toBe("verified-absent");
+    const resolved = yield* allocations.inspect(started.session.id);
+    expect(resolved.allocations.map(({ state, failure }) => ({ state, failure }))).toEqual([
+      { state: "deleted", failure: "provider-verified-absent" },
+    ]);
+    expect(resolved.reservations.map(({ releasedAt }) => releasedAt)).toEqual([null]);
+
+    yield* Deferred.succeed(delayedSql.resume, undefined);
+    expect(yield* Fiber.join(staleCleanup)).toBe("waiting");
+    const afterStaleCleanup = yield* allocations.inspect(started.session.id);
+    expect(deletionCalls.value).toBe(0);
+    expect(resources.has(providerResourceId)).toBe(false);
+    expect(afterStaleCleanup.allocations.map(({ state, failure }) => ({ state, failure }))).toEqual(
+      [{ state: "deleted", failure: "provider-verified-absent" }],
+    );
+    expect(afterStaleCleanup.cleanup).toBe("waiting");
+    expect(afterStaleCleanup.reservations.map(({ releasedAt }) => releasedAt)).toEqual([null]);
+
+    // A later explicit cleanup revalidates proof and safely finishes the same recorded session.
+    yield* TestClock.adjust(Duration.minutes(5));
+    expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("waiting");
+    expect(
+      (yield* allocations.inspect(started.session.id)).reservations.map(
+        ({ releasedAt }) => releasedAt,
+      ),
+    ).toEqual([null]);
+    yield* TestClock.adjust(Duration.minutes(5));
+    expect(yield* allocations.cleanup({ sessionId: started.session.id })).toBe("cleaned");
+    expect(deletionCalls.value).toBe(0);
+    const recovered = yield* allocations.inspect(started.session.id);
+    expect(recovered.allocations.map(({ state }) => state)).toEqual(["deleted"]);
+    expect(recovered.reservations.map(({ releasedAt }) => releasedAt)).not.toContain(null);
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
+  ),
+);
+
+it.effect("revalidates proof against the ledger snapshot before authorizing deletion", () =>
+  Effect.gen(function* () {
+    const testClock = yield* TestClock.testClockWith((clock) => Effect.succeed(clock));
+    const now = () => testClock.currentTimeMillisUnsafe();
+    const sql = yield* SqlClient.SqlClient;
+    const authorizationSnapshotReached = yield* Deferred.make<void>();
+    const resumeAuthorizationSnapshot = yield* Deferred.make<void>();
+    let holdAuthorizationSnapshot = true;
+    const delayedAuthorizationSnapshotSql = new Proxy(sql, {
+      apply(target, thisArg, args) {
+        const statement = Reflect.apply(target, thisArg, args);
+        const [query] = statement.compile();
+        const combinedSnapshot =
+          query.includes("AS proof_generation") &&
+          query.includes("LEFT JOIN preview_allocation_ledger");
+        const legacyGenerationRead = query.includes(
+          "SELECT generation FROM preview_cleanup_proof_fences",
+        );
+        if (!holdAuthorizationSnapshot || (!combinedSnapshot && !legacyGenerationRead))
+          return statement;
+        holdAuthorizationSnapshot = false;
+        return Effect.gen(function* () {
+          const rows = combinedSnapshot ? yield* statement : undefined;
+          yield* Deferred.succeed(authorizationSnapshotReached, undefined);
+          yield* Deferred.await(resumeAuthorizationSnapshot);
+          if (combinedSnapshot) return rows;
+          return yield* statement;
+        });
+      },
+    });
+    const resources = new Map<string, string>();
+    const sessions = yield* makePreviewSessionController(now);
+    const started = yield* sessions.create({
+      owner: "owner",
+      checkout: "/tmp/cleanup-proof-ledger-snapshot-coherence",
+      manifests: {},
+      requestedRevision: "cleanup-proof-ledger-snapshot-coherence",
+    });
+    const proofs: { readonly resource: string; readonly providerResourceId: string | null }[][] =
+      [];
+    let deletionCalls = 0;
+    const allocations = yield* makePreviewAllocationController(
+      testAdapter({
+        allocate: ({ sessionId, ownerToken, resource }) =>
+          Effect.sync(() => {
+            const providerResourceId = `${sessionId}/${resource}`;
+            resources.set(providerResourceId, ownerToken);
+            return providerResourceId;
+          }),
+        proveCleanup: ({ resources: proofResources }) =>
+          Effect.sync(() => {
+            proofs.push(
+              proofResources.map(({ resource, providerResourceId }) => ({
+                resource,
+                providerResourceId,
+              })),
+            );
+            return true;
+          }),
+        resolveUnknown: ({ sessionId, resource, ownerToken, providerIdentities }) =>
+          Effect.sync(() => {
+            const providerIdentity = providerIdentities[0];
+            if (providerIdentity === undefined) throw new Error("provider identity missing");
+            return {
+              sessionId,
+              resource,
+              ownerToken,
+              ...providerIdentity,
+              verifiedAt: now(),
+              allocationSettled: true,
+              result: {
+                status: "found" as const,
+                providerResourceId: `${sessionId}/${resource}`,
+              },
+            };
+          }),
+        deleteOwned: ({ providerResourceId, ownerToken }) =>
+          Effect.sync(() => {
+            expect(resources.get(providerResourceId)).toBe(ownerToken);
+            deletionCalls += 1;
+            resources.delete(providerResourceId);
+          }),
+      }),
+      now,
+      undefined,
+      true,
+      10 * 60_000,
+    ).pipe(Effect.provideService(SqlClient.SqlClient, delayedAuthorizationSnapshotSql));
+    yield* allocations.observeCapacity({ ...observation, observedAt: now(), total: 10 });
+    yield* allocations.reserveAndAllocate({
+      sessionId: started.session.id,
+      demands: demand,
+      resources: ["unknown", "known"],
+    });
+    yield* sql`UPDATE preview_allocation_ledger SET provider_resource_id=NULL, state='quarantined' WHERE session_id=${started.session.id} AND resource='unknown'`;
+    yield* sessions.stop(started.session.id, started.ownerIdentity);
+
+    const stalePreparedCleanup = yield* allocations
+      .cleanup({ sessionId: started.session.id })
+      .pipe(Effect.forkChild);
+    yield* Deferred.await(authorizationSnapshotReached);
+    expect(
+      yield* allocations.resolveUnknownAllocation({
+        sessionId: started.session.id,
+        resource: "unknown",
+      }),
+    ).toBe("resolved-owned");
+    yield* Deferred.succeed(resumeAuthorizationSnapshot, undefined);
+    const staleCleanupOutcome = yield* Fiber.join(stalePreparedCleanup);
+
+    expect(deletionCalls).toBe(0);
+    expect(resources.has(`${started.session.id}/known`)).toBe(true);
+    expect(resources.has(`${started.session.id}/unknown`)).toBe(true);
+    expect(proofs[0]?.find(({ resource }) => resource === "unknown")?.providerResourceId).toBe(
+      null,
+    );
+    const staleState = yield* allocations.inspect(started.session.id);
+    expect(staleState.allocations.every(({ state }) => state === "owned")).toBe(true);
+    expect(staleState.reservations[0]?.releasedAt).toBeNull();
+    expect(staleCleanupOutcome).toBe("waiting");
+
+    yield* TestClock.adjust(Duration.minutes(5));
+    const unstableProofOutcome = yield* allocations.cleanup({ sessionId: started.session.id });
+    expect(deletionCalls).toBe(0);
+    expect(resources.has(`${started.session.id}/known`)).toBe(true);
+    expect(resources.has(`${started.session.id}/unknown`)).toBe(true);
+    expect(proofs.at(-1)?.find(({ resource }) => resource === "unknown")?.providerResourceId).toBe(
+      `${started.session.id}/unknown`,
+    );
+    expect((yield* allocations.inspect(started.session.id)).reservations[0]?.releasedAt).toBeNull();
+    expect(unstableProofOutcome).toBe("waiting");
+
+    yield* TestClock.adjust(Duration.minutes(5));
+    const finalCleanupOutcome = yield* allocations.cleanup({ sessionId: started.session.id });
+    expect(deletionCalls).toBe(2);
+    expect(resources.size).toBe(0);
+    expect(
+      (yield* allocations.inspect(started.session.id)).reservations[0]?.releasedAt,
+    ).not.toBeNull();
+    expect(finalCleanupOutcome).toBe("cleaned");
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        SqliteClient.layer({ filename: ":memory:" }),
+        NodeServices.layer,
+        TestClock.layer(),
+      ),
+    ),
   ),
 );
 

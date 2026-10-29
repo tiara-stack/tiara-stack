@@ -2,8 +2,12 @@
 import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import * as Console from "effect/Console";
+import * as Clock from "effect/Clock";
+import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Match from "effect/Match";
 import * as Option from "effect/Option";
 import { FetchHttpClient } from "effect/unstable/http";
 import {
@@ -42,6 +46,11 @@ import {
 } from "./types";
 import { normalizeChangedSurfaces, parseCommand, type CommandOptions } from "./commands";
 import { makePreviewGateway, PreviewGateway } from "./preview-gateway";
+import {
+  ConnectedWorkflowPreviewProvider,
+  makeConnectedWorkflowPreviewRuntime,
+  type ConnectedWorkflowPreviewProviderApi,
+} from "./connected-preview";
 import { PreviewSessionController, PreviewSessionControllerLive } from "./preview-sessions";
 import {
   makeLocalFilesystemPreviewResourceAdapter,
@@ -60,6 +69,7 @@ import {
   parsePreviewRelayProviderConfig,
 } from "./preview-relay-provider";
 import { makePreviewWebRuntime } from "./preview-web-runtime";
+import { loadConfiguredWorkflowPreviewProvider } from "./workflow-preview-provider";
 
 const commonFlags = {
   envFile: Flag.string("env-file").pipe(Flag.optional),
@@ -197,11 +207,16 @@ const isExecutablePlan = (result: Awaited<ReturnType<typeof runLauncherFromParse
   result.output.plannedProcesses.length > 0 &&
   developmentModes.some((mode) => matchesModePlan(result, mode));
 
-type PreviewSupervisorEffect = import("effect/Effect").Effect<
+export type PreviewSupervisorEffect = import("effect/Effect").Effect<
   void,
   never,
   import("effect/FileSystem").FileSystem | import("effect/unstable/http").HttpClient.HttpClient
 >;
+
+export class PreviewSupervisorSchedulerService extends Context.Service<
+  PreviewSupervisorSchedulerService,
+  (sessionId: string, supervisor: PreviewSupervisorEffect) => void
+>()("developer-launcher/PreviewSupervisorScheduler") {}
 
 export const completeCommandOutput = (
   output: string | null,
@@ -216,109 +231,129 @@ export const completeCommandOutput = (
       );
   });
 
+const runLauncherAndPlan = async (
+  config: Parameters<typeof launcherOptions>[0],
+  options: CommandOptions,
+  launcherConfig: import("./types").LauncherOptions,
+) => {
+  let result = await runLauncherFromParsed(config.operands, options, launcherConfig);
+  const shouldExecutePlan = isExecutablePlan(result);
+  const lifecycleExecutionStarted = config.jsonStream && shouldExecutePlan;
+  if (shouldExecutePlan)
+    result = await executeDevelopmentPlan(result, config.json || config.jsonStream, {
+      jsonStream: config.jsonStream,
+    });
+  return { result, lifecycleExecutionStarted };
+};
+
+const formatLauncherResult = (
+  result: LauncherResult,
+  config: Parameters<typeof launcherOptions>[0],
+  supervisor: PreviewSupervisorEffect | undefined,
+  lifecycleExecutionStarted: boolean,
+) => {
+  process.exitCode = result.exitCode;
+  if (config.jsonStream) {
+    if (result.stdout.trim().length > 0) process.stdout.write(result.stdout);
+    if (result.output.ok && !lifecycleExecutionStarted)
+      process.stdout.write(renderLifecycleTerminal(result.output, result.exitCode, 2));
+    else if (!result.output.ok && !lifecycleExecutionStarted && result.stdout.trim().length === 0)
+      process.stdout.write(renderLifecycleTerminal(result.output, result.exitCode, 1));
+    return { output: null, supervisor };
+  }
+  const output = result.stdout.trimEnd();
+  return {
+    output: output.length === 0 ? null : output,
+    supervisor,
+  };
+};
+
 const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
-  Effect.serviceOption(PreviewSessionController).pipe(
-    Effect.flatMap((sessionController) =>
-      Effect.serviceOption(PreviewAllocationController).pipe(
-        Effect.flatMap((allocationController) =>
-          Effect.serviceOption(PreviewRelayProvider).pipe(
-            Effect.flatMap((relayProvider) =>
-              Effect.serviceOption(PreviewGateway).pipe(
-                Effect.flatMap((gateway) =>
-                  // fallow-ignore-next-line complexity
-                  Effect.tryPromise({
-                    // fallow-ignore-next-line complexity
-                    try: async () => {
-                      let supervisorEffect: PreviewSupervisorEffect | undefined;
-                      const options = launcherOptions(config);
-                      const launcherConfig = {
-                        ...options,
-                        previewWebRuntime,
-                        previewSupervisorScheduler: (
-                          _sessionId: string,
-                          supervisor: PreviewSupervisorEffect,
-                        ) => {
-                          supervisorEffect = supervisor;
-                        },
-                        ...(Option.isSome(sessionController)
-                          ? { previewSessionController: sessionController.value }
-                          : {}),
-                        ...(Option.isSome(allocationController)
-                          ? { previewAllocationController: allocationController.value }
-                          : {}),
-                        ...(Option.isSome(gateway) ? { previewGateway: gateway.value } : {}),
-                        ...(Option.isSome(relayProvider)
-                          ? { previewRelayProvider: relayProvider.value }
-                          : {}),
-                      };
-                      let result = await runLauncherFromParsed(
-                        config.operands,
-                        options,
-                        launcherConfig,
-                      );
-                      const shouldExecutePlan = isExecutablePlan(result);
-                      const lifecycleExecutionStarted = config.jsonStream && shouldExecutePlan;
-                      if (shouldExecutePlan) {
-                        result = await executeDevelopmentPlan(
-                          result,
-                          config.json || config.jsonStream,
-                          {
-                            jsonStream: config.jsonStream,
-                          },
-                        );
-                      }
-                      process.exitCode = result.exitCode;
-                      if (config.jsonStream) {
-                        if (result.stdout.trim().length > 0) {
-                          process.stdout.write(result.stdout);
-                        }
-                        if (result.output.ok && !lifecycleExecutionStarted) {
-                          process.stdout.write(
-                            renderLifecycleTerminal(result.output, result.exitCode, 2),
-                          );
-                        } else if (
-                          !result.output.ok &&
-                          !lifecycleExecutionStarted &&
-                          result.stdout.trim().length === 0
-                        ) {
-                          process.stdout.write(
-                            renderLifecycleTerminal(result.output, result.exitCode, 1),
-                          );
-                        }
-                        return { output: null, supervisor: supervisorEffect };
-                      }
-                      const output = result.stdout.trimEnd();
-                      return {
-                        output: output.length === 0 ? null : output,
-                        supervisor: supervisorEffect,
-                      };
-                    },
-                    catch: (cause) => {
-                      process.exitCode = 1;
-                      return cause instanceof Error
-                        ? cause
-                        : new Error(
-                            "The development launcher failed before it could produce a result.",
-                          );
-                    },
-                  }).pipe(
-                    Effect.flatMap(({ output, supervisor }) =>
-                      completeCommandOutput(output, supervisor),
-                    ),
-                    Effect.catch((error: unknown) =>
-                      Console.error(
-                        error instanceof Error ? error.message : "The development launcher failed.",
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-            ),
+  Effect.gen(function* () {
+    const clock = yield* Clock.Clock;
+    const sessionController = yield* Effect.serviceOption(PreviewSessionController);
+    const allocationController = yield* Effect.serviceOption(PreviewAllocationController);
+    const relayProvider = yield* Effect.serviceOption(PreviewRelayProvider);
+    const gateway = yield* Effect.serviceOption(PreviewGateway);
+    const workflowProvider = yield* Effect.serviceOption(ConnectedWorkflowPreviewProvider);
+    const fileSystem = yield* Effect.serviceOption(FileSystem.FileSystem);
+    const hostSupervisorScheduler = yield* Effect.serviceOption(PreviewSupervisorSchedulerService);
+    const options = { ...launcherOptions(config), clock };
+    let supervisorEffect: PreviewSupervisorEffect | undefined;
+    const scheduleSupervisor = Option.match(hostSupervisorScheduler, {
+      onNone: () => (_sessionId: string, supervisor: PreviewSupervisorEffect) => {
+        supervisorEffect = supervisor;
+      },
+      onSome: (schedule) => schedule,
+    });
+    const workflowOptions = Option.match(workflowProvider, {
+      onNone: () => options,
+      onSome: (provider) =>
+        Match.value(provider).pipe(
+          Match.tag("Configured", (configuredProvider) =>
+            Option.match(sessionController, {
+              onNone: () => ({
+                ...options,
+                workflowPreviewUnavailableReason: "session-controller-unavailable",
+              }),
+              onSome: (sessionControllerValue) =>
+                Option.match(fileSystem, {
+                  onNone: () => options,
+                  onSome: (fileSystemValue) =>
+                    composeWorkflowPreviewLauncherOptions(options, {
+                      provider: configuredProvider,
+                      sessionController: sessionControllerValue,
+                      fileSystem: fileSystemValue,
+                      previewSupervisorScheduler: scheduleSupervisor,
+                      clock,
+                      environment: process.env,
+                    }),
+                }),
+            }),
           ),
+          Match.tag("Unavailable", () =>
+            retainUnavailableWorkflowPreviewReason(options, workflowProvider),
+          ),
+          Match.orElse(() => options),
         ),
+    });
+    const launcherConfig = {
+      ...workflowOptions,
+      previewWebRuntime,
+      previewSupervisorScheduler: scheduleSupervisor,
+      ...(Option.isSome(sessionController)
+        ? { previewSessionController: sessionController.value }
+        : {}),
+      ...(Option.isSome(allocationController)
+        ? { previewAllocationController: allocationController.value }
+        : {}),
+      ...(Option.isSome(gateway) ? { previewGateway: gateway.value } : {}),
+      ...(Option.isSome(relayProvider) ? { previewRelayProvider: relayProvider.value } : {}),
+    };
+    const completed = yield* Effect.tryPromise({
+      try: async () => {
+        const completed = await runLauncherAndPlan(config, options, launcherConfig);
+        return formatLauncherResult(
+          completed.result,
+          config,
+          supervisorEffect,
+          completed.lifecycleExecutionStarted,
+        );
+      },
+      catch: (cause) => {
+        process.exitCode = 1;
+        return cause instanceof Error
+          ? cause
+          : new Error("The development launcher failed before it could produce a result.");
+      },
+    }).pipe(
+      Effect.flatMap(({ output, supervisor }) => completeCommandOutput(output, supervisor)),
+      Effect.catch((error: unknown) =>
+        Console.error(error instanceof Error ? error.message : "The development launcher failed."),
       ),
-    ),
-  );
+    );
+    return completed;
+  });
 
 export const command = Command.make(
   "dev",
@@ -349,6 +384,12 @@ export const command = Command.make(
     {
       command: "pnpm dev preview start --config ./preview.json",
       description: "Create a pending session; live runtime profiles remain unavailable",
+    },
+    {
+      command:
+        "pnpm dev preview recreate --config ./preview.json --session <id> --confirm-development",
+      description:
+        "Settle incompatible workflow work before replacing its session and staged source",
     },
     {
       command: "pnpm dev preview status --session <id>",
@@ -388,24 +429,74 @@ const previewWebRuntime = makePreviewWebRuntime(
     ? {}
     : { registryDirectory: `${resolvedSessionDatabase}.credentials/web-processes` },
 );
+
+/** The shipped CLI composes provider operations with its durable session service here. */
+export const composeWorkflowPreviewLauncherOptions = (
+  options: import("./types").LauncherOptions,
+  input: {
+    readonly provider: Extract<
+      ConnectedWorkflowPreviewProviderApi,
+      { readonly _tag: "Configured" }
+    >;
+    readonly sessionController: import("./preview-sessions").PreviewSessionControllerApi;
+    readonly fileSystem: FileSystem.FileSystem;
+    readonly previewSupervisorScheduler: NonNullable<
+      import("./types").LauncherOptions["previewSupervisorScheduler"]
+    >;
+    readonly clock?: Clock.Clock;
+    readonly environment?: NodeJS.ProcessEnv;
+  },
+): import("./types").LauncherOptions => ({
+  ...options,
+  previewSessionController: input.sessionController,
+  workflowPreviewRuntime: makeConnectedWorkflowPreviewRuntime({
+    provider: input.provider,
+    controller: input.sessionController,
+    previewSupervisorScheduler: input.previewSupervisorScheduler,
+    fileSystem: input.fileSystem,
+    ...(input.clock === undefined ? {} : { clock: input.clock }),
+    env: input.environment ?? process.env,
+  }),
+});
+
+const retainUnavailableWorkflowPreviewReason = (
+  options: import("./types").LauncherOptions,
+  workflowProvider: Option.Option<ConnectedWorkflowPreviewProviderApi>,
+): import("./types").LauncherOptions => {
+  return Option.match(workflowProvider, {
+    onNone: () => options,
+    onSome: (provider) =>
+      Match.value(provider).pipe(
+        Match.tag("Unavailable", ({ reason }) => ({
+          ...options,
+          workflowPreviewUnavailableReason: reason,
+        })),
+        Match.tag("Configured", () => options),
+        Match.orElse(() => options),
+      ),
+  });
+};
+
 const sessionActions = new Set([
   "start",
   "status",
   "heartbeat",
   "resume",
+  "recreate",
   "stop",
   "cleanup",
   "resolve",
 ]);
 const args = process.argv.slice(2);
-const previewAction = (() => {
+const previewActionFromArguments = (arguments_: readonly string[]) => {
   try {
-    const parsed = parseCommand(args);
+    const parsed = parseCommand(arguments_);
     return parsed.kind === "preview" ? parsed.action : undefined;
   } catch {
     return undefined;
   }
-})();
+};
+const previewAction = previewActionFromArguments(args);
 const isPreviewSessionAction =
   previewAction !== undefined &&
   (sessionActions.has(previewAction) || previewAction === "baseline");
@@ -519,10 +610,29 @@ const previewDatabaseLayer =
           NodeServices.layer,
         ),
       );
+const workflowPreviewProviderLayerForAction = (
+  action: string | undefined,
+  input: { readonly checkout: string; readonly environment: NodeJS.ProcessEnv },
+) =>
+  action === "recreate"
+    ? Layer.effect(
+        ConnectedWorkflowPreviewProvider,
+        loadConfiguredWorkflowPreviewProvider(input),
+      ).pipe(Layer.provide(NodeServices.layer))
+    : Layer.empty;
+export const workflowPreviewProviderLayerForArguments = (
+  arguments_: readonly string[],
+  input: { readonly checkout: string; readonly environment: NodeJS.ProcessEnv },
+) => workflowPreviewProviderLayerForAction(previewActionFromArguments(arguments_), input);
+const workflowPreviewProviderLayer = workflowPreviewProviderLayerForArguments(args, {
+  checkout: process.cwd(),
+  environment: process.env,
+});
 const cliLayer = Layer.mergeAll(
   NodeServices.layer,
   FetchHttpClient.layer,
   previewDatabaseLayer,
+  workflowPreviewProviderLayer,
   PreviewRelayProviderLayer(previewRelayProvider),
 );
 

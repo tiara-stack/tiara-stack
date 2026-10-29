@@ -1,5 +1,19 @@
-import { createHash } from "node:crypto";
-import { Context, Deferred, Effect, Layer, Predicate, Schema, Scope } from "effect";
+import { createHash, randomUUID } from "node:crypto";
+import {
+  Cause,
+  Context,
+  Deferred,
+  Duration,
+  Effect,
+  Exit,
+  Layer,
+  Match,
+  Option,
+  Predicate,
+  Ref,
+  Schema,
+  Scope,
+} from "effect";
 import * as Stream from "effect/Stream";
 import { SqlClient } from "effect/unstable/sql";
 import type { Socket } from "effect/unstable/socket";
@@ -9,6 +23,10 @@ import {
   RelayResourceReferenceSchema,
 } from "./preview-relay-provider";
 import type { PreviewSession, PreviewSessionControllerApi } from "./preview-sessions";
+import {
+  makeRetryableConnectionFence,
+  type RetryableConnectionFenceAttempt,
+} from "./preview-gateway-close";
 
 const identifier = Schema.NonEmptyString.check(Schema.isMaxLength(256));
 export const previewGatewayMaxApplicationResponseBytes = 16 * 1024 * 1024;
@@ -72,6 +90,21 @@ export const PreviewGatewayRouteSchema = Schema.Struct({
   target: PreviewGatewayTargetSchema,
 });
 export type PreviewGatewayRoute = typeof PreviewGatewayRouteSchema.Type;
+const PreviewGatewayChannelIdSchema = Schema.String.check(Schema.isPattern(/^[a-f0-9-]{36}$/));
+export const PreviewGatewayChannelIdentitySchema = Schema.Struct({
+  channelId: PreviewGatewayChannelIdSchema,
+  hostname: identifier,
+  userId: identifier,
+  target: PreviewGatewayTargetSchema,
+});
+export type PreviewGatewayChannelIdentity = typeof PreviewGatewayChannelIdentitySchema.Type;
+export const PreviewGatewayChannelRecoveryProofSchema = Schema.Struct({
+  identity: PreviewGatewayChannelIdentitySchema,
+  channelAbsent: Schema.Literal(true),
+  pendingCreatesFenced: Schema.Literal(true),
+});
+export type PreviewGatewayChannelRecoveryProof =
+  typeof PreviewGatewayChannelRecoveryProofSchema.Type;
 
 export class PreviewGatewayError extends Schema.TaggedErrorClass<PreviewGatewayError>()(
   "PreviewGatewayError",
@@ -89,6 +122,56 @@ export class PreviewGatewayError extends Schema.TaggedErrorClass<PreviewGatewayE
     ]),
   },
 ) {}
+/** Extracts one recoverable typed gateway failure without discarding other cause members. */
+export const previewGatewayFailureFromCause = (
+  cause: Cause.Cause<unknown>,
+): Option.Option<PreviewGatewayError> => {
+  if (cause.reasons.length !== 1) return Option.none();
+  const [reason] = cause.reasons;
+  return reason !== undefined &&
+    Cause.isFailReason(reason) &&
+    reason.error instanceof PreviewGatewayError
+    ? Option.some(reason.error)
+    : Option.none();
+};
+
+/** Also recovers the one legacy timeout defect emitted before close errors were typed. */
+export const previewGatewayCleanupFailureFromCause = (
+  cause: Cause.Cause<unknown>,
+): Option.Option<PreviewGatewayError> => {
+  const typedFailure = previewGatewayFailureFromCause(cause);
+  if (Option.isSome(typedFailure)) return typedFailure;
+  const [reason] = cause.reasons;
+  return cause.reasons.length === 1 &&
+    reason !== undefined &&
+    Cause.isDieReason(reason) &&
+    reason.defect instanceof PreviewGatewayError &&
+    reason.defect.reason === "unavailable"
+    ? Option.some(reason.defect)
+    : Option.none();
+};
+
+/** Runs every close fence before combining failures so one defect cannot cancel sibling outcomes. */
+export const closePreviewGatewayFences = (
+  fences: readonly Effect.Effect<void, PreviewGatewayError>[],
+) =>
+  Effect.gen(function* () {
+    const exits = yield* Effect.forEach(fences, (fence) => Effect.exit(fence), {
+      concurrency: "unbounded",
+    });
+    const causes = exits.flatMap((exit) =>
+      Match.valueTags(exit, {
+        Success: () => [],
+        Failure: ({ cause }) => [cause],
+      }),
+    );
+    const [firstCause, ...remainingCauses] = causes;
+    if (firstCause !== undefined)
+      return yield* Effect.failCause(
+        remainingCauses.reduce((combined, next) => Cause.combine(combined, next), firstCause),
+      );
+  });
+
 export interface PreviewGatewayApplicationRequest {
   readonly method: string;
   readonly path: string;
@@ -199,8 +282,10 @@ export interface PreviewGatewayRelayConnection {
     readonly principal: PreviewGatewayPrincipal;
   }) => Effect.Effect<Socket.Socket, PreviewGatewayError, Scope.Scope>;
   readonly socket: Effect.Effect<Socket.Socket, PreviewGatewayError, Scope.Scope>;
-  readonly close: Effect.Effect<void>;
+  /** Idempotent; the gateway retries this effect if interruption leaves closure unconfirmed. */
+  readonly close: Effect.Effect<void, PreviewGatewayError>;
 }
+
 export interface PreviewGatewayDependencyAdapter {
   /** Verify current endpoint, state identity, manifest/catalog digests and credential reference. */
   readonly checkTarget: (
@@ -245,9 +330,27 @@ export interface PreviewGatewayAdapters {
   readonly authenticate: (
     request: PreviewGatewayRequest,
   ) => Effect.Effect<PreviewGatewayPrincipal, PreviewGatewayError>;
+  /** Short-lived readiness connection. It does not own a persisted channel row. */
   readonly connect: (
     target: PreviewGatewayTarget,
   ) => Effect.Effect<PreviewGatewayRelayConnection, PreviewGatewayError, Scope.Scope>;
+  /**
+   * Opens a long-lived channel under the durable identity recorded by the gateway. Once exact
+   * recovery succeeds, a pending or later connect using that identity must remain fenced.
+   */
+  readonly connectChannel: (
+    channel: PreviewGatewayChannelIdentity,
+  ) => Effect.Effect<PreviewGatewayRelayConnection, PreviewGatewayError, Scope.Scope>;
+  /**
+   * Idempotently closes or confirms absence of this exact channel. Success must prove that no
+   * channel for channelId remains and fence any in-flight or late connect using the same ID.
+   * Implementations must reject mismatched target/session/generation/hostname/user identity.
+   * Return unavailable when the external state cannot be proved; callers then retain the durable
+   * channel row and keep cleanup fenced.
+   */
+  readonly recoverChannel: (
+    channel: PreviewGatewayChannelIdentity,
+  ) => Effect.Effect<PreviewGatewayChannelRecoveryProof, PreviewGatewayError>;
   readonly applicationDependency?: PreviewGatewayDependencyAdapter;
 }
 
@@ -270,6 +373,32 @@ const sameTargetExceptRevision = (a: PreviewGatewayTarget, b: PreviewGatewayTarg
   Object.keys(PreviewGatewayTargetSchema.fields)
     .filter((key) => key !== "revision")
     .every((key) => Reflect.get(a, key) === Reflect.get(b, key));
+const sameChannelIdentity = (
+  left: PreviewGatewayChannelIdentity,
+  right: PreviewGatewayChannelIdentity,
+) =>
+  left.channelId === right.channelId &&
+  left.hostname === right.hostname &&
+  left.userId === right.userId &&
+  sameTarget(left.target, right.target);
+const recoverPreviewGatewayChannel = (
+  recover: PreviewGatewayAdapters["recoverChannel"],
+  identity: PreviewGatewayChannelIdentity,
+) =>
+  recover(identity).pipe(
+    Effect.flatMap((rawProof) =>
+      Schema.decodeUnknownEffect(PreviewGatewayChannelRecoveryProofSchema)(rawProof).pipe(
+        Effect.mapError(() => unavailable()),
+      ),
+    ),
+    Effect.flatMap((proof) =>
+      sameChannelIdentity(proof.identity, identity) &&
+      proof.channelAbsent &&
+      proof.pendingCreatesFenced
+        ? Effect.void
+        : Effect.fail(unavailable()),
+    ),
+  );
 
 const matchesOwnedRelayReference = (
   reference: typeof RelayResourceReferenceSchema.Type,
@@ -437,6 +566,89 @@ export class PreviewGateway extends Context.Service<PreviewGateway, PreviewGatew
 export const PreviewGatewayLayer = (gateway: PreviewGatewayApi) =>
   Layer.succeed(PreviewGateway, gateway);
 
+const ensurePreviewGatewayChannelRegistry = (sql: SqlClient.SqlClient) =>
+  Effect.gen(function* () {
+    yield* sql`CREATE TABLE IF NOT EXISTS preview_gateway_channels (
+      channel_id TEXT PRIMARY KEY, hostname TEXT NOT NULL, session_id TEXT NOT NULL,
+      generation INTEGER NOT NULL, user_id TEXT NOT NULL,
+      target_json TEXT, state TEXT NOT NULL CHECK (state IN ('opening', 'open'))
+    )`;
+    const columns = yield* sql`PRAGMA table_info(preview_gateway_channels)`;
+    if (!columns.some((column) => String(column.name) === "target_json"))
+      yield* sql`ALTER TABLE preview_gateway_channels ADD COLUMN target_json TEXT`;
+    yield* sql`CREATE INDEX IF NOT EXISTS preview_gateway_channels_host_user
+      ON preview_gateway_channels(hostname, user_id)`;
+  });
+
+const registerPreviewGatewayChannel = <E>(input: {
+  readonly sql: SqlClient.SqlClient;
+  readonly route: PreviewGatewayRoute;
+  readonly userId: string;
+  readonly authorize: () => Effect.Effect<PreviewSession, E>;
+}) =>
+  Effect.gen(function* () {
+    const channelId = randomUUID();
+    const targetJson = JSON.stringify(input.route.target);
+    yield* input.sql.withTransaction(
+      Effect.gen(function* () {
+        yield* input.authorize();
+        yield* ensurePreviewGatewayChannelRegistry(input.sql);
+        yield* input.sql`INSERT INTO preview_gateway_channels
+          (channel_id, hostname, session_id, generation, user_id, target_json, state)
+          VALUES (${channelId}, ${input.route.hostname}, ${input.route.target.sessionId}, ${input.route.target.generation}, ${input.userId}, ${targetJson}, 'opening')`;
+      }),
+    );
+    return { channelId, targetJson };
+  });
+
+const PreviewGatewayChannelRowSchema = Schema.Struct({
+  channel_id: PreviewGatewayChannelIdSchema,
+  hostname: identifier,
+  session_id: PreviewGatewayTargetSchema.fields.sessionId,
+  generation: PreviewGatewayTargetSchema.fields.generation,
+  user_id: identifier,
+  target_json: Schema.NullOr(Schema.String),
+  state: Schema.Literals(["opening", "open"]),
+});
+type PreviewGatewayChannelRow = Omit<typeof PreviewGatewayChannelRowSchema.Type, "target_json"> & {
+  readonly target_json: string;
+  readonly target: PreviewGatewayTarget;
+};
+const decodePreviewGatewayChannelRow = (value: unknown) =>
+  Schema.decodeUnknownEffect(PreviewGatewayChannelRowSchema)(value).pipe(
+    Effect.mapError(() => unavailable()),
+    Effect.flatMap((row) => {
+      if (row.target_json === null) return Effect.fail(unavailable());
+      const targetJson = row.target_json;
+      return Schema.decodeUnknownEffect(Schema.fromJsonString(PreviewGatewayTargetSchema))(
+        targetJson,
+      ).pipe(
+        Effect.mapError(() => unavailable()),
+        Effect.flatMap((target) =>
+          target.sessionId === row.session_id && target.generation === row.generation
+            ? Effect.succeed({ ...row, target_json: targetJson, target })
+            : Effect.fail(unavailable()),
+        ),
+      );
+    }),
+  );
+
+const deletePreviewGatewayChannel = (
+  sql: SqlClient.SqlClient,
+  channel: PreviewGatewayChannelIdentity,
+  targetJson: string,
+) =>
+  Effect.gen(function* () {
+    yield* sql`DELETE FROM preview_gateway_channels
+      WHERE channel_id=${channel.channelId} AND hostname=${channel.hostname}
+      AND session_id=${channel.target.sessionId} AND generation=${channel.target.generation}
+      AND user_id=${channel.userId} AND target_json=${targetJson}
+      AND state IN ('opening', 'open')`;
+    const remaining = yield* sql`SELECT channel_id FROM preview_gateway_channels
+      WHERE channel_id=${channel.channelId}`;
+    if (remaining.length > 0) return yield* Effect.fail(unavailable());
+  });
+
 /** Embedded single-authority gateway. SQL is the existing controller/allocator database.
  * No live adapter is inferred from environment or from a successful local test.
  */
@@ -487,16 +699,12 @@ export const makePreviewGateway = (options: {
   )`;
     const channels = new Map<
       string,
-      Set<{ readonly userId: string; readonly fence: Effect.Effect<void> }>
+      Set<{
+        readonly channelId: string;
+        readonly userId: string;
+        readonly fence: Effect.Effect<void, PreviewGatewayError>;
+      }>
     >();
-    const closeChannels = (hostname: string, userId?: string) =>
-      Effect.forEach(
-        [...(channels.get(hostname) ?? [])].filter(
-          (channel) => userId === undefined || channel.userId === userId,
-        ),
-        (channel) => channel.fence,
-        { discard: true, concurrency: "unbounded" },
-      );
     const loadDependency = (
       sessionId: string,
       role: PreviewGatewayDependencyTarget["role"],
@@ -612,10 +820,197 @@ export const makePreviewGateway = (options: {
         }
         return session;
       });
-    const protect = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    // Normalize one typed boundary error, but retain every reason in a compound cause.
+    const protect = <A, E, R>(
+      effect: Effect.Effect<A, E, R>,
+    ): Effect.Effect<A, PreviewGatewayError, R> =>
       effect.pipe(
-        Effect.mapError((error) => (error instanceof PreviewGatewayError ? error : unavailable())),
+        Effect.exit,
+        Effect.flatMap(
+          (exit): Effect.Effect<A, PreviewGatewayError> =>
+            Match.valueTags(exit, {
+              Success: ({ value }) => Effect.succeed(value),
+              Failure: ({ cause }) =>
+                Effect.failCause(
+                  Cause.map<E, PreviewGatewayError>(cause, (error) =>
+                    error instanceof PreviewGatewayError ? error : unavailable(),
+                  ),
+                ),
+            }),
+        ),
       );
+    const matchesChannelRoute = (
+      row: PreviewGatewayChannelRow,
+      hostname: string,
+      userId: string | undefined,
+      target: PreviewGatewayTarget,
+    ) =>
+      row.hostname === hostname &&
+      row.session_id === target.sessionId &&
+      row.generation === target.generation &&
+      (userId === undefined || row.user_id === userId) &&
+      sameTargetExceptRevision(row.target, target);
+    const readRecoverableChannelRows = (hostname: string, userId: string | undefined) =>
+      Effect.gen(function* () {
+        yield* ensurePreviewGatewayChannelRegistry(sql);
+        const rawRows =
+          userId === undefined
+            ? yield* sql`SELECT channel_id, hostname, session_id, generation, user_id, target_json, state
+                FROM preview_gateway_channels WHERE hostname=${hostname}`
+            : yield* sql`SELECT channel_id, hostname, session_id, generation, user_id, target_json, state
+                FROM preview_gateway_channels WHERE hostname=${hostname} AND user_id=${userId}`;
+        const rows = yield* Effect.forEach(rawRows, decodePreviewGatewayChannelRow);
+        if (rows.length === 0) return rows;
+        const route = yield* load(hostname, true);
+        if (!rows.every((row) => matchesChannelRoute(row, hostname, userId, route.target)))
+          return yield* Effect.fail(unavailable());
+        return rows;
+      });
+    const recoverChannelRows = (hostname: string, userId: string | undefined) =>
+      Effect.gen(function* () {
+        const rows = yield* readRecoverableChannelRows(hostname, userId);
+        if (rows.length === 0) return rows;
+        const adapters = options.adapters;
+        if (adapters === undefined) return yield* Effect.fail(unavailable());
+        const identities = rows.map(
+          (row): PreviewGatewayChannelIdentity => ({
+            channelId: row.channel_id,
+            hostname: row.hostname,
+            userId: row.user_id,
+            target: row.target,
+          }),
+        );
+        yield* closePreviewGatewayFences(
+          identities.map((identity) =>
+            protect(recoverPreviewGatewayChannel(adapters.recoverChannel, identity)),
+          ),
+        );
+        return rows;
+      });
+    const persistRecoveredChannelRows = (
+      rows: readonly PreviewGatewayChannelRow[],
+      hostname: string,
+      userId: string | undefined,
+    ) =>
+      Effect.gen(function* () {
+        if (rows.length > 0) {
+          const route = yield* load(hostname, true);
+          if (!rows.every((row) => matchesChannelRoute(row, hostname, userId, route.target)))
+            return yield* Effect.fail(unavailable());
+          yield* Effect.forEach(
+            rows,
+            (row) =>
+              protect(
+                deletePreviewGatewayChannel(
+                  sql,
+                  {
+                    channelId: row.channel_id,
+                    hostname: row.hostname,
+                    userId: row.user_id,
+                    target: row.target,
+                  },
+                  row.target_json,
+                ),
+              ),
+            { discard: true },
+          );
+        }
+        const remaining =
+          userId === undefined
+            ? yield* sql`SELECT channel_id FROM preview_gateway_channels WHERE hostname=${hostname}`
+            : yield* sql`SELECT channel_id FROM preview_gateway_channels WHERE hostname=${hostname} AND user_id=${userId}`;
+        if (remaining.length > 0) return yield* Effect.fail(unavailable());
+      });
+    const closeChannels = (hostname: string, userId?: string) =>
+      Effect.gen(function* () {
+        const selected = [...(channels.get(hostname) ?? [])].filter(
+          (channel) => userId === undefined || channel.userId === userId,
+        );
+        yield* closePreviewGatewayFences(
+          selected.map((channel) =>
+            channel.fence.pipe(
+              Effect.tap(() =>
+                Effect.sync(() => {
+                  const records = channels.get(hostname);
+                  records?.delete(channel);
+                  if (records?.size === 0) channels.delete(hostname);
+                }),
+              ),
+            ),
+          ),
+        );
+        const reconciledRows: PreviewGatewayChannelRow[] = [];
+        const closed = yield* Deferred.make<void>();
+        const recoveryFence = makeRetryableConnectionFence(
+          () =>
+            recoverChannelRows(hostname, userId).pipe(
+              Effect.tap((rows) =>
+                Effect.sync(() => {
+                  reconciledRows.push(...rows);
+                }),
+              ),
+              Effect.asVoid,
+            ),
+          closed,
+          () => Effect.fail(unavailable()),
+          persistRecoveredChannelRows(reconciledRows, hostname, userId),
+        );
+        yield* protect(recoveryFence);
+      });
+    const cleanupOfflineRouteMetadata = (
+      sessionId: string,
+      ownerIdentity: string,
+      expectedHostname?: string,
+    ) =>
+      Effect.gen(function* () {
+        yield* ensurePreviewGatewayChannelRegistry(sql);
+        yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const session = yield* owner(sessionId, ownerIdentity);
+            if (session.endedAt === null) return yield* Effect.fail(failure("live-session"));
+            const routeRows =
+              yield* sql`SELECT hostname FROM preview_gateway_routes WHERE session_id=${sessionId}`;
+            const routes = yield* Effect.forEach(routeRows, (row) =>
+              Effect.gen(function* () {
+                const hostname = yield* decode(identifier, row.hostname);
+                const route = yield* load(hostname, true);
+                if (route.target.sessionId !== sessionId) return yield* Effect.fail(unavailable());
+                return route;
+              }),
+            );
+            if (
+              expectedHostname !== undefined &&
+              !routes.some((route) => route.hostname === expectedHostname)
+            )
+              return yield* Effect.fail(unavailable());
+
+            // Any channel row for this session or one of its routes needs adapter recovery.
+            // Keep the full preflight and metadata writes in one transaction so an opener
+            // either commits its channel first or observes the removed route afterward.
+            const sessionChannels =
+              yield* sql`SELECT channel_id FROM preview_gateway_channels WHERE session_id=${sessionId}`;
+            if (sessionChannels.length > 0) return yield* Effect.fail(unavailable());
+            for (const route of routes) {
+              const hostChannels =
+                yield* sql`SELECT channel_id FROM preview_gateway_channels WHERE hostname=${route.hostname}`;
+              if (hostChannels.length > 0) return yield* Effect.fail(unavailable());
+            }
+
+            const routesToRemove =
+              expectedHostname === undefined
+                ? routes
+                : routes.filter((route) => route.hostname === expectedHostname);
+            for (const route of routesToRemove) {
+              yield* sql`UPDATE preview_gateway_routes SET removed=1
+                WHERE hostname=${route.hostname} AND session_id=${sessionId}
+                AND generation=${route.target.generation}`;
+              yield* sql`DELETE FROM preview_gateway_grants WHERE hostname=${route.hostname}`;
+              yield* sql`DELETE FROM preview_gateway_dependency_routes
+                WHERE session_id=${sessionId} AND role=${route.target.role}`;
+            }
+          }),
+        );
+      });
     const checkApplicationDependencyTargets = (
       target: PreviewGatewayApplicationTarget,
       dependencies: readonly PreviewGatewayDependencyTarget[],
@@ -907,19 +1302,33 @@ export const makePreviewGateway = (options: {
       cleanupSession: (sessionId, ownerIdentity) =>
         protect(
           Effect.gen(function* () {
+            if (options.adapters === undefined)
+              return yield* cleanupOfflineRouteMetadata(sessionId, ownerIdentity);
             const session = yield* owner(sessionId, ownerIdentity);
             if (session.endedAt === null) return yield* Effect.fail(failure("live-session"));
+            yield* ensurePreviewGatewayChannelRegistry(sql);
             const rows =
               yield* sql`SELECT hostname FROM preview_gateway_routes WHERE session_id=${sessionId}`;
             for (const row of rows) {
               const hostname = yield* decode(identifier, row.hostname);
               yield* api.cleanup(hostname, ownerIdentity);
             }
+            const remaining =
+              yield* sql`SELECT channel_id FROM preview_gateway_channels WHERE session_id=${sessionId}`;
+            if (remaining.length > 0) return yield* Effect.fail(unavailable());
           }),
         ),
       cleanup: (hostname, ownerIdentity) =>
         protect(
           Effect.gen(function* () {
+            if (options.adapters === undefined) {
+              const route = yield* load(hostname, true);
+              return yield* cleanupOfflineRouteMetadata(
+                route.target.sessionId,
+                ownerIdentity,
+                hostname,
+              );
+            }
             yield* sql.withTransaction(
               Effect.gen(function* () {
                 const route = yield* load(hostname, true);
@@ -936,13 +1345,14 @@ export const makePreviewGateway = (options: {
       open: (request) =>
         protect(
           Effect.gen(function* () {
-            if (!configured || options.adapters === undefined)
+            const adapters = options.adapters;
+            if (!configured || adapters === undefined)
               return yield* Effect.fail(failure("unsupported"));
             const setup = yield* requireSetup;
             const route = yield* load(request.hostname);
             const principal = yield* decode(
               PreviewGatewayPrincipalSchema,
-              yield* options.adapters
+              yield* adapters
                 .authenticate(request)
                 .pipe(Effect.timeout("5 seconds"), Effect.mapError(unavailable)),
             );
@@ -951,21 +1361,233 @@ export const makePreviewGateway = (options: {
               principal,
               setup.applicationIdentityMediation === true,
             );
-            const connection = yield* options.adapters
-              .connect(route.target)
-              .pipe(Effect.timeout("5 seconds"), Effect.mapError(unavailable));
-            yield* verify(connection, route.target);
-            if (
-              route.target.kind === "application" &&
-              (connection.applicationRequest === undefined ||
-                connection.applicationSocket === undefined)
-            )
-              return yield* Effect.fail(failure("unsupported"));
+            const allowHmrRevisionTransition = isViteHmrSocketRequest(request, route.target);
+            const registeredChannel = yield* registerPreviewGatewayChannel({
+              sql,
+              route,
+              userId: principal.userId,
+              authorize: () =>
+                authorize(
+                  route,
+                  principal,
+                  setup.applicationIdentityMediation === true,
+                  allowHmrRevisionTransition,
+                ),
+            }).pipe(protect);
+            const { channelId, targetJson } = registeredChannel;
+            const channelIdentity: PreviewGatewayChannelIdentity = {
+              channelId,
+              hostname: route.hostname,
+              userId: principal.userId,
+              target: route.target,
+            };
             const closed = yield* Deferred.make<void>();
-            const fence = Deferred.succeed(closed, undefined).pipe(
-              Effect.flatMap((first) => (first ? connection.close : Effect.void)),
+            // Adapter acquisitions belong to the gateway, not the HTTP caller's scope. Closing
+            // this child scope is started once and observed through a bounded Deferred wait.
+            const adapterScope = yield* Scope.make();
+            const adapterScopeCloseFiberScope = yield* Scope.make();
+            const adapterScopeCloseStarted = yield* Ref.make(false);
+            const adapterScopeCloseResult = yield* Deferred.make<Exit.Exit<void, never>>();
+            const connectionRef = yield* Ref.make<PreviewGatewayRelayConnection | undefined>(
+              undefined,
             );
-            const record = { userId: principal.userId, fence };
+            const lastCloseCause = yield* Ref.make<Cause.Cause<PreviewGatewayError> | undefined>(
+              undefined,
+            );
+            const startAdapterScopeClose = Effect.gen(function* () {
+              if (!(yield* Ref.get(adapterScopeCloseStarted))) {
+                yield* Effect.forkIn(
+                  Effect.gen(function* () {
+                    const scopeExit = yield* Effect.exit(Scope.close(adapterScope, Exit.void));
+                    yield* Deferred.succeed(adapterScopeCloseResult, scopeExit).pipe(Effect.asVoid);
+                  }),
+                  adapterScopeCloseFiberScope,
+                ).pipe(Effect.asVoid);
+                yield* Ref.set(adapterScopeCloseStarted, true);
+              }
+            });
+            const recoverChannel = recoverPreviewGatewayChannel(
+              adapters.recoverChannel,
+              channelIdentity,
+            ).pipe(Effect.interruptible);
+            // Keep time for exact reconciliation inside the outer five-second fence attempt.
+            const recoverAfterUnconfirmedClose = (
+              attempt: RetryableConnectionFenceAttempt<PreviewGatewayError>,
+              closeCause: Cause.Cause<PreviewGatewayError>,
+            ) =>
+              Effect.gen(function* () {
+                attempt.setCloseCause(closeCause);
+                yield* Ref.set(lastCloseCause, closeCause);
+                const recoveryExit = yield* Effect.exit(recoverChannel);
+                yield* Match.valueTags(recoveryExit, {
+                  Success: () => Ref.set(lastCloseCause, undefined),
+                  Failure: ({ cause }) => {
+                    const combinedCause = Cause.combine(closeCause, cause);
+                    attempt.setCloseCause(combinedCause);
+                    return Ref.set(lastCloseCause, combinedCause).pipe(
+                      Effect.andThen(Effect.failCause(combinedCause)),
+                    );
+                  },
+                });
+              });
+            const recoverWithoutCloseCause = (
+              attempt: RetryableConnectionFenceAttempt<PreviewGatewayError>,
+            ) =>
+              Effect.gen(function* () {
+                const recoveryExit = yield* Effect.exit(recoverChannel);
+                yield* Match.valueTags(recoveryExit, {
+                  Success: () => Ref.set(lastCloseCause, undefined),
+                  Failure: ({ cause }) => {
+                    attempt.setCloseCause(cause);
+                    return Ref.set(lastCloseCause, cause).pipe(
+                      Effect.andThen(Effect.failCause(cause)),
+                    );
+                  },
+                });
+              });
+            const combineCloseCauses = (
+              ...causes: ReadonlyArray<Cause.Cause<PreviewGatewayError> | undefined>
+            ) => {
+              const [first, ...remaining] = causes.filter(
+                (cause): cause is Cause.Cause<PreviewGatewayError> => cause !== undefined,
+              );
+              return first === undefined
+                ? undefined
+                : remaining.reduce((combined, cause) => Cause.combine(combined, cause), first);
+            };
+            const scopeExitCause = (scopeExit: Exit.Exit<void, never>) =>
+              Exit.isFailure(scopeExit)
+                ? Cause.map<never, PreviewGatewayError>(scopeExit.cause, () => unavailable())
+                : undefined;
+            const attemptConnectionClose = (
+              connection: PreviewGatewayRelayConnection,
+              timeoutMs: number,
+            ) =>
+              Effect.gen(function* () {
+                const closeResult = yield* Effect.exit(
+                  connection.close.pipe(Effect.interruptible),
+                ).pipe(Effect.timeoutOption(Duration.millis(timeoutMs)));
+                if (Option.isNone(closeResult)) return Cause.fail(unavailable());
+                return yield* Match.valueTags(closeResult.value, {
+                  Success: () => Effect.succeed(undefined),
+                  Failure: ({ cause }) =>
+                    Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.succeed(cause),
+                });
+              });
+            const waitForAdapterScopeClose = (timeoutMs: number) =>
+              Effect.gen(function* () {
+                const result =
+                  timeoutMs > 0
+                    ? yield* Deferred.await(adapterScopeCloseResult).pipe(
+                        Effect.timeoutOption(Duration.millis(timeoutMs)),
+                      )
+                    : Option.none<Exit.Exit<void, never>>();
+                if (Option.isSome(result)) return scopeExitCause(result.value);
+                if (yield* Deferred.isDone(adapterScopeCloseResult))
+                  return scopeExitCause(yield* Deferred.await(adapterScopeCloseResult));
+                return Cause.fail(unavailable());
+              });
+            const recoverWithCloseCause = (
+              attempt: RetryableConnectionFenceAttempt<PreviewGatewayError>,
+              closeCause: Cause.Cause<PreviewGatewayError> | undefined,
+            ) =>
+              closeCause === undefined
+                ? recoverWithoutCloseCause(attempt)
+                : recoverAfterUnconfirmedClose(attempt, closeCause);
+            const retryCompletedAdapterScope = (
+              attempt: RetryableConnectionFenceAttempt<PreviewGatewayError>,
+              connection: PreviewGatewayRelayConnection | undefined,
+            ) =>
+              Effect.gen(function* () {
+                const scopeExit = yield* Deferred.await(adapterScopeCloseResult);
+                let closeCause = combineCloseCauses(
+                  scopeExitCause(scopeExit),
+                  yield* Ref.get(lastCloseCause),
+                );
+                const remaining = yield* attempt.closeStageRemainingMs();
+                if (connection !== undefined && remaining > 0)
+                  closeCause = combineCloseCauses(
+                    closeCause,
+                    yield* attemptConnectionClose(connection, remaining),
+                  );
+                yield* recoverWithCloseCause(attempt, closeCause);
+              });
+            const beginAdapterCloseAttempt = (
+              attempt: RetryableConnectionFenceAttempt<PreviewGatewayError>,
+              connection: PreviewGatewayRelayConnection | undefined,
+            ) =>
+              Effect.gen(function* () {
+                let closeCause = yield* Ref.get(lastCloseCause);
+                const remaining = yield* attempt.closeStageRemainingMs();
+                if (
+                  connection !== undefined &&
+                  !(yield* Ref.get(adapterScopeCloseStarted)) &&
+                  remaining > 0
+                )
+                  closeCause = combineCloseCauses(
+                    closeCause,
+                    yield* attemptConnectionClose(connection, remaining),
+                  );
+                if (closeCause !== undefined) {
+                  attempt.setCloseCause(closeCause);
+                  yield* Ref.set(lastCloseCause, closeCause);
+                }
+                yield* startAdapterScopeClose;
+                const remainingAfterStart = yield* attempt.closeStageRemainingMs();
+                closeCause = combineCloseCauses(
+                  closeCause,
+                  yield* waitForAdapterScopeClose(remainingAfterStart),
+                );
+                yield* recoverWithCloseCause(attempt, closeCause);
+              });
+            const close = (attempt: RetryableConnectionFenceAttempt<PreviewGatewayError>) =>
+              Effect.gen(function* () {
+                const connection = yield* Ref.get(connectionRef);
+                const scopeCloseWasStarted = yield* Ref.get(adapterScopeCloseStarted);
+                const scopeCloseWasDone =
+                  scopeCloseWasStarted && (yield* Deferred.isDone(adapterScopeCloseResult));
+                if (scopeCloseWasDone)
+                  return yield* retryCompletedAdapterScope(attempt, connection);
+                yield* beginAdapterCloseAttempt(attempt, connection);
+              });
+            const fence = makeRetryableConnectionFence(
+              close,
+              closed,
+              (attempt) =>
+                Effect.gen(function* () {
+                  let closeCause = attempt.getCloseCause();
+                  closeCause = combineCloseCauses(closeCause, yield* Ref.get(lastCloseCause));
+                  if (yield* Deferred.isDone(adapterScopeCloseResult)) {
+                    const scopeExit = yield* Deferred.await(adapterScopeCloseResult);
+                    if (Exit.isFailure(scopeExit))
+                      closeCause = combineCloseCauses(
+                        closeCause,
+                        Cause.map<never, PreviewGatewayError>(scopeExit.cause, () => unavailable()),
+                      );
+                  }
+                  if (closeCause === undefined) return yield* Effect.fail(unavailable());
+                  const [reason] = closeCause.reasons;
+                  const onlyUnavailableFailure =
+                    closeCause.reasons.length === 1 &&
+                    reason !== undefined &&
+                    Cause.isFailReason(reason) &&
+                    reason.error instanceof PreviewGatewayError &&
+                    reason.error.reason === "unavailable";
+                  return yield* Effect.failCause(
+                    onlyUnavailableFailure
+                      ? closeCause
+                      : Cause.combine(closeCause, Cause.fail(unavailable())),
+                  );
+                }),
+              protect(deletePreviewGatewayChannel(sql, channelIdentity, targetJson)).pipe(
+                Effect.tap(() => Ref.set(lastCloseCause, undefined)),
+              ),
+            );
+            const record = {
+              channelId,
+              userId: principal.userId,
+              fence: protect(fence),
+            };
             yield* Effect.acquireRelease(
               Effect.sync(() => {
                 const records = channels.get(route.hostname) ?? new Set<typeof record>();
@@ -973,15 +1595,64 @@ export const makePreviewGateway = (options: {
                 channels.set(route.hostname, records);
               }),
               () =>
-                Effect.gen(function* () {
-                  const records = channels.get(route.hostname);
-                  records?.delete(record);
-                  if (records?.size === 0) channels.delete(route.hostname);
-                  yield* fence;
-                }),
+                record.fence.pipe(
+                  Effect.tap(() =>
+                    Effect.sync(() => {
+                      const records = channels.get(route.hostname);
+                      records?.delete(record);
+                      if (records?.size === 0) channels.delete(route.hostname);
+                    }),
+                  ),
+                  // Scope finalizers cannot expose typed errors; keep every original cause member.
+                  Effect.catchCause((cause) =>
+                    Effect.failCause(
+                      Cause.fromReasons<never>(
+                        cause.reasons.map((reason) =>
+                          Cause.isFailReason(reason) ? Cause.makeDieReason(reason.error) : reason,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
             );
-            yield* options.controller.watchFences(route.target.sessionId, fence);
-            const allowHmrRevisionTransition = isViteHmrSocketRequest(request, route.target);
+            const connectionExit = yield* Effect.exit(
+              adapters
+                .connectChannel(channelIdentity)
+                .pipe(Effect.provideService(Scope.Scope, adapterScope))
+                .pipe(Effect.timeout("5 seconds"), Effect.mapError(unavailable)),
+            );
+            const connection = yield* Match.valueTags(connectionExit, {
+              Success: ({ value }) => Effect.succeed(value),
+              Failure: ({ cause }) => Effect.failCause(cause),
+            });
+            yield* Ref.set(connectionRef, connection);
+            yield* Effect.gen(function* () {
+              yield* verify(connection, route.target);
+              if (
+                route.target.kind === "application" &&
+                (connection.applicationRequest === undefined ||
+                  connection.applicationSocket === undefined)
+              )
+                return yield* Effect.fail(failure("unsupported"));
+              const opened = yield* protect(
+                sql`UPDATE preview_gateway_channels SET state='open'
+                  WHERE channel_id=${channelId} AND hostname=${route.hostname}
+                    AND session_id=${route.target.sessionId}
+                    AND generation=${route.target.generation} AND user_id=${principal.userId}
+                    AND state='opening' RETURNING channel_id`,
+              );
+              if (opened.length !== 1) return yield* Effect.fail(unavailable());
+            });
+            yield* options.controller.watchFences(
+              route.target.sessionId,
+              record.fence.pipe(
+                Effect.catchCause((cause) =>
+                  Option.isSome(previewGatewayFailureFromCause(cause))
+                    ? Effect.void
+                    : Effect.failCause(cause),
+                ),
+              ),
+            );
             let lastValidDeadline = Math.min(initialSession.leaseDeadline, principal.expiresAt);
             const check = (allowRevisionTransition = false) =>
               protect(
@@ -1064,32 +1735,28 @@ export const makePreviewGateway = (options: {
               guardApplicationSocket,
               applicationRequest: (input) => {
                 const applicationRequest = connection.applicationRequest;
-                return applicationRequest === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
-                  ? Effect.fail(failure("unsupported"))
-                  : route.target.kind === "application"
-                    ? Effect.gen(function* () {
-                        const body =
-                          input.body === undefined
-                            ? undefined
-                            : input.body.pipe(
-                                Stream.mapEffect((chunk) => guard(Effect.succeed(chunk))),
-                              );
-                        const response = yield* guard(
-                          applicationRequest({
-                            ...input,
-                            principal,
-                            ...(body === undefined ? {} : { body }),
-                            maxResponseBytes: previewGatewayMaxApplicationResponseBytes,
-                          }),
-                        );
-                        return {
-                          ...response,
-                          body: response.body.pipe(
-                            Stream.mapEffect((chunk) => guard(Effect.succeed(chunk))),
-                          ),
-                        };
-                      })
-                    : Effect.fail(failure("unsupported"));
+                if (applicationRequest === undefined || route.target.kind !== "application")
+                  return Effect.fail(failure("unsupported"));
+                return Effect.gen(function* () {
+                  const body =
+                    input.body === undefined
+                      ? undefined
+                      : input.body.pipe(Stream.mapEffect((chunk) => guard(Effect.succeed(chunk))));
+                  const response = yield* guard(
+                    applicationRequest({
+                      ...input,
+                      principal,
+                      ...(body === undefined ? {} : { body }),
+                      maxResponseBytes: previewGatewayMaxApplicationResponseBytes,
+                    }),
+                  );
+                  return {
+                    ...response,
+                    body: response.body.pipe(
+                      Stream.mapEffect((chunk) => guard(Effect.succeed(chunk))),
+                    ),
+                  };
+                });
               },
               applicationDependencyRequest: (group, input) => {
                 const adapter = options.adapters?.applicationDependency;
@@ -1167,14 +1834,17 @@ export const makePreviewGateway = (options: {
                       }),
                 );
               },
-              applicationSocket: (input) =>
-                connection.applicationSocket === undefined || route.target.kind !== "application" // oxlint-disable-line no-nested-ternary -- inherited master site
-                  ? Effect.fail(failure("unsupported"))
-                  : principal.effectivePrincipal === undefined
-                    ? Effect.fail(failure("unsupported"))
-                    : (allowHmrRevisionTransition ? guardApplicationSocket : guard)(
-                        connection.applicationSocket({ ...input, principal }),
-                      ),
+              applicationSocket: (input) => {
+                const applicationSocket = connection.applicationSocket;
+                if (
+                  applicationSocket === undefined ||
+                  route.target.kind !== "application" ||
+                  principal.effectivePrincipal === undefined
+                )
+                  return Effect.fail(failure("unsupported"));
+                const guardSocket = allowHmrRevisionTransition ? guardApplicationSocket : guard;
+                return guardSocket(applicationSocket({ ...input, principal }));
+              },
             } satisfies PreviewGatewayAdmission;
           }),
         ),

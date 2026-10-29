@@ -198,6 +198,22 @@ export interface RunnerSourceSnapshotAuthorizerApi {
   }) => Effect.Effect<StagedRunnerSnapshotIdentity, RunnerSourceSupervisorError>;
 }
 
+/**
+ * Trusted server-side activation decision. Implementations check the durable session record
+ * even when this process has no in-memory active snapshot, load both immutable snapshots and
+ * complete workflow/action-version metadata, and allow same-session replacement only when
+ * compatible. A first revision is allowed only for a genuinely fresh authorized identity.
+ * Incompatible recreation uses a newly authorized session/generation after the old group has
+ * settled; request fields and caller-declared versions are never authority.
+ */
+export interface RunnerSourceSnapshotActivationAuthorityApi {
+  readonly authorizeActivation: (input: {
+    readonly identity: StagedRunnerSnapshotIdentity;
+    readonly previous: { readonly revision: string; readonly digest: string } | null;
+    readonly proposed: StagedSourceSnapshot;
+  }) => Effect.Effect<void, RunnerSourceSupervisorError>;
+}
+
 /** The live session authority must provide this service before the route can be mounted. */
 export class RunnerSourceSnapshotAuthorizer extends Context.Service<
   RunnerSourceSnapshotAuthorizer,
@@ -312,10 +328,11 @@ const failedStatus = (
   requestedRevision: string,
   previous: ActiveSnapshot | undefined,
   failure: string,
+  role: StagedRunnerSnapshotIdentity["role"],
 ): RunnerRevisionStatus => ({
   requestedRevision,
   activeRevision: previous?.revision ?? null,
-  unavailableRoles: ["ordinary-runner"],
+  unavailableRoles: [role],
   failure,
 });
 
@@ -326,6 +343,7 @@ type RunnerSourceSupervisorDependencies = {
   readonly roots: { readonly staged: string; readonly active: string };
   readonly activeSnapshots: Ref.Ref<ReadonlyMap<string, ActiveSnapshot>>;
   readonly maxStagedStorageBytes: number;
+  readonly authorizeActivation?: RunnerSourceSnapshotActivationAuthorityApi["authorizeActivation"];
 };
 
 type SnapshotPaths = {
@@ -828,14 +846,14 @@ const readinessStatus = (
       return {
         requestedRevision: "",
         activeRevision: null,
-        unavailableRoles: ["ordinary-runner"],
+        unavailableRoles: [identity.role],
         failure: "no-active-revision",
       } satisfies RunnerRevisionStatus;
     if (active.unavailableReason !== null)
       return {
         requestedRevision: active.revision,
         activeRevision: active.revision,
-        unavailableRoles: ["ordinary-runner"],
+        unavailableRoles: [identity.role],
         failure: active.unavailableReason,
       } satisfies RunnerRevisionStatus;
     const ready = yield* withRunnerSourceTimeout(
@@ -846,7 +864,7 @@ const readinessStatus = (
     return {
       requestedRevision: active.revision,
       activeRevision: active.revision,
-      unavailableRoles: ready ? [] : ["ordinary-runner"],
+      unavailableRoles: ready ? [] : [identity.role],
       failure: ready ? null : "readiness-check-failed",
     } satisfies RunnerRevisionStatus;
   });
@@ -881,7 +899,7 @@ const rejectInvalidSnapshot = (
   reason: string,
 ): Effect.Effect<RunnerRevisionStatus> =>
   markSnapshotUnavailable(dependencies, key, active, reason).pipe(
-    Effect.as(failedStatus(request.snapshot.revision, active, reason)),
+    Effect.as(failedStatus(request.snapshot.revision, active, reason, request.identity.role)),
   );
 
 const activateCurrentSnapshot = (
@@ -892,9 +910,19 @@ const activateCurrentSnapshot = (
   active: ActiveSnapshot,
 ): Effect.Effect<RunnerRevisionStatus> => {
   if (active.digest !== snapshot.completion.filesDigest)
-    return Effect.succeed(failedStatus(snapshot.revision, active, "revision-content-conflict"));
+    return Effect.succeed(
+      failedStatus(snapshot.revision, active, "revision-content-conflict", identity.role),
+    );
   return Effect.gen(function* () {
     if (active.unavailableReason !== null) {
+      const authority = yield* authorizeSnapshotActivation(
+        dependencies,
+        identity,
+        snapshot,
+        active,
+      );
+      if (authority._tag === "Rejected") return authority.status;
+
       const paths = snapshotPathsFor(dependencies, identity, snapshot);
       const restarted = yield* Effect.result(
         withRunnerSourceTimeout(
@@ -910,7 +938,12 @@ const activateCurrentSnapshot = (
       if (restarted._tag === "Failure") {
         const unavailable = { ...active, unavailableReason: restarted.failure.reason };
         yield* setActiveSnapshot(dependencies, key, unavailable);
-        return failedStatus(snapshot.revision, unavailable, restarted.failure.reason);
+        return failedStatus(
+          snapshot.revision,
+          unavailable,
+          restarted.failure.reason,
+          identity.role,
+        );
       }
     }
     const ready = yield* withRunnerSourceTimeout(
@@ -926,7 +959,7 @@ const activateCurrentSnapshot = (
     return {
       requestedRevision: snapshot.revision,
       activeRevision: snapshot.revision,
-      unavailableRoles: ready ? [] : ["ordinary-runner"],
+      unavailableRoles: ready ? [] : [identity.role],
       failure: ready ? null : recovered.unavailableReason,
     } satisfies RunnerRevisionStatus;
   });
@@ -939,13 +972,14 @@ const failedStageStatus = (
   paths: SnapshotPaths,
   active: ActiveSnapshot | undefined,
   reason: string,
+  role: StagedRunnerSnapshotIdentity["role"],
 ): Effect.Effect<RunnerRevisionStatus> =>
   Effect.gen(function* () {
     yield* dependencies.fileSystem
       .remove(paths.temporaryRoot, { recursive: true, force: true })
       .pipe(Effect.catch(() => Effect.void));
     yield* markSnapshotUnavailable(dependencies, key, active, reason);
-    return failedStatus(snapshot.revision, active, reason);
+    return failedStatus(snapshot.revision, active, reason, role);
   });
 
 const failedPromotionStatus = (
@@ -953,10 +987,74 @@ const failedPromotionStatus = (
   key: string,
   snapshot: StagedSourceSnapshot,
   promotion: Extract<PromotionResult, { readonly ready: false }>,
+  role: StagedRunnerSnapshotIdentity["role"],
 ): Effect.Effect<RunnerRevisionStatus> =>
   setActiveSnapshot(dependencies, key, promotion.active).pipe(
-    Effect.as(failedStatus(snapshot.revision, promotion.active, promotion.failure)),
+    Effect.as(failedStatus(snapshot.revision, promotion.active, promotion.failure, role)),
   );
+
+const activationAuthorityFailure = (
+  identity: StagedRunnerSnapshotIdentity,
+  snapshot: StagedSourceSnapshot,
+  active: ActiveSnapshot | undefined,
+  failure: string,
+): RunnerRevisionStatus => ({
+  requestedRevision: snapshot.revision,
+  activeRevision: active?.revision ?? null,
+  unavailableRoles:
+    active === undefined || active.unavailableReason !== null ? [identity.role] : [],
+  failure,
+});
+
+type SnapshotActivationAuthorityDecision =
+  | { readonly _tag: "Authorized" }
+  | { readonly _tag: "Rejected"; readonly status: RunnerRevisionStatus };
+
+const authorizeSnapshotActivation = (
+  dependencies: RunnerSourceSupervisorDependencies,
+  identity: StagedRunnerSnapshotIdentity,
+  snapshot: StagedSourceSnapshot,
+  active: ActiveSnapshot | undefined,
+): Effect.Effect<SnapshotActivationAuthorityDecision> =>
+  Effect.gen(function* () {
+    const authorize = dependencies.authorizeActivation;
+    if (authorize === undefined)
+      return {
+        _tag: "Rejected" as const,
+        status: activationAuthorityFailure(
+          identity,
+          snapshot,
+          active,
+          "snapshot-activation-authority-unavailable",
+        ),
+      };
+    const authorization = yield* Effect.result(
+      withRunnerSourceTimeout(
+        authorize({
+          identity,
+          previous:
+            active === undefined ? null : { revision: active.revision, digest: active.digest },
+          proposed: snapshot,
+        }),
+        stagedSourceActivationTimeouts.authority,
+        "snapshot-activation-authority-timeout",
+      ),
+    );
+    if (authorization._tag === "Failure")
+      return {
+        _tag: "Rejected" as const,
+        status: activationAuthorityFailure(
+          identity,
+          snapshot,
+          active,
+          authorization.failure instanceof RunnerSourceSupervisorError &&
+            authorization.failure.reason === "snapshot-activation-authority-timeout"
+            ? "snapshot-activation-authority-timeout"
+            : "snapshot-activation-authority-rejected",
+        ),
+      };
+    return { _tag: "Authorized" as const };
+  });
 
 const stageAndPromoteSnapshot = (
   dependencies: RunnerSourceSupervisorDependencies,
@@ -972,7 +1070,7 @@ const stageAndPromoteSnapshot = (
     );
     if (storage._tag === "Failure") {
       yield* markSnapshotUnavailable(dependencies, key, active, storage.failure.reason);
-      return failedStatus(snapshot.revision, active, storage.failure.reason);
+      return failedStatus(snapshot.revision, active, storage.failure.reason, request.identity.role);
     }
     const staged = yield* Effect.result(
       stageSnapshot(dependencies, request.identity, snapshot, paths, storage.success),
@@ -985,6 +1083,7 @@ const stageAndPromoteSnapshot = (
         paths,
         active,
         staged.failure.reason,
+        request.identity.role,
       );
     const promotion = yield* promoteSnapshot(
       dependencies,
@@ -994,7 +1093,13 @@ const stageAndPromoteSnapshot = (
       active,
     );
     if (!promotion.ready)
-      return yield* failedPromotionStatus(dependencies, key, snapshot, promotion);
+      return yield* failedPromotionStatus(
+        dependencies,
+        key,
+        snapshot,
+        promotion,
+        request.identity.role,
+      );
     yield* setActiveSnapshot(dependencies, key, {
       revision: snapshot.revision,
       digest: snapshot.completion.filesDigest,
@@ -1026,6 +1131,13 @@ const activateSnapshot = (
     const snapshot = decoded.snapshot;
     if (active?.revision === snapshot.revision)
       return yield* activateCurrentSnapshot(dependencies, request.identity, snapshot, key, active);
+    const authority = yield* authorizeSnapshotActivation(
+      dependencies,
+      request.identity,
+      snapshot,
+      active,
+    );
+    if (authority._tag === "Rejected") return authority.status;
     return yield* stageAndPromoteSnapshot(dependencies, request, snapshot, key, active);
   });
 
@@ -1034,6 +1146,8 @@ export const RunnerSourceSupervisorLive = (options: {
   readonly activeRoot: string;
   readonly workspaceRoot?: string;
   readonly maxStagedStorageBytes?: number;
+  /** Omit to deny all new source activations; live profiles remain unavailable by default. */
+  readonly authorizeActivation?: RunnerSourceSnapshotActivationAuthorityApi["authorizeActivation"];
 }) =>
   Layer.effect(
     RunnerSourceSupervisor,
@@ -1066,6 +1180,9 @@ export const RunnerSourceSupervisorLive = (options: {
         roots,
         activeSnapshots,
         maxStagedStorageBytes,
+        ...(options.authorizeActivation === undefined
+          ? {}
+          : { authorizeActivation: options.authorizeActivation }),
       };
       const verifyReadiness: RunnerSourceSupervisorApi["readiness"] = (identity) =>
         Effect.flatMap(Ref.get(activeSnapshots), (current) =>

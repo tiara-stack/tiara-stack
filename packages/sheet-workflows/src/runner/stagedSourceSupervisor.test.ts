@@ -2,7 +2,7 @@ import { NodeFileSystem, NodePath } from "@effect/platform-node";
 import { it } from "@effect/vitest";
 import { createHash, randomUUID } from "node:crypto";
 import { join, relative } from "node:path";
-import { Cause, Deferred, Effect, Exit, Fiber, FileSystem, Layer, Stream } from "effect";
+import { Cause, Deferred, Duration, Effect, Exit, Fiber, FileSystem, Layer, Stream } from "effect";
 import { TestClock as TestClockService } from "effect/testing";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { HttpIncomingMessage, HttpRouter, HttpServerRequest } from "effect/unstable/http";
@@ -26,6 +26,7 @@ import {
   runnerSourceIdentityKey,
   runnerSourceRevisionKey,
   type RunnerSourceSnapshotAuthorizerApi,
+  type RunnerSourceSnapshotActivationAuthorityApi,
   type RunnerSourceSupervisorApi,
   type RunnerSourceRuntimeApi,
 } from "./stagedSourceSupervisor";
@@ -85,12 +86,16 @@ const supervisorEnvironment = (
   workspaceRoot: string,
   runtime: RunnerSourceRuntimeApi,
   maxStagedStorageBytes?: number,
+  replacementAuthority:
+    | RunnerSourceSnapshotActivationAuthorityApi["authorizeActivation"]
+    | null = () => Effect.void,
 ) =>
   RunnerSourceSupervisorLive({
     stagedRoot: join(workspaceRoot, "staged"),
     activeRoot: join(workspaceRoot, "active"),
     workspaceRoot,
     ...(maxStagedStorageBytes === undefined ? {} : { maxStagedStorageBytes }),
+    ...(replacementAuthority === null ? {} : { authorizeActivation: replacementAuthority }),
   }).pipe(
     Layer.provideMerge(
       Layer.mergeAll(
@@ -289,6 +294,55 @@ describe("runner staged-source supervisor", () => {
     );
   });
 
+  it.effect(
+    "requires trusted compatibility authority before same-identity revision staging",
+    () => {
+      const workspaceRoot = join("/tmp", `runner-source-${randomUUID()}`);
+      const calls: Array<string> = [];
+      const runtime: RunnerSourceRuntimeApi = {
+        ...runtimeStorageDefaults,
+        prepareSnapshot: () => Effect.sync(() => void calls.push("prepare")),
+        restart: () => Effect.sync(() => void calls.push("restart")),
+        verifyReadiness: () =>
+          Effect.sync(() => void calls.push("readiness")).pipe(Effect.as(true)),
+      };
+      const environment = supervisorEnvironment(workspaceRoot, runtime, undefined, null);
+
+      return Effect.gen(function* () {
+        const supervisor = yield* RunnerSourceSupervisor;
+        const initial = yield* supervisor.activate({
+          identity: sourceIdentity,
+          snapshot: snapshot("r1"),
+        });
+        const beforeReplacement = [...calls];
+        const replacement = yield* supervisor.activate({
+          identity: sourceIdentity,
+          snapshot: snapshot("r2"),
+        });
+
+        expect(initial.failure).toBe("snapshot-activation-authority-unavailable");
+        expect(replacement).toMatchObject({
+          requestedRevision: "r2",
+          activeRevision: null,
+          failure: "snapshot-activation-authority-unavailable",
+        });
+        expect(calls).toEqual(beforeReplacement);
+        expect(calls).toEqual([]);
+      }).pipe(
+        Effect.provide(environment),
+        Effect.ensuring(
+          Effect.gen(function* () {
+            const fileSystem = yield* FileSystem.FileSystem;
+            yield* fileSystem.remove(workspaceRoot, { recursive: true, force: true });
+          }).pipe(
+            Effect.provide(testFileSystemLayer),
+            Effect.catch(() => Effect.void),
+          ),
+        ),
+      );
+    },
+  );
+
   it.effect("writes binary bytes, installs from the frozen store, and atomically activates", () => {
     const workspaceRoot = join("/tmp", `runner-source-${randomUUID()}`);
     const calls: Array<string> = [];
@@ -405,7 +459,99 @@ describe("runner staged-source supervisor", () => {
     );
   });
 
-  it.effect("keeps the requested pointer unavailable when its revision is not ready", () => {
+  it.live("times out activation authority and releases the shared activation permit", () => {
+    const workspaceRoot = join("/tmp", `runner-source-authority-timeout-${randomUUID()}`);
+    let announceAuthorityStarted!: () => void;
+    const authorityStarted = new Promise<void>((resolve) => {
+      announceAuthorityStarted = resolve;
+    });
+    let authorityHangs = true;
+    let authorityDenies = false;
+    let authorityCalls = 0;
+    let prepareCalls = 0;
+    const runtime: RunnerSourceRuntimeApi = {
+      ...runtimeStorageDefaults,
+      prepareSnapshot: () =>
+        Effect.sync(() => {
+          prepareCalls += 1;
+        }),
+      restart: () => Effect.void,
+      verifyReadiness: () => Effect.succeed(true),
+    };
+    const authorizeActivation: RunnerSourceSnapshotActivationAuthorityApi["authorizeActivation"] =
+      () =>
+        Effect.gen(function* () {
+          authorityCalls += 1;
+          if (authorityHangs) {
+            announceAuthorityStarted();
+            return yield* Effect.never;
+          }
+          if (authorityDenies)
+            return yield* Effect.fail(
+              new RunnerSourceSupervisorError({ reason: "controlled-authority-denial" }),
+            );
+        });
+    const environment = supervisorEnvironment(
+      workspaceRoot,
+      runtime,
+      undefined,
+      authorizeActivation,
+    ).pipe(Layer.provideMerge(TestClockService.layer()));
+
+    return Effect.gen(function* () {
+      const supervisor = yield* RunnerSourceSupervisor;
+      const candidate = snapshot("r-authority-timeout");
+      const activationFiber = yield* Effect.race(
+        supervisor
+          .activate({ identity: sourceIdentity, snapshot: candidate })
+          .pipe(Effect.map((status) => ({ _tag: "status" as const, status }))),
+        Effect.as(Effect.sleep(Duration.seconds(360)), { _tag: "guard-timeout" as const }),
+      ).pipe(Effect.forkScoped);
+
+      yield* Effect.promise(() => authorityStarted);
+      yield* TestClockService.adjust(Duration.seconds(60));
+      yield* Effect.yieldNow;
+      if (activationFiber.pollUnsafe() === undefined)
+        yield* TestClockService.adjust(Duration.seconds(300));
+      const first = yield* Fiber.join(activationFiber);
+
+      expect(first._tag).toBe("status");
+      if (first._tag !== "status") return;
+      expect(first.status.failure).toBe("snapshot-activation-authority-timeout");
+      expect(first.status.activeRevision).toBeNull();
+      expect(prepareCalls).toBe(0);
+
+      authorityHangs = false;
+      const retry = yield* supervisor.activate({ identity: sourceIdentity, snapshot: candidate });
+      expect(retry.failure).toBeNull();
+      expect(retry.activeRevision).toBe("r-authority-timeout");
+      expect(authorityCalls).toBe(2);
+      expect(prepareCalls).toBe(1);
+
+      authorityDenies = true;
+      const denied = yield* supervisor.activate({
+        identity: sourceIdentity,
+        snapshot: snapshot("r-authority-denied"),
+      });
+      expect(denied.failure).toBe("snapshot-activation-authority-rejected");
+      expect(denied.activeRevision).toBe("r-authority-timeout");
+      expect(authorityCalls).toBe(3);
+      expect(prepareCalls).toBe(1);
+    }).pipe(
+      Effect.provide(environment),
+      Effect.ensuring(
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          yield* fileSystem.remove(workspaceRoot, { recursive: true, force: true });
+        }).pipe(
+          Effect.provide(environment),
+          Effect.catch(() => Effect.void),
+        ),
+      ),
+    );
+  });
+
+  it.live("keeps the requested pointer unavailable when its revision is not ready", () => {
     const workspaceRoot = join("/tmp", `runner-source-${randomUUID()}`);
     const restarts: Array<string | null> = [];
     const runtime: RunnerSourceRuntimeApi = {
@@ -447,6 +593,64 @@ describe("runner staged-source supervisor", () => {
         unavailableRoles: ["ordinary-runner"],
         failure: "readiness-check-failed",
       });
+    }).pipe(
+      Effect.provide(environment),
+      Effect.ensuring(
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          yield* fileSystem.remove(workspaceRoot, { recursive: true, force: true });
+        }).pipe(
+          Effect.provide(environment),
+          Effect.catch(() => Effect.void),
+        ),
+      ),
+    );
+  });
+
+  it.effect("keeps browser-runner activation and readiness scoped to its role identity", () => {
+    const workspaceRoot = join("/tmp", `runner-source-browser-${randomUUID()}`);
+    const browserIdentity: StagedRunnerSnapshotIdentity = {
+      ...sourceIdentity,
+      role: "browser-runner",
+    };
+    const readinessRoles: Array<string> = [];
+    const runtime: RunnerSourceRuntimeApi = {
+      ...runtimeStorageDefaults,
+      prepareSnapshot: () => Effect.void,
+      restart: () => Effect.void,
+      verifyReadiness: ({ identity, revision }) =>
+        Effect.sync(() => {
+          readinessRoles.push(identity.role);
+          return revision === "r1";
+        }),
+    };
+    const environment = supervisorEnvironment(workspaceRoot, runtime);
+
+    return Effect.gen(function* () {
+      const supervisor = yield* RunnerSourceSupervisor;
+      const first = yield* supervisor.activate({
+        identity: browserIdentity,
+        snapshot: snapshot("r1", [utf8File("src/browser.ts", "ready")]),
+      });
+      const second = yield* supervisor.activate({
+        identity: browserIdentity,
+        snapshot: snapshot("r2", [utf8File("src/browser.ts", "not-ready")]),
+      });
+
+      expect(first.unavailableRoles).toEqual([]);
+      expect(second).toEqual({
+        requestedRevision: "r2",
+        activeRevision: "r2",
+        unavailableRoles: ["browser-runner"],
+        failure: "readiness-check-failed",
+      });
+      expect(yield* supervisor.readiness(browserIdentity)).toEqual({
+        requestedRevision: "r2",
+        activeRevision: "r2",
+        unavailableRoles: ["browser-runner"],
+        failure: "readiness-check-failed",
+      });
+      expect(readinessRoles).toEqual(["browser-runner", "browser-runner"]);
     }).pipe(
       Effect.provide(environment),
       Effect.ensuring(
@@ -527,6 +731,7 @@ describe("runner staged-source supervisor", () => {
     const workspaceRoot = join("/tmp", `runner-source-${randomUUID()}`);
     const prepareCalls: Array<string> = [];
     const restartCalls: Array<string | null> = [];
+    const authorityCalls: Array<string> = [];
     let ready = false;
     const runtime = Layer.sync(RunnerSourceRuntime, () => ({
       ...runtimeStorageDefaults,
@@ -544,6 +749,10 @@ describe("runner staged-source supervisor", () => {
       stagedRoot: join(workspaceRoot, "staged"),
       activeRoot: join(workspaceRoot, "active"),
       workspaceRoot,
+      authorizeActivation: ({ proposed, previous }) =>
+        Effect.sync(() => {
+          authorityCalls.push(`${previous?.revision ?? "fresh"}:${proposed.revision}`);
+        }),
     }).pipe(Layer.provideMerge(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, runtime)));
 
     return Effect.gen(function* () {
@@ -558,6 +767,7 @@ describe("runner staged-source supervisor", () => {
       expect(retry.failure).toBeNull();
       expect(prepareCalls).toHaveLength(1);
       expect(restartCalls).toEqual(["r1", "r1"]);
+      expect(authorityCalls).toEqual(["fresh:r1", "r1:r1"]);
       expect(yield* fileSystem.exists(join(workspaceRoot, "active", identityKey, "current"))).toBe(
         true,
       );
@@ -574,6 +784,157 @@ describe("runner staged-source supervisor", () => {
       ),
     );
   });
+
+  it.effect(
+    "does not recover an unavailable same revision after durable authority denies it",
+    () => {
+      const workspaceRoot = join("/tmp", `runner-source-stale-authority-${randomUUID()}`);
+      const calls: Array<string> = [];
+      let authorityDenies = false;
+      let readinessSucceeds = false;
+      const runtime: RunnerSourceRuntimeApi = {
+        ...runtimeStorageDefaults,
+        prepareSnapshot: () => Effect.void,
+        restart: ({ revision }) =>
+          Effect.sync(() => {
+            calls.push(`restart:${String(revision)}`);
+          }),
+        verifyReadiness: ({ revision }) =>
+          Effect.sync(() => {
+            calls.push(`readiness:${revision}`);
+            return readinessSucceeds;
+          }),
+      };
+      const environment = supervisorEnvironment(workspaceRoot, runtime, undefined, () =>
+        Effect.gen(function* () {
+          calls.push("authority");
+          if (authorityDenies)
+            return yield* Effect.fail(
+              new RunnerSourceSupervisorError({ reason: "stale-session-generation" }),
+            );
+        }),
+      );
+
+      return Effect.gen(function* () {
+        const supervisor = yield* RunnerSourceSupervisor;
+        const candidate = snapshot("r-stale-authority");
+        const initial = yield* supervisor.activate({
+          identity: sourceIdentity,
+          snapshot: candidate,
+        });
+        const effectsBeforeDeniedRecovery = [...calls];
+        authorityDenies = true;
+        readinessSucceeds = true;
+
+        const denied = yield* supervisor.activate({
+          identity: sourceIdentity,
+          snapshot: candidate,
+        });
+
+        expect(initial.failure).toBe("readiness-check-failed");
+        expect(denied).toEqual({
+          requestedRevision: "r-stale-authority",
+          activeRevision: "r-stale-authority",
+          unavailableRoles: ["ordinary-runner"],
+          failure: "snapshot-activation-authority-rejected",
+        });
+        expect(calls).toEqual([...effectsBeforeDeniedRecovery, "authority"]);
+        expect(calls.filter((call) => call === "restart:r-stale-authority")).toHaveLength(1);
+        expect(calls.filter((call) => call === "readiness:r-stale-authority")).toHaveLength(1);
+      }).pipe(
+        Effect.provide(environment),
+        Effect.ensuring(
+          Effect.gen(function* () {
+            const fileSystem = yield* FileSystem.FileSystem;
+            yield* fileSystem.remove(workspaceRoot, { recursive: true, force: true });
+          }).pipe(
+            Effect.provide(testFileSystemLayer),
+            Effect.catch(() => Effect.void),
+          ),
+        ),
+      );
+    },
+  );
+
+  it.live(
+    "does not restart or verify an unavailable same revision before authority timeout",
+    () => {
+      const workspaceRoot = join(
+        "/tmp",
+        `runner-source-same-revision-authority-timeout-${randomUUID()}`,
+      );
+      let authorityHangs = false;
+      let announceAuthorityStarted!: () => void;
+      const authorityStarted = new Promise<void>((resolve) => {
+        announceAuthorityStarted = resolve;
+      });
+      const effects: Array<string> = [];
+      let ready = false;
+      const runtime: RunnerSourceRuntimeApi = {
+        ...runtimeStorageDefaults,
+        prepareSnapshot: () => Effect.void,
+        restart: ({ revision }) =>
+          Effect.sync(() => {
+            effects.push(`restart:${String(revision)}`);
+          }),
+        verifyReadiness: ({ revision }) =>
+          Effect.sync(() => {
+            effects.push(`readiness:${revision}`);
+            return ready;
+          }),
+      };
+      const environment = supervisorEnvironment(workspaceRoot, runtime, undefined, () =>
+        Effect.gen(function* () {
+          effects.push("authority");
+          if (authorityHangs) {
+            announceAuthorityStarted();
+            return yield* Effect.never;
+          }
+        }),
+      ).pipe(Layer.provideMerge(TestClockService.layer()));
+
+      return Effect.gen(function* () {
+        const supervisor = yield* RunnerSourceSupervisor;
+        const candidate = snapshot("r-same-revision-authority-timeout");
+        const initial = yield* supervisor.activate({
+          identity: sourceIdentity,
+          snapshot: candidate,
+        });
+        const effectsBeforeRecovery = [...effects];
+        expect(initial.failure).toBe("readiness-check-failed");
+
+        authorityHangs = true;
+        ready = true;
+        const retry = yield* supervisor
+          .activate({ identity: sourceIdentity, snapshot: candidate })
+          .pipe(Effect.forkScoped);
+        yield* Effect.promise(() => authorityStarted);
+        yield* TestClockService.adjust(stagedSourceActivationTimeouts.authority);
+        yield* Effect.yieldNow;
+        if (retry.pollUnsafe() === undefined) yield* TestClockService.adjust(Duration.seconds(300));
+        const timedOut = yield* Fiber.join(retry);
+
+        expect(timedOut.failure).toBe("snapshot-activation-authority-timeout");
+        expect(timedOut.activeRevision).toBe(candidate.revision);
+        expect(effects).toEqual([...effectsBeforeRecovery, "authority"]);
+        expect(effects.filter((call) => call === `restart:${candidate.revision}`)).toHaveLength(1);
+        expect(effects.filter((call) => call === `readiness:${candidate.revision}`)).toHaveLength(
+          1,
+        );
+      }).pipe(
+        Effect.provide(environment),
+        Effect.ensuring(
+          Effect.gen(function* () {
+            const fileSystem = yield* FileSystem.FileSystem;
+            yield* fileSystem.remove(workspaceRoot, { recursive: true, force: true });
+          }).pipe(
+            Effect.provide(testFileSystemLayer),
+            Effect.catch(() => Effect.void),
+          ),
+        ),
+      );
+    },
+  );
 
   it.effect("retains referenced or unknown immutable revisions when capacity is exhausted", () => {
     const workspaceRoot = join("/tmp", `runner-source-${randomUUID()}`);
@@ -996,6 +1357,7 @@ describe("runner staged-source supervisor", () => {
       stagedRoot: join(workspaceRoot, "staged"),
       activeRoot: join(workspaceRoot, "active"),
       workspaceRoot,
+      authorizeActivation: () => Effect.void,
     }).pipe(Layer.provideMerge(Layer.mergeAll(NodeFileSystem.layer, NodePath.layer, runtime)));
 
     return Effect.gen(function* () {
@@ -1179,6 +1541,110 @@ describe("runner staged-source supervisor", () => {
       expect(bodyReads).toBe(0);
       expect(activations).toEqual([]);
     }).pipe(Effect.provide(HttpRouter.layer));
+  });
+
+  it.live("enforces replacement authority through the authenticated activation route", () => {
+    const workspaceRoot = join("/tmp", `runner-source-route-${randomUUID()}`);
+    const stagedRevisions: Array<string> = [];
+    const runtime: RunnerSourceRuntimeApi = {
+      ...runtimeStorageDefaults,
+      prepareSnapshot: (sourceRoot) =>
+        Effect.sync(() => {
+          stagedRevisions.push(sourceRoot);
+        }),
+      restart: () => Effect.void,
+      verifyReadiness: () => Effect.succeed(true),
+    };
+    const authorizer: RunnerSourceSnapshotAuthorizerApi = {
+      authorize: () => Effect.succeed(sourceIdentity),
+    };
+    const authorityRequests: Array<{
+      readonly previous: { readonly revision: string; readonly digest: string } | null;
+      readonly proposedRevision: string;
+    }> = [];
+    let allowCompatibleReplacement = false;
+    const activationAuthority: RunnerSourceSnapshotActivationAuthorityApi["authorizeActivation"] =
+      ({ previous, proposed }) => {
+        const record = () =>
+          authorityRequests.push({
+            previous,
+            proposedRevision: proposed.revision,
+          });
+        return previous === null || allowCompatibleReplacement
+          ? Effect.sync(record)
+          : Effect.sync(record).pipe(
+              Effect.andThen(
+                Effect.fail(new RunnerSourceSupervisorError({ reason: "incompatible-transition" })),
+              ),
+            );
+      };
+    const routes = runnerSourceSnapshotRoutesLayer.pipe(
+      Layer.provideMerge(
+        supervisorEnvironment(workspaceRoot, runtime, undefined, activationAuthority),
+      ),
+      Layer.provide(Layer.sync(RunnerSourceSnapshotAuthorizer, () => authorizer)),
+    );
+
+    return Effect.gen(function* () {
+      const handler = yield* HttpRouter.toHttpEffect(routes);
+      const postSnapshot = (candidate: StagedSourceSnapshot) =>
+        Effect.gen(function* () {
+          const request = new Request("http://localhost/_internal/runner-source/v1/activate", {
+            method: "POST",
+            headers: {
+              authorization: "Bearer session-bound-token",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({ identity: sourceIdentity, snapshot: candidate }),
+          });
+          const response = yield* handler.pipe(
+            Effect.provideService(
+              HttpServerRequest.HttpServerRequest,
+              HttpServerRequest.fromWeb(request),
+            ),
+          );
+          return response.status;
+        });
+
+      const first = yield* postSnapshot(snapshot("r1"));
+      const stageCount = stagedRevisions.length;
+      const replacement = yield* postSnapshot(snapshot("r2"));
+
+      expect(first).toBe(200);
+      expect(replacement).toBe(200);
+      expect(authorityRequests[1]?.previous).toEqual({
+        revision: "r1",
+        digest: snapshot("r1").completion.filesDigest,
+      });
+      expect(authorityRequests).toEqual([
+        { previous: null, proposedRevision: "r1" },
+        {
+          previous: { revision: "r1", digest: snapshot("r1").completion.filesDigest },
+          proposedRevision: "r2",
+        },
+      ]);
+      expect(stagedRevisions).toHaveLength(stageCount);
+
+      allowCompatibleReplacement = true;
+      const compatibleReplacement = yield* postSnapshot(snapshot("r2"));
+      expect(compatibleReplacement).toBe(200);
+      expect(stagedRevisions).toHaveLength(stageCount + 1);
+      expect(authorityRequests.at(-1)?.previous).toEqual({
+        revision: "r1",
+        digest: snapshot("r1").completion.filesDigest,
+      });
+    }).pipe(
+      Effect.provide(HttpRouter.layer),
+      Effect.ensuring(
+        Effect.gen(function* () {
+          const fileSystem = yield* FileSystem.FileSystem;
+          yield* fileSystem.remove(workspaceRoot, { recursive: true, force: true });
+        }).pipe(
+          Effect.provide(testFileSystemLayer),
+          Effect.catch(() => Effect.void),
+        ),
+      ),
+    );
   });
 
   it.effect("rejects a body identity that differs from the authenticated runner", () => {

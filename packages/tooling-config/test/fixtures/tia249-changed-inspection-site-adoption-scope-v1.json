@@ -1,0 +1,22 @@
+{
+  "allowed": [
+    "Resolve diagnostics in the changed inspect/timing code and remove its stale inherited suppression comments. Use established Effect/Schema-safe handling.",
+    "Remove only mechanically proven stale inherited site entries made obsolete by this source adoption from packages/tooling-config/src/oxlint-plugins/no-nested-ternary-baseline.json, and update its exact formatted-byte hash pin in packages/tooling-config/src/oxlint-plugins/effect-policy.mjs.",
+    "Preserve before/after generation/comparison provenance, exact removed IDs, and proof every unrelated entry is unchanged. Do not assume the number of reported comment errors equals registry-row count.",
+    "Run affected tooling-config tests and lint plus required current-source launcher/TSC/audit gates. No ordinary per-iteration grant is required."
+  ],
+  "authority": "Existing standing repair authority, with root clarification for necessary stricter shared tooling metadata in the owned isolated branch.",
+  "decisionId": "tia230-tia249-changed-inspection-site-adoption-20261027",
+  "expectedHandoffId": "tia230-tia249-final-local-review-repair-result-0d18c7f9-20261027",
+  "kind": "STANDING_IN_SCOPE_LINT_SITE_ADOPTION_CLARIFICATION",
+  "notAllowed": [
+    "No new suppression, allowance or broader policy behavior.",
+    "No Fallow baseline changes; the three strict Fallow baseline inputs remain pinned and unchanged.",
+    "No source/ref/worktree/stash edits belonging to parked implementors, and no remote/reviewer/hosted actions."
+  ],
+  "recordedAtUtc": "2026-10-27T10:15:34.175670+00:00",
+  "runId": "TIA-230",
+  "scopeIsNecessaryAdoptionNotNewFeature": true,
+  "ticketId": "TIA-249",
+  "validationLaneHolder": "TIA-249"
+}

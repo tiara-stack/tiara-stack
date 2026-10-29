@@ -1,7 +1,7 @@
-# Staged ordinary runner source snapshots
+# Staged runner source snapshots
 
 `developer-launcher/src/staged-source.ts` defines the local contract for
-replacing ordinary runner source from a complete staged snapshot. The snapshot
+replacing ordinary or browser runner source from a complete staged snapshot. The snapshot
 contains workspace files with explicit `utf8` or `base64` content encoding and
 file modes, plus a completion record with an expected file count and SHA-256
 digest bound to the revision, paths, encodings, contents, and modes. UTF-8
@@ -19,11 +19,17 @@ Paths are checked before staging, and host
 `node_modules`, credentials, secrets, browser caches, absolute paths, and
 traversal are rejected. `package.json` and `pnpm-lock.yaml` are required.
 
+The shared runner identity contract names ordinary and browser runner roles;
+the API role remains a host lifecycle role rather than a staged Kubernetes
+runner identity. This contract does not provision browser dependencies or
+establish live browser readiness.
+
 The supervisor stages the full revision, fences its old owner, retains the
 previous immutable revision for already accepted work, optionally rebuilds
 artifacts, atomically activates the complete revision, restarts the selected
 roles, and checks readiness against that revision. Ordinary source changes
-restart only the ordinary runner. Package manifests, lockfiles, native
+restart only selected affected runner roles, including the browser runner when
+the workflow uses browser actions. Package manifests, lockfiles, native
 artifacts, TypeScript/build configuration, and tool configuration request an
 artifact rebuild. `activateCoalescedRunnerSnapshots` selects the newest
 complete revision in a save batch. `affectedRunnerRoles` follows `workspace:*`
@@ -40,6 +46,32 @@ readiness; it never restores or restarts the previous revision automatically.
 The prior immutable revision remains on disk for accepted work and an explicit
 later activation request. A failed activation cannot be treated as ready just
 because the previous revision had been ready before the attempt.
+
+Workflow-affecting activations carry the previous and proposed workflow
+definitions, the authoritative old execution group, and explicit user intent.
+The previous definition must match old-group artifacts and all existing role
+identities. The proposed definition's source revision must match the sealed
+snapshot revision, and the runtime must resolve complete API, selected
+ordinary/browser runner, contract, deployment, and workflow-version evidence
+from that exact snapshot before any settlement or staging. Runner artifacts
+are role-specific; selecting both runner roles requires evidence for each. The
+developer launcher exposes the explicit
+`preview recreate --config <file> --session <id> --confirm-development` path;
+automatic incompatible changes present the proposal and pause admission, then
+reject.
+Explicit changes pause admission, require distinct confirmed fences for
+submission connections and autonomous triggers, then settle with immutable
+old code and prove cessation before ending the old session. Missing evidence or
+unknown producer ownership stops before settlement. Fresh evidence verifies
+all proposed workload roles have unique new OAuth clients, carries the exact
+cleanup record, and reports zero transferred work. The provider's fresh-group
+evidence must echo exactly the proposed required-group set and the fresh session
+identity created by the CLI's durable session controller. A durable quarantine
+failure returns `QuarantineUnconfirmed` and invokes the independent
+ordinary-allocation fence.
+The CLI loads a checkout-local configured workflow provider module and composes
+it with its session controller. It fails closed without that module, so the
+live workflow profile stays disabled in this checkout.
 
 The supervisor writes sidecar metadata for each prepared revision and scans it
 under the activation permit. It removes abandoned `.staging-*` trees only while
@@ -66,9 +98,52 @@ bounds concurrent body buffering and schema decoding for 60 seconds. It is
 released after decoding or body failure, before supervisor activation. A stalled
 body receives HTTP 408. The launcher transport
 allows six minutes by default: the server phases are bounded by 60 seconds for
-body read/decode, 120 seconds for preparation, 30 seconds for restart, and
-30 seconds for readiness (240 seconds total), leaving two minutes of transport
-margin. Callers can still set a shorter explicit transport timeout.
+the trusted read-only activation-authority preflight, 60 seconds for body
+read/decode, 120 seconds for snapshot preparation, 30 seconds for restart, and
+30 seconds for readiness (300 seconds total), leaving one minute of transport
+margin. The authority preflight uses TIA-229's approved 60-second read-only
+preflight budget and has its own timeout, separate from snapshot preparation.
+Callers can still set a shorter explicit transport timeout.
+
+The low-level supervisor requires a trusted activation-authority decision
+before staging a new revision, including a first revision when its in-memory
+active map is empty. That authority must read durable session state and
+immutable prior source, independently resolve the proposed snapshot's complete
+artifacts and Action Versions, permit same-identity changes only when
+compatible, and permit a first revision only for a newly authorized session.
+It must not use caller-supplied mode flags, compatibility declarations, or
+version maps as authority. The authority is omitted by default, so source
+activation fails closed until configured. Unknown state, missing authority, and
+rejected transitions fail before staging. Incompatible recreation proceeds
+under its separately provisioned fresh session identity only after the common
+launcher lifecycle verifies old-code settlement and cessation and the session
+authority can confirm the durable cleanup record. This also closes the restart
+case where the supervisor's in-memory active map is empty but durable state is
+not new.
+
+The developer launcher's injected staged-runner runtime performs its own
+trusted activation authorization before `stageComplete`. Missing, rejected, or
+timed-out authorization leaves the revision unstaged. The injected authority
+must independently resolve bound durable state; workflow declarations supplied
+with the transition are context, not proof of authorization.
+
+Workflow artifact evidence carries the complete action-name to Action Version
+map. The map participates in artifact equality and transition classification;
+the summary workflow version alone cannot establish compatibility. The
+proposed map is checked against artifacts resolved from the exact sealed
+snapshot before old-work settlement or source staging.
+
+Recreation output records proposal, admission, producer fencing, settlement,
+cessation, provider cleanup, local old-session end, fresh-group provisioning,
+and source-activation phases separately. A phase advances only after its
+provider operation returns confirmed evidence. A validated cleanup record is
+retained if the local controller stop times out; provider cleanup remains
+completed while local old-session end stays unconfirmed.
+Failures retain `unconfirmed`, `ambiguous`, or `not-started` states as
+appropriate. Human and JSON output include the old cleanup record, prior and
+requested revisions, transition reasons, fresh session identity, and recovery
+disposition; no output infers cancellation, reconciliation, or live cessation
+from a later successful phase.
 
 The runtime adapter must implement staging on session-owned writable source
 storage while keeping the base image read-only; each activation must be atomic.
@@ -120,8 +195,12 @@ boundary only and must stay off until that adapter exists. The image provides
 tools and dependency packages, but it does not contain links to the staged
 source tree.
 
-The same-revision check prevents duplicate activation and restart calls. It does
-not prove duplicate-effect safety for accepted workflow invocations.
+The same-revision check prevents duplicate activation and restart calls while a
+revision is healthy. If that revision is unavailable, recovery revalidates the
+durable session and group authority before restarting or checking readiness;
+missing, stale, rejected, or timed-out authority leaves the runner unavailable
+without those runtime effects. This does not prove duplicate-effect safety for
+accepted workflow invocations.
 
 Record group startup target (120 seconds) and edit target (20 seconds)
 separately from the 120-second session lease and 30-second supervisor lease.

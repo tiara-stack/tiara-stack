@@ -8,7 +8,7 @@ const baselinePath = path.join(
   root,
   "packages/tooling-config/src/oxlint-plugins/no-nested-ternary-baseline.json",
 );
-const BASELINE_SHA256 = "1cdeb54a8fcb051a5460428d9a247fcdb26a3db96227940c9154df6d98b3090c";
+const BASELINE_SHA256 = "d9e2e2691653da9471b2dc523ed397cca1ee5e6c5b865a9f6b1ef8bb3261cce6";
 const requestedBaselinePath = process.env.TIARA_NESTED_TERNARY_BASELINE_PATH;
 const testBaselineOverride =
   process.env.NODE_ENV === "test" &&
@@ -1645,10 +1645,65 @@ const inheritedPolicyComment = (comment) =>
   /^(?:\s*)(?:oxlint-disable-(?:line|next-line) (?:no-nested-ternary|typescript\/(?:no-unsafe-type-assertion|restrict-template-expressions))|oxlint-(?:disable|enable) typescript\/(?:no-unsafe-type-assertion|restrict-template-expressions)) -- inherited master site(?:\s*)$/.test(
     read(comment, "value") ?? "",
   );
-const normalizedPolicyExpression = (source, node) => {
-  const nodeRange = read(node, "range");
-  if (!Array.isArray(nodeRange) || nodeRange.length !== 2)
-    return source.getText(node).replace(/\s+/g, " ").trim();
+const policyExpressionRange = (node) => {
+  const range = read(node, "range");
+  if (Array.isArray(range) && range.length === 2) return range;
+  const start = read(node, "start");
+  const end = read(node, "end");
+  return Number.isInteger(start) && Number.isInteger(end) ? [start, end] : undefined;
+};
+const regexLiteralPatternAndFlags = (node) => {
+  if (!isType(node, "Literal")) return undefined;
+  const regex = read(node, "regex");
+  const pattern = read(regex, "pattern");
+  const flags = read(regex, "flags");
+  if (typeof pattern !== "string" || typeof flags !== "string") return undefined;
+  return [pattern, flags];
+};
+const policyRangeIsWithin = (range, outerRange) =>
+  range[0] >= outerRange[0] && range[1] <= outerRange[1];
+const regexLiteralIdentityReplacement = (node, nodeRange) => {
+  const patternAndFlags = regexLiteralPatternAndFlags(node);
+  const range = policyExpressionRange(node);
+  if (
+    patternAndFlags === undefined ||
+    range === undefined ||
+    !policyRangeIsWithin(range, nodeRange)
+  )
+    return undefined;
+  const encodedIdentity = encodeURIComponent(JSON.stringify(patternAndFlags));
+  return {
+    start: range[0],
+    end: range[1],
+    value: `\u0000regexp:${encodedIdentity}\u0000`,
+  };
+};
+const isUnvisitedPolicyNode = (candidate, visited) =>
+  candidate !== null && typeof candidate === "object" && !visited.has(candidate);
+const appendPolicyChildren = (candidate, pending) => {
+  for (const [key, value] of Object.entries(candidate)) {
+    if (["parent", "tokens", "comments", "loc", "range", "start", "end"].includes(key)) continue;
+    if (Array.isArray(value)) pending.push(...value);
+    else if (value !== null && typeof value === "object") pending.push(value);
+  }
+};
+const regexLiteralIdentityReplacements = (node, nodeRange) => {
+  const replacements = [];
+  const visited = new Set();
+  const pending = [node];
+  while (pending.length > 0) {
+    const candidate = pending.pop();
+    if (!isUnvisitedPolicyNode(candidate, visited)) continue;
+    visited.add(candidate);
+    const replacement = regexLiteralIdentityReplacement(candidate, nodeRange);
+    if (replacement !== undefined) replacements.push(replacement);
+    appendPolicyChildren(candidate, pending);
+  }
+  return replacements;
+};
+const normalizedPolicyExpression = (source, node, options) => {
+  const nodeRange = policyExpressionRange(node);
+  if (!nodeRange) return source.getText(node).replace(/\s+/g, " ").trim();
   let text = source.getText(node);
   const comments = source
     .getAllComments()
@@ -1662,9 +1717,17 @@ const normalizedPolicyExpression = (source, node) => {
       );
     })
     .sort((left, right) => right.range[0] - left.range[0]);
-  for (const comment of comments) {
-    const [start, end] = comment.range;
-    text = text.slice(0, start - nodeRange[0]) + " " + text.slice(end - nodeRange[0]);
+  const replacements = comments.map((comment) => ({
+    start: comment.range[0],
+    end: comment.range[1],
+    value: " ",
+  }));
+  if (options?.preserveRegExpLiteralSemantics === true)
+    replacements.push(...regexLiteralIdentityReplacements(node, nodeRange));
+  for (const { start, end, value } of replacements.sort(
+    (left, right) => right.start - left.start,
+  )) {
+    text = text.slice(0, start - nodeRange[0]) + value + text.slice(end - nodeRange[0]);
   }
   return text.replace(/\s+/g, " ").trim();
 };
@@ -1747,7 +1810,7 @@ const siteIdentity = (node, source, options) =>
   "::" +
   JSON.stringify(namedAstAnchors(node)) +
   "::" +
-  String(normalizedPolicyExpression(source, node));
+  String(normalizedPolicyExpression(source, node, options));
 const policySiteIdentity = (node, source, ruleName, additionalIdentity, identityOptions) => {
   const identity =
     ruleName === "effect-live-test"
@@ -1839,7 +1902,7 @@ const isNestedTernary = (node) =>
     isType(read(node, "alternate"), "ConditionalExpression"),
   ]);
 const reportNestedTernary = (context, remaining, source, node) => {
-  const key = siteIdentity(node, source);
+  const key = siteIdentity(node, source, { preserveRegExpLiteralSemantics: true });
   if (process.env.TIARA_NESTED_TERNARY_BASELINE_MODE === "1") {
     const detail = JSON.stringify({ file: filename(context), key });
     report(context, node, "baseline:" + detail);

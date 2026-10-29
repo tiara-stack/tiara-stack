@@ -3,11 +3,11 @@
     "base": "416a69d554f4fab5926c768b1d3537e94ab9adca",
     "rule": "Oxlint AST ConditionalExpression with structural path, enclosing named AST anchors, and normalized expression; generated from master source by vp lint baseline mode",
     "scope": ["packages/**/*", "deploy/**/*", ".github/**/*", "root vite.config.ts"],
-    "siteCount": 205,
+    "siteCount": 203,
     "customPolicySiteCount": 0,
-    "builtinBaselineLines": 778,
+    "builtinBaselineLines": 747,
     "builtinBaselineCounts": {
-      "typescript/no-unsafe-type-assertion": 727,
+      "typescript/no-unsafe-type-assertion": 696,
       "typescript/restrict-template-expressions": 51
     },
     "builtinSiteIdentity": "SHA-256 of rule, enclosing named AST anchors, anonymous callback labels when present, structural AST path, and parser AST shape. Callback identity does not depend on the top-level statement ordinal, so unrelated module declarations do not relocate a site.",
@@ -219,6 +219,270 @@
       "acceptedProposalSha256": "720d6f89dba2db3a9d8cd413d58365205b9bbeddb519f475069b4bb0a285c24e",
       "prewriteBijectionSha256": "27d93c6179d613389761e8cafefdc24e88ebea093acfd1ccecda46f9536329dc",
       "identitySource": "The exact 28 accepted base/current native diagnostics map one-to-one to actual builtin-site-adoption identities before manifest and pin writes."
+    },
+    "tia249InheritedSiteAdoption": {
+      "evidencePath": "packages/tooling-config/test/fixtures/tia249-inherited-site-adoption-proof-v1.json",
+      "evidenceSha256": "3580450bf3237e1fa4d66860747c02ee32519aa19c773bf3dceb97df38818f7f",
+      "schema": "mechanical-current-site-bijection-v1",
+      "decisionScopePath": "packages/tooling-config/test/fixtures/tia249-changed-inspection-site-adoption-scope-v1.json",
+      "decisionScopeSha256": "4ec86a1c8cbfb62cd4808bc7f2a80befe70bba0447fc0fabce67f91e670cca49",
+      "baseHead": "a143086dc0dede4f0825899279fbe8d59327fd6c",
+      "currentWorkingSourceIdentity": "d96acfc3275a326ec7478e8999a0d2d4aeccd18d4232cd89ffd8c90c29a9c5e8",
+      "currentWorkingSourceRows": 1353,
+      "targetFile": "packages/developer-launcher/src/preview-allocations.ts",
+      "baselineBeforeSha256": "7a197a222f2bd5a3234ffd1e3403dfe034f5fd63ef9eea597becf379e4a8b361",
+      "targetBuiltinRowsBefore": 14,
+      "currentGeneratedSitesAfterTypedAdoption": [
+        {
+          "site": "d541f28d81886fe4b419739af79d2d8e416bad1289c075cee890596072f46477",
+          "rule": "typescript/no-unsafe-type-assertion",
+          "line": 612,
+          "source": "        group  as keyof typeof previewCapacityDimensionsByGroup"
+        },
+        {
+          "site": "c6cb84815764d80bcf43b97b718b29b65746c204adda5d4368c8d56268bfb7be",
+          "rule": "typescript/no-unsafe-type-assertion",
+          "line": 1861,
+          "source": "        JSON.parse("
+        }
+      ],
+      "preservedSiteIds": [
+        "c6cb84815764d80bcf43b97b718b29b65746c204adda5d4368c8d56268bfb7be",
+        "d541f28d81886fe4b419739af79d2d8e416bad1289c075cee890596072f46477"
+      ],
+      "removedSiteIds": [
+        {
+          "rule": "typescript/no-unsafe-type-assertion",
+          "site": "48c3192847bf1efb9b0fa9bcacf55dfe88dee491fa020da98c68ca635ead4a11",
+          "source": "        if (cleanups.length > 0 && (cleanups[0] as Record<string, unknown>).completed_at !== null)",
+          "sourceAbsentAfterAdoption": true
+        },
+        {
+          "rule": "typescript/no-unsafe-type-assertion",
+          "site": "e1ac46f936ebd4d9d57be09b04b80252fd82a361ec13b7db25e83fbba99ccdb9",
+          "source": "          recordedResources = JSON.parse(String(session.resource_ids)) as Readonly<",
+          "sourceAbsentAfterAdoption": true
+        },
+        {
+          "rule": "typescript/no-unsafe-type-assertion",
+          "site": "9e1b15eda8f43babf40054fa1cf89cb17bbdd53efde3e32691beaff9acbf9fcc",
+          "source": "          (allRows as Array<Record<string, unknown>>).map((row) => String(row.resource)),",
+          "sourceAbsentAfterAdoption": true
+        },
+        {
+          "rule": "typescript/no-unsafe-type-assertion",
+          "site": "d1c5bec7a51065dae333275c28b7bc6c412f47f64d0e1926d11a94d3e25ced8b",
+          "source": "        return ledger as Array<Record<string, unknown>>;",
+          "sourceAbsentAfterAdoption": true
+        },
+        {
+          "rule": "typescript/no-unsafe-type-assertion",
+          "site": "b2dfc753c02cf83fd601635783ca0ab81b42cfa1ebcddb5e41fd8b9d9443c5fb",
+          "source": "        const proofAt = Number((rows[0] as Record<string, unknown>).proof_at);",
+          "sourceAbsentAfterAdoption": true
+        },
+        {
+          "rule": "typescript/no-unsafe-type-assertion",
+          "site": "3270b1ecb1904676760876cac630dbaeca81e68932f897cd008e94611ccf2bf2",
+          "source": "        const identities = (rows as Array<Record<string, unknown>>).map((row) => ({",
+          "sourceAbsentAfterAdoption": true
+        },
+        {
+          "rule": "typescript/no-unsafe-type-assertion",
+          "site": "dea82255d69b2b4176a64bc0a4ea56885c59cce8d24892ba694e5efcc339d827",
+          "source": "              normalizeSet(JSON.parse(String(persisted.selected_roles)) as string[]),",
+          "sourceAbsentAfterAdoption": true
+        },
+        {
+          "rule": "typescript/no-unsafe-type-assertion",
+          "site": "4bb678d70ff6397529ec43b25ce87b3a66e36eb52b10e1666d1d32c32f07d5ec",
+          "source": "            JSON.stringify(normalizeSet(JSON.parse(String(persisted.owned_groups)) as string[])) ===",
+          "sourceAbsentAfterAdoption": true
+        },
+        {
+          "rule": "typescript/no-unsafe-type-assertion",
+          "site": "c12455251c4c47e0e9a15b5138a8b10ffedacf0c5c4c894d8f74ce11c962271f",
+          "source": "                  demands: JSON.parse(String(persisted.demands)) as readonly CapacityDemand[],",
+          "sourceAbsentAfterAdoption": true
+        },
+        {
+          "rule": "typescript/no-unsafe-type-assertion",
+          "site": "67dad0e00ee7abbfc0985b6a445543b2b91e721a70965573feb23d7e660a8ac9",
+          "source": "                  resources: JSON.parse(String(persisted.resources)) as readonly string[],",
+          "sourceAbsentAfterAdoption": true
+        },
+        {
+          "rule": "typescript/no-unsafe-type-assertion",
+          "site": "ca4e45d96d7dd6df6090592a5b9f2e8cd0638d5727a0fa6504873f8fbd88ff28",
+          "source": "              const observedProviders = (otherRows as Array<Record<string, unknown>>).map(",
+          "sourceAbsentAfterAdoption": true
+        },
+        {
+          "rule": "typescript/no-unsafe-type-assertion",
+          "site": "52712f43ba6144806cd48148564accbf4469385083e9324b7d5852755a15e602",
+          "source": "            rows as Array<Record<string, unknown>>,",
+          "sourceAbsentAfterAdoption": true
+        }
+      ],
+      "removedRegistryRows": 12,
+      "sourceDirectiveCounts": {
+        "atA143": 28,
+        "afterAdoption": 4,
+        "removedDirectiveComments": 24
+      },
+      "diagnosticCounts": {
+        "beforeTypedAdoptionChangedSiteComments": 22,
+        "beforeTypedAdoptionOrphanRows": 1,
+        "afterTypedAdoptionChangedSiteComments": 0,
+        "afterTypedAdoptionOrphanRows": 1
+      },
+      "baselineCountsBefore": {
+        "typescript/no-unsafe-type-assertion": 712,
+        "typescript/restrict-template-expressions": 51
+      },
+      "baselineCountsAfter": {
+        "typescript/no-unsafe-type-assertion": 700,
+        "typescript/restrict-template-expressions": 51
+      },
+      "baselineLinesBefore": 763,
+      "baselineLinesAfter": 751,
+      "newAllowances": 0,
+      "policyExpansion": false,
+      "checks": {
+        "remainingCurrentGeneratedSitesExactlyMatchPreservedRows": true,
+        "allRemovedSourceSnippetsAbsent": true,
+        "allOtherBuiltinRowsAndTopLevelEntriesUnchanged": true,
+        "nestedTernaryEntriesUnchanged": true,
+        "fallowBaselinesUnchanged": true
+      },
+      "fallowBaselineSha256": {
+        ".github/fallow-baselines/dead-code.json": "6a3c06d0219f8e3b962e796cc15d61f65cb64ca984f8bc4c2404984b82f20d11",
+        ".github/fallow-baselines/dupes.json": "351a5a7ef6fa6d491fe319bbca813b746fde2b7b6d9f9a5db7d88273bc1bd18f",
+        ".github/fallow-baselines/health.json": "9d32180fc16f089ab52db5abd4b348d226f98c63e3eb5a9bac3b4eb4c2af0e3c"
+      },
+      "currentSiteGenerationReceipt": {
+        "artifactId": "TIA-249:a143086d:capture:763a421ead7f",
+        "receiptSha256": "ff4fddd1aca4e47b12e42071eba9e3f45ae845c2297103582fefc761c31003b6",
+        "stdoutSha256": "599eb5bfef31958d78c0af7d81211eb955fec21a9e7f667882c05eb9f3a5a59b"
+      },
+      "initialLintReceipt": {
+        "artifactId": "TIA-249:a143086d:capture:49c70f8216e0",
+        "receiptSha256": "13962033f9f669a4ecc66803f736ca81ff004e4a9585d31dc3f740978987b168",
+        "stdoutSha256": "f10fad4e6d5f77194572ba9547bb76149dbf62fe81880b6fd3a716855f31becb"
+      },
+      "typedAdoptionLintReceipt": {
+        "artifactId": "TIA-249:a143086d:capture:90dcc6511bfc",
+        "receiptSha256": "79fc3cd0af49f9cc1ad9e34eb98223e7f61b043b9fcbb11b499dae78ba8ce827",
+        "stdoutSha256": "a2f94f25dcd95d4ffe602e0eb2c44d048396da1f3fa5322bf0b63fab578a23e4"
+      },
+      "evidenceSourceRef": "TIA-249:a143086d:inherited-site-adoption-proof-v1",
+      "evidenceSourceSha256": "2c716340c6a5138b1f2af4e5914cd7917dd614eed99bfa92386f3d9a41f13af4",
+      "decisionScopeSourceRef": "TIA-249:0d18c7f9:changed-inspection-site-adoption-scope-v1",
+      "decisionScopeSourceSha256": "4ec86a1c8cbfb62cd4808bc7f2a80befe70bba0447fc0fabce67f91e670cca49",
+      "latestRepairAdoption": {
+        "artifactId": "TIA-249:b4fdb582:inherited-site-adoption-current-v1",
+        "decisionScopeSourceRef": "TIA-249:0d18c7f9:changed-inspection-site-adoption-scope-v1",
+        "decisionScopeSha256": "4ec86a1c8cbfb62cd4808bc7f2a80befe70bba0447fc0fabce67f91e670cca49",
+        "sourceHead": "b4fdb58204482b7c6cc3552832a6ebe882c402ac",
+        "sourceIdentitySha256": "9d485ece0d7d66cd82ee89aa1eaca567d5a3a80efec455d514f99c71429b399c",
+        "sourceRows": 1355,
+        "targetFile": "packages/developer-launcher/src/connected-preview.test.ts",
+        "baselineBeforeSha256": "83e153ecfb83a0ddcce4e1c050fd1ab904454e5d65617f572213c8806305e1a1",
+        "targetBuiltinRowsBefore": 31,
+        "targetBuiltinRowsAfter": 27,
+        "currentGeneratedSiteCount": 27,
+        "currentGeneratedSiteIds": [
+          "0010a4bbc41c5649610a4ebc1b970315d64f50f6933af5a01b8f7d20b95456c6",
+          "133ec0e4608d7b45f30d58afc0c038977b207eb21d37bb948e8601ea8b3bb9dc",
+          "155d5252c66ed803e5b6c874b34b7b2dda9ae1ebe1fbde0b0a48a7e450b1c2ce",
+          "23c75e2f18b4e9f9320e5f844723756d501718d92a12030fdc98936f5618305d",
+          "2c9307a0c81ab081496f54894bdf08057a5d6d32e1e0bbb276cd43a7a9326824",
+          "36bcefc606a02d454d06894220a52cf8a74603856b3fe5c344c64d13b2fb96ed",
+          "46f98ca9d27a37d71fc806c2c4459eb64d64852f6236c7f62408c76cb413533a",
+          "4e07de713a6c5e8a54924f3fcd7c6f564c381ea3e368e9159c71551178744203",
+          "4fc64f6d239d9e4be4ccecb520b73fd1c4ebcb45c10b579c8f4e7503b5c4cdcb",
+          "51ec9433d784e24812fd0eb45462d5093dd9c90ee480fc218a148fdcf1e6eb85",
+          "5c049ec07f0e9f3d85928b6bd30381c62123ccfef520daecb6cb834c0f7ba45e",
+          "6181b142a0e9a4466f0aa5a701b90a56c278c96249017779068186e0ff1c069f",
+          "65d9f72b3b95b486d04c4701664baf8f5c67ffc8ded94f7acb7e11f4d158ca7a",
+          "69bac95b2a421ecd08f8186efb6797417040fcd0c75cb6bbba03bd789aeb6a2b",
+          "6bd1acd95035ce2ba20a0cf9e020ec1241ed8acf3a1ef1356909f1277961edaf",
+          "85ef2e91c8b3d2e9d5dbf381ec698feac40366674b6a8f4a71acafe822fa8a5f",
+          "9900418a676c4fd594906009546dcab5f8cfdb94e6880413e9fa09878e099414",
+          "a1430acad78a5aa62d2651ab378059319b90e9653b4ea76c912d101e48bac91f",
+          "cbba7d6dfcd2247996b761f9303e4eec8381487b90d0162bc935cdb38cc5635c",
+          "d05260c80e0efd3e7d479cb76e1283cf71a771016ef26721c9b2888bbc2a0eb8",
+          "d37d105dacb4e9e78b5e38597994c4825f4bcb851a209dad7841664a41b2b953",
+          "d95188f31863d153ec61b32e8da18f9093dbd9e6462fd15d7263c3effaf05c24",
+          "da61c4ce0a1ec07aed6599074ceac3ba536a02b3d7444094d6e654b603376059",
+          "e547cb5170818c782ce86d554496b71eef05bf2f73a0d0586fcc719b7c1973d8",
+          "f3274b11cdfc32c973403b9adfde0dd60e809255f17602b21e678035656d983a",
+          "f5b4f9f065a786f58722bda376c9484fce55c0a13ee815f2327a9e346759dd11",
+          "f85bff0c5cf4ef46253e36707d0d9bc74a6aa698d344cacfb41ddcbe7ae9095f"
+        ],
+        "currentGeneratedSitesSha256": "3ed8d62a91555bd52506510f9966aba0b2f7808b9a85aca80f9b2c8f5e0d9cb0",
+        "removedRegistryRows": 4,
+        "removedSiteIds": [
+          {
+            "rule": "typescript/no-unsafe-type-assertion",
+            "site": "46510ee4447c92a912c8263d4122227833a4c516a5a052aea62b856fe43c65d1",
+            "source": "            expect((resolution[0] as Record<string, unknown>).provider_resource_id).toBe("
+          },
+          {
+            "rule": "typescript/no-unsafe-type-assertion",
+            "site": "47f854a19e177db0a25ccf5693f7b59bacee57ee4b348cd40744034d94451afd",
+            "source": "            expect((resolution[0] as Record<string, unknown>).outcome).toBe(\"found\");"
+          },
+          {
+            "rule": "typescript/no-unsafe-type-assertion",
+            "site": "8b6781f4cefa3ffd2d01c7c894a17950e0c6a6ad3926a21505295ca6c96b9d1b",
+            "source": "            const waitingCleanupOutput = JSON.parse(waitingCleanup.stdout) as {"
+          },
+          {
+            "rule": "typescript/no-unsafe-type-assertion",
+            "site": "af2f8e5cfc25bc01fad0aa738ce2be1b3a3e53a92b7eec3a3982d5c39aebce04",
+            "source": "            const resolvedOutput = JSON.parse(resolved.stdout) as {"
+          }
+        ],
+        "removedSourceDirectivePairs": 4,
+        "noCurrentSiteRowsAdded": true,
+        "preAdoptionLintDiagnostics": {
+          "changedSiteDirectiveDiagnostics": 10,
+          "orphanMessages": 1,
+          "note": "Diagnostic messages are not registry row counts."
+        },
+        "currentSiteGenerationReceipt": {
+          "artifactId": "TIA-249:b4fdb582:current-site-generation:cbe2c4a95712",
+          "receiptSha256": "e0f5e707998348331f39acdc76efe1ed61cc3835f07f7cf679cbb120c7615c9c",
+          "stdoutSha256": "043f1b256771fb93e43e8ce52ac9cb634de718cc99d64cfaaf64e9755fcf3444"
+        },
+        "priorLintFailureReceipt": {
+          "artifactId": "TIA-249:b4fdb582:launcher-lint:af4867857e8d",
+          "receiptSha256": "05f849b73a9fd7fb29224e6ddebaa226f8bee7539b98cf75bdaccd5a09eee255",
+          "stdoutSha256": "d6ea01fcc33f666d923bd51c91cf35790dc8a5b24e88fdeb8539ca509de38b8b"
+        },
+        "baselineCountsBefore": {
+          "typescript/no-unsafe-type-assertion": 700,
+          "typescript/restrict-template-expressions": 51
+        },
+        "baselineCountsAfter": {
+          "typescript/no-unsafe-type-assertion": 696,
+          "typescript/restrict-template-expressions": 51
+        },
+        "baselineLinesBefore": 751,
+        "baselineLinesAfter": 747,
+        "newAllowances": 0,
+        "policyExpansion": false,
+        "checks": {
+          "allCurrentGeneratedSiteIdsHaveExactlyOnePreservedRow": true,
+          "currentGeneratedSiteIdsEqualRowsAfterRemoval": true,
+          "allRemovedSiteIdsAbsentFromCurrentGeneration": true,
+          "allOtherBuiltinRowsUnchanged": true,
+          "allOtherTopLevelEntriesUnchangedExceptCountMetadataAndLatestRepairRecord": true,
+          "nestedTernaryEntriesUnchanged": true,
+          "allThreeFallowBaselinesUnchanged": true
+        }
+      }
     }
   },
   "$policy": {
@@ -236,10 +500,6 @@
   ],
   "packages/developer-launcher/src/execution-shared.ts": [
     "Program.body/ExportNamedDeclaration.declaration/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body/BlockStatement.body[2]/ReturnStatement.argument/ObjectExpression.properties[1]/Property.value::[\"variable:terminalOutput\",\"member:readiness\"]::status === \"completed\" && output.readiness !== \"ready\" ? \"completed\" : status === \"stopped\" && output.readiness !== \"ready\" ? \"stopped\" : output.readiness"
-  ],
-  "packages/developer-launcher/src/preview-gateway.ts": [
-    "Program.body/ExportNamedDeclaration.declaration/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body/CallExpression.arguments[0]/FunctionExpression.body/BlockStatement.body[20]/VariableDeclaration.declarations[0]/VariableDeclarator.init/ObjectExpression.properties[12]/Property.value/ArrowFunctionExpression.body/CallExpression.arguments[0]/CallExpression.arguments[0]/FunctionExpression.body/BlockStatement.body[23]/ReturnStatement.argument/TSSatisfiesExpression.expression/ObjectExpression.properties[8]/Property.value/ArrowFunctionExpression.body/BlockStatement.body[1]/ReturnStatement.argument::[\"variable:makePreviewGateway\",\"variable:api\",\"member:open\",\"member:applicationRequest\"]::applicationRequest === undefined ? Effect.fail(failure(\"unsupported\")) : route.target.kind === \"application\" ? Effect.gen(function* () { const body = input.body === undefined ? undefined : input.body.pipe( Stream.mapEffect((chunk) => guard(Effect.succeed(chunk))), ); const response = yield* guard( applicationRequest({ ...input, principal, ...(body === undefined ? {} : { body }), maxResponseBytes: previewGatewayMaxApplicationResponseBytes, }), ); return { ...response, body: response.body.pipe( Stream.mapEffect((chunk) => guard(Effect.succeed(chunk))), ), }; }) : Effect.fail(failure(\"unsupported\"))",
-    "Program.body/ExportNamedDeclaration.declaration/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body/CallExpression.arguments[0]/FunctionExpression.body/BlockStatement.body[20]/VariableDeclaration.declarations[0]/VariableDeclarator.init/ObjectExpression.properties[12]/Property.value/ArrowFunctionExpression.body/CallExpression.arguments[0]/CallExpression.arguments[0]/FunctionExpression.body/BlockStatement.body[23]/ReturnStatement.argument/TSSatisfiesExpression.expression/ObjectExpression.properties[11]/Property.value/ArrowFunctionExpression.body::[\"variable:makePreviewGateway\",\"variable:api\",\"member:open\",\"member:applicationSocket\"]::connection.applicationSocket === undefined || route.target.kind !== \"application\" ? Effect.fail(failure(\"unsupported\")) : principal.effectivePrincipal === undefined ? Effect.fail(failure(\"unsupported\")) : (allowHmrRevisionTransition ? guardApplicationSocket : guard)( connection.applicationSocket({ ...input, principal }), )"
   ],
   "packages/developer-launcher/src/preview-relay-provider.ts": [
     "Program.body/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body/CallExpression.arguments[0]/FunctionExpression.body/BlockStatement.body[2]/IfStatement.consequent/ReturnStatement.argument/YieldExpression.argument/CallExpression.arguments[0]/NewExpression.arguments[0]/ObjectExpression.properties[0]/Property.value::[\"variable:makeKubernetesHttpRequest\",\"member:reason\"]::response.status === 404 ? \"owner-label-mismatch\" : response.status === 409 ? \"listener-collision\" : \"resource-create-failed\"",
@@ -281,9 +541,7 @@
     "Program.body/VariableDeclaration.declarations[0]/VariableDeclarator.init/ConditionalExpression.alternate/CallExpression.arguments[0]/ConditionalExpression.alternate::[\"variable:previewDatabaseLayer\"]::sessionControllerNeeded ? previewSessionWithGatewayCleanup : allocationControllerNeeded ? previewAllocationLayer(resolvedSessionDatabase) : Layer.empty"
   ],
   "packages/developer-launcher/src/preview-allocations.ts": [
-    "Program.body/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body::[\"variable:allocationFailureDescription\"]::error instanceof PreviewAllocationError ? error.reason : error instanceof Error ? error.message : \"unknown provider adapter failure\"",
-    "Program.body/ExportNamedDeclaration.declaration/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body/CallExpression.arguments[0]/FunctionExpression.body/BlockStatement.body[32]/VariableDeclaration.declarations[0]/VariableDeclarator.init/ObjectExpression.properties[8]/Property.value/ArrowFunctionExpression.body/CallExpression.arguments[0]/FunctionExpression.body/BlockStatement.body[4]/ReturnStatement.argument/ObjectExpression.properties[2]/Property.value::[\"variable:makePreviewAllocationController\",\"variable:api\",\"member:inspect\",\"member:cleanup\"]::cleanupState === undefined ? null : cleanupState.completed_at !== null ? \"cleaned\" : cleanupState.quarantine_reason == null ? \"waiting\" : \"quarantined\"",
-    "Program.body/ExportNamedDeclaration.declaration/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body/CallExpression.arguments[0]/FunctionExpression.body/BlockStatement.body[32]/VariableDeclaration.declarations[0]/VariableDeclarator.init/ObjectExpression.properties[8]/Property.value/ArrowFunctionExpression.body/CallExpression.arguments[0]/FunctionExpression.body/BlockStatement.body[4]/ReturnStatement.argument/ObjectExpression.properties[2]/Property.value/ConditionalExpression.alternate::[\"variable:makePreviewAllocationController\",\"variable:api\",\"member:inspect\",\"member:cleanup\"]::cleanupState.completed_at !== null ? \"cleaned\" : cleanupState.quarantine_reason == null ? \"waiting\" : \"quarantined\""
+    "Program.body/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body::[\"variable:allocationFailureDescription\"]::error instanceof PreviewAllocationError ? error.reason : error instanceof Error ? error.message : \"unknown provider adapter failure\""
   ],
   "deploy/kubernetes/scripts/parity-gate.ts": [
     "Program.body/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body/BlockStatement.body[1]/VariableDeclaration.declarations[0]/VariableDeclarator.init::[\"variable:requireReadyWorkloads\",\"variable:items\"]::Array.isArray(document.items) ? document.items : document.kind ? [document] : []"
@@ -1232,26 +1490,6 @@
       },
       {
         "rule": "typescript/no-unsafe-type-assertion",
-        "site": "8b6781f4cefa3ffd2d01c7c894a17950e0c6a6ad3926a21505295ca6c96b9d1b",
-        "source": "            const waitingCleanupOutput = JSON.parse(waitingCleanup.stdout) as {"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "af2f8e5cfc25bc01fad0aa738ce2be1b3a3e53a92b7eec3a3982d5c39aebce04",
-        "source": "            const resolvedOutput = JSON.parse(resolved.stdout) as {"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "46510ee4447c92a912c8263d4122227833a4c516a5a052aea62b856fe43c65d1",
-        "source": "            expect((resolution[0] as Record<string, unknown>).provider_resource_id).toBe("
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "47f854a19e177db0a25ccf5693f7b59bacee57ee4b348cd40744034d94451afd",
-        "source": "            expect((resolution[0] as Record<string, unknown>).outcome).toBe(\"found\");"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
         "site": "85ef2e91c8b3d2e9d5dbf381ec698feac40366674b6a8f4a71acafe822fa8a5f",
         "source": "          const output = JSON.parse(result.stdout) as {"
       }
@@ -1588,13 +1826,6 @@
         "source": "          calls.push(`${execution.status}:${execution.messageId}`);"
       }
     ],
-    "packages/developer-launcher/src/commands.ts": [
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "c97c3ee4eb7c0aa2a2d4fe597ca25726af9139ee28ebf5eafe9be9c3a8f708d9",
-        "source": "      action: second as Exclude<"
-      }
-    ],
     "packages/developer-launcher/src/preview-web-runtime.ts": [
       {
         "rule": "typescript/no-unsafe-type-assertion",
@@ -1682,63 +1913,6 @@
         "rule": "typescript/no-unsafe-type-assertion",
         "site": "1ec3d7e77bcc23ceec604ba730ea91788595b84fa931284cbe24eb8ad9febc48",
         "source": "          const client = {"
-      }
-    ],
-    "packages/developer-launcher/src/preview-sessions.ts": [
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "e1fafb9fd1d7a38b18af0d1e02286476d021b83f8acf2d5044ce9a1954982e7d",
-        "source": "  resources: JSON.parse(String(row.resource_ids)) as Record<string, string>,"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "34accf7a74b765d1e71e0ce993476e4e13ea8e999587fb86668848c311504731",
-        "source": "  manifests: JSON.parse(String(row.manifests)) as Record<string, string>,"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "16d862ddab55b517292fc0603a4c4f0b8e4ad56f5269976185e3a656df69a83c",
-        "source": "  phase: row.phase as PreviewSessionPhase,"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "f5c67529c379ef7ee02816380f8df7722b3190dcc04c78032927a8961c9ed1ec",
-        "source": "        return decodeRow(rows[0] as Record<string, unknown>);"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "b74e666861d12dc7df9d4785f8ff4b40a6d826f77a0e5c28a1d451e0470fee9f",
-        "source": "          session: decodeRow(rows[0] as Record<string, unknown>),"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "89c284a10aa5f33af16b22cea0c50376fb7cea6a3c8c24431d715fb8232afe30",
-        "source": "          return decodeRow(rows[0] as Record<string, unknown>);"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "69cc39b893eb72971e5fbfd24660301fad279ae0d69a251acaf1e9551b9aef7c",
-        "source": "          return decodeRow(rows[0] as Record<string, unknown>);"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "351e7050ba447d51131a217601245cb6d7c3ab4ff441c4b2d0f102254a77575d",
-        "source": "          return decodeRow(rows[0] as Record<string, unknown>);"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "c5c8e700ae428f2727ad3b968807061c8f0f0ab698803e580b60ca989fb695a5",
-        "source": "          return decodeRow(rows[0] as Record<string, unknown>);"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "334801aa1f274da6e5126e0053528672c6d0c60bb00b4f4a7d1e81d8cb39be71",
-        "source": "            return decodeRow(rows[0] as Record<string, unknown>);"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "dfb3dfe1a9e78652fafd9d1956c1f66f1ed3167621c561ab4248e74379baaca5",
-        "source": "              const row = existing[0] as Record<string, unknown>;"
       }
     ],
     "packages/developer-launcher/src/index.ts": [
@@ -1876,81 +2050,6 @@
         "rule": "typescript/no-unsafe-type-assertion",
         "site": "d541f28d81886fe4b419739af79d2d8e416bad1289c075cee890596072f46477",
         "source": "      previewCapacityDimensionsByGroup[group as keyof typeof previewCapacityDimensionsByGroup] ??"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "48c3192847bf1efb9b0fa9bcacf55dfe88dee491fa020da98c68ca635ead4a11",
-        "source": "        if (cleanups.length > 0 && (cleanups[0] as Record<string, unknown>).completed_at !== null)"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "e1ac46f936ebd4d9d57be09b04b80252fd82a361ec13b7db25e83fbba99ccdb9",
-        "source": "          recordedResources = JSON.parse(String(session.resource_ids)) as Readonly<"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "9e1b15eda8f43babf40054fa1cf89cb17bbdd53efde3e32691beaff9acbf9fcc",
-        "source": "          (allRows as Array<Record<string, unknown>>).map((row) => String(row.resource)),"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "d1c5bec7a51065dae333275c28b7bc6c412f47f64d0e1926d11a94d3e25ced8b",
-        "source": "        return ledger as Array<Record<string, unknown>>;"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "b2dfc753c02cf83fd601635783ca0ab81b42cfa1ebcddb5e41fd8b9d9443c5fb",
-        "source": "        const proofAt = Number((rows[0] as Record<string, unknown>).proof_at);"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "3270b1ecb1904676760876cac630dbaeca81e68932f897cd008e94611ccf2bf2",
-        "source": "        const identities = (rows as Array<Record<string, unknown>>).map((row) => ({"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "dea82255d69b2b4176a64bc0a4ea56885c59cce8d24892ba694e5efcc339d827",
-        "source": "              normalizeSet(JSON.parse(String(persisted.selected_roles)) as string[]),"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "4bb678d70ff6397529ec43b25ce87b3a66e36eb52b10e1666d1d32c32f07d5ec",
-        "source": "            JSON.stringify(normalizeSet(JSON.parse(String(persisted.owned_groups)) as string[])) ==="
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "c12455251c4c47e0e9a15b5138a8b10ffedacf0c5c4c894d8f74ce11c962271f",
-        "source": "                  demands: JSON.parse(String(persisted.demands)) as readonly CapacityDemand[],"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "67dad0e00ee7abbfc0985b6a445543b2b91e721a70965573feb23d7e660a8ac9",
-        "source": "                  resources: JSON.parse(String(persisted.resources)) as readonly string[],"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "ca4e45d96d7dd6df6090592a5b9f2e8cd0638d5727a0fa6504873f8fbd88ff28",
-        "source": "              const observedProviders = (otherRows as Array<Record<string, unknown>>).map("
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "52712f43ba6144806cd48148564accbf4469385083e9324b7d5852755a15e602",
-        "source": "            rows as Array<Record<string, unknown>>,"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "cd89a997d0e44da8412973da7e5fd12b63bab76b6ac4f3cef01ee743fb88bf7d",
-        "source": "            reservations: (reservations as Array<Record<string, unknown>>).map((row) => ({"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "cbc1cc04e53dc68b6554f5cfdc27c47543f85e04ddd44eb3ea9a2ac8591aef3a",
-        "source": "            allocations: (allocations as Array<Record<string, unknown>>).map((row) => ({"
-      },
-      {
-        "rule": "typescript/no-unsafe-type-assertion",
-        "site": "d79a43b50cb04aa5b017243c398d0a8492d6f8a9e7046d8fd33a7b51f9f8d0d4",
-        "source": "              state: row.state as"
       },
       {
         "rule": "typescript/no-unsafe-type-assertion",

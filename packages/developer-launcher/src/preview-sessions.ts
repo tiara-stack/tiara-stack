@@ -1,5 +1,8 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
-import { Context, Duration, Effect, Layer, Match, Schema, Scope } from "effect";
+import { Context, Duration, Effect, Layer, Match, Predicate, Schema, Scope } from "effect";
+import * as Cause from "effect/Cause";
+import * as Exit from "effect/Exit";
+import * as Option from "effect/Option";
 import { SqlClient, SqlError } from "effect/unstable/sql";
 import {
   connectedPreviewGroups,
@@ -10,6 +13,7 @@ import {
 
 export const previewSessionLeaseMs = 120_000;
 export const previewSessionHeartbeatMs = 15_000;
+export const previewSessionHeartbeatFailureLimit = 3;
 export const previewSupervisorLeaseMs = 30_000;
 const previewCredentialIssueReservationMs = 10 * 60_000;
 
@@ -87,7 +91,11 @@ export const PreviewSessionProtocolRequest = Schema.Union([
     supervisorIdentity: Schema.String,
     requestedRevision: Schema.NonEmptyString,
   }),
-  Schema.TaggedStruct("Stop", { id: Schema.String, ownerIdentity: Schema.String }),
+  Schema.TaggedStruct("Stop", {
+    id: Schema.String,
+    ownerIdentity: Schema.String,
+    expectedGeneration: Schema.optional(Schema.Number),
+  }),
   Schema.TaggedStruct("Admit", { id: Schema.String, generation: Schema.Number }),
   Schema.TaggedStruct("Settle", { id: Schema.String, generation: Schema.Number }),
   Schema.TaggedStruct("AuthorizeCredential", {
@@ -168,9 +176,9 @@ type ControllerError = PreviewSessionError | SqlError.SqlError;
 
 export interface PreviewSessionControllerApi {
   /** Scoped local transport fences. Remote gateways require a verified revocation adapter. */
-  readonly watchFences: (
+  readonly watchFences: <E>(
     id: string,
-    fence: Effect.Effect<void>,
+    fence: Effect.Effect<void, E, never>,
   ) => Effect.Effect<void, never, Scope.Scope>;
   readonly create: (
     input: CreatePreviewSession,
@@ -198,9 +206,11 @@ export interface PreviewSessionControllerApi {
     supervisorIdentity: string,
     activeRevision: string,
   ) => Effect.Effect<PreviewSession, ControllerError>;
+  /** Owner stop; when expectedGeneration is supplied, the write is fenced to that generation. */
   readonly stop: (
     id: string,
     ownerIdentity: string,
+    expectedGeneration?: number,
   ) => Effect.Effect<PreviewSession, ControllerError>;
   /** Atomically ends a session only while this supervisor still owns its generation. */
   readonly stopSupervised: (
@@ -320,8 +330,8 @@ export const dispatchPreviewSessionProtocol = (
         (session) => ({ _tag: "Session" as const, session }),
       ),
     ),
-    Match.tag("Stop", ({ id, ownerIdentity }) =>
-      Effect.map(controller.stop(id, ownerIdentity), (session) => ({
+    Match.tag("Stop", ({ id, ownerIdentity, expectedGeneration }) =>
+      Effect.map(controller.stop(id, ownerIdentity, expectedGeneration), (session) => ({
         _tag: "Session" as const,
         session,
       })),
@@ -399,60 +409,84 @@ export const digestIdentity = (identity: string) =>
   createHash("sha256").update(identity).digest("hex");
 const sessionError = (reason: string) => new PreviewSessionError({ reason });
 
-const decodeRow = (row: Record<string, unknown>): PreviewSession => ({
-  id: String(row.id),
-  owner: String(row.owner),
-  checkout: String(row.checkout),
+/** A heartbeat timeout is an unconfirmed lease renewal, not a successful heartbeat. */
+export const timeoutPreviewSessionHeartbeat = <A, E, R>(
+  heartbeat: Effect.Effect<A, E, R>,
+): Effect.Effect<A, E | PreviewSessionError, R> =>
+  Effect.gen(function* () {
+    const result = yield* heartbeat.pipe(
+      Effect.timeoutOption(Duration.millis(previewSessionHeartbeatMs)),
+    );
+    if (Option.isNone(result)) return yield* Effect.fail(sessionError("heartbeat-timeout"));
+    return result.value;
+  });
 
-  resources: JSON.parse(
-    String(row.resource_ids),
-  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
-    string,
-    string
-  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-
-  manifests: JSON.parse(
-    String(row.manifests),
-  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
-    string,
-    string
-  > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-  requestedRevision: String(row.requested_revision),
-  activeRevision: typeof row.active_revision === "string" ? row.active_revision : null,
-
-  phase:
-    row.phase /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as PreviewSessionPhase /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-  generation: Number(row.generation),
-  leaseDeadline: Number(row.lease_deadline),
-  lastRenewedAt: Number(row.last_renewed_at),
-  unsettled: Number(row.unsettled),
-  endedAt: row.ended_at === null ? null : Number(row.ended_at),
+const previewSessionDatabaseRowSchema = Schema.Record(Schema.String, Schema.Unknown);
+const previewSessionStringRecordSchema = Schema.Record(Schema.String, Schema.String);
+const workloadCredentialIdentityRowSchema = Schema.Struct({
+  credential_name: Schema.String,
+  service_account: Schema.String,
+  oauth_client_id: Schema.String,
+  credential_file: Schema.String,
 });
 
+const decodeRow = (input: unknown): Effect.Effect<PreviewSession, PreviewSessionError> =>
+  Effect.try({
+    try: () => {
+      const row = Schema.decodeUnknownSync(previewSessionDatabaseRowSchema)(input);
+      const decodeNumber = (value: unknown) =>
+        Schema.decodeUnknownSync(Schema.Number)(Number(value));
+      const decodeStringRecord = (serialized: unknown) =>
+        Schema.decodeUnknownSync(previewSessionStringRecordSchema)(JSON.parse(String(serialized)));
+
+      return Schema.decodeUnknownSync(PreviewSessionSchema)({
+        id: String(row.id),
+        owner: String(row.owner),
+        checkout: String(row.checkout),
+        resources: decodeStringRecord(row.resource_ids),
+        manifests: decodeStringRecord(row.manifests),
+        requestedRevision: String(row.requested_revision),
+        activeRevision: typeof row.active_revision === "string" ? row.active_revision : null,
+        phase: Schema.decodeUnknownSync(PreviewSessionPhase)(row.phase),
+        generation: decodeNumber(row.generation),
+        leaseDeadline: decodeNumber(row.lease_deadline),
+        lastRenewedAt: decodeNumber(row.last_renewed_at),
+        unsettled: decodeNumber(row.unsettled),
+        endedAt: row.ended_at === null ? null : decodeNumber(row.ended_at),
+      });
+    },
+    catch: () => sessionError("invalid-session-row"),
+  });
+
 const isActiveRevisionNoOpOwnedBy = (
-  row: Record<string, unknown>,
+  input: unknown,
   supervisorIdentity: string,
   generation: number,
   revision: string,
   time: number,
-) => {
-  const session = decodeRow(row);
-  return (
-    digestIdentity(supervisorIdentity) === row.supervisor_identity_digest &&
-    session.generation === generation &&
-    session.phase === "active" &&
-    session.activeRevision === revision &&
-    session.requestedRevision === revision &&
-    session.endedAt === null &&
-    session.leaseDeadline > time
-  );
-};
+): Effect.Effect<boolean, PreviewSessionError> =>
+  Effect.gen(function* () {
+    const row = yield* Effect.try({
+      try: () => Schema.decodeUnknownSync(previewSessionDatabaseRowSchema)(input),
+      catch: () => sessionError("invalid-session-row"),
+    });
+    const session = yield* decodeRow(row);
+    return (
+      digestIdentity(supervisorIdentity) === row.supervisor_identity_digest &&
+      session.generation === generation &&
+      session.phase === "active" &&
+      session.activeRevision === revision &&
+      session.requestedRevision === revision &&
+      session.endedAt === null &&
+      session.leaseDeadline > time
+    );
+  });
 
 /** Durable authority store. The caller supplies time so lease boundaries are deterministic. */
 export const makePreviewSessionController = (now: () => number) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const fences = new Map<string, Set<Effect.Effect<void>>>();
+    const fences = new Map<string, Set<Effect.Effect<void, unknown, never>>>();
     const fenceSession = (id: string) =>
       Effect.forEach([...(fences.get(id) ?? [])], (fence) => Effect.forkDetach(fence), {
         discard: true,
@@ -533,9 +567,7 @@ export const makePreviewSessionController = (now: () => number) =>
     `;
 
     const find = (id: string) =>
-      sql`SELECT * FROM preview_sessions WHERE id = ${id}`.pipe(
-        Effect.map((rows) => rows[0] as Record<string, unknown> | undefined),
-      );
+      sql`SELECT * FROM preview_sessions WHERE id = ${id}`.pipe(Effect.map((rows) => rows[0]));
     const expireIfNeeded = (id: string, session: PreviewSession) =>
       Effect.gen(function* () {
         const time = now();
@@ -566,7 +598,8 @@ export const makePreviewSessionController = (now: () => number) =>
       Effect.gen(function* () {
         const row = yield* find(id);
         if (row === undefined) return yield* Effect.fail(sessionError("unknown-session"));
-        const session = yield* expireIfNeeded(id, decodeRow(row));
+        const decoded = yield* decodeRow(row);
+        const session = yield* expireIfNeeded(id, decoded);
         return yield* validateSessionAccess(row, session, identity, generation, allowEnded);
       });
     const persistRequestedRevision = (
@@ -584,12 +617,7 @@ export const makePreviewSessionController = (now: () => number) =>
             AND lease_deadline > ${time} RETURNING *`;
         if (rows.length === 0) return yield* Effect.fail(sessionError("stale-supervisor"));
 
-        return decodeRow(
-          rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
-            string,
-            unknown
-          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-        );
+        return yield* decodeRow(rows[0]);
       });
     const prepareResumeIdentity = (
       current: PreviewSession,
@@ -628,12 +656,7 @@ export const makePreviewSessionController = (now: () => number) =>
         if (rows.length === 0) return yield* Effect.fail(sessionError("resume-raced-or-expired"));
         yield* fenceSession(id);
         return {
-          session: decodeRow(
-            rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
-              string,
-              unknown
-            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-          ),
+          session: yield* decodeRow(rows[0]),
           supervisorIdentity,
         };
       });
@@ -693,11 +716,58 @@ export const makePreviewSessionController = (now: () => number) =>
           return yield* Effect.fail(sessionError("session-not-active-or-expired"));
       });
 
+    const updateOwnerStoppedSession = (
+      id: string,
+      ownerIdentity: string,
+      expectedGeneration: number | undefined,
+      time: number,
+    ) =>
+      expectedGeneration === undefined
+        ? sql`UPDATE preview_sessions SET phase='ended', supervisor_lease_until=0, ended_at=${time} WHERE id=${id} AND identity_digest=${digestIdentity(ownerIdentity)} AND ended_at IS NULL RETURNING *`
+        : sql`UPDATE preview_sessions SET phase='ended', supervisor_lease_until=0, ended_at=${time} WHERE id=${id} AND identity_digest=${digestIdentity(ownerIdentity)} AND generation=${expectedGeneration} AND ended_at IS NULL RETURNING *`;
+
+    const reconcileGenerationBoundStop = (
+      id: string,
+      ownerIdentity: string,
+      expectedGeneration: number,
+    ) =>
+      Effect.gen(function* () {
+        const latest = yield* valid(id, ownerIdentity, undefined, true);
+        if (latest.generation !== expectedGeneration)
+          return yield* Effect.fail(sessionError("stale-session-generation"));
+        if (latest.endedAt !== null) {
+          yield* fenceSession(id);
+          return latest;
+        }
+        return yield* Effect.fail(sessionError("session-stop-unconfirmed"));
+      });
+
+    const stopByOwner = (
+      id: string,
+      ownerIdentity: string,
+      expectedGeneration: number | undefined,
+    ) =>
+      Effect.gen(function* () {
+        const current = yield* valid(id, ownerIdentity, undefined, true);
+        if (expectedGeneration !== undefined && current.generation !== expectedGeneration)
+          return yield* Effect.fail(sessionError("stale-session-generation"));
+        if (current.endedAt !== null) {
+          yield* fenceSession(id);
+          return current;
+        }
+        const rows = yield* updateOwnerStoppedSession(id, ownerIdentity, expectedGeneration, now());
+        if (rows.length === 0 && expectedGeneration !== undefined)
+          return yield* reconcileGenerationBoundStop(id, ownerIdentity, expectedGeneration);
+        yield* fenceSession(id);
+        if (rows.length === 0) return yield* valid(id, ownerIdentity, undefined, true);
+        return yield* decodeRow(rows[0]);
+      });
+
     const api: PreviewSessionControllerApi = {
-      watchFences: (id, fence) =>
+      watchFences: <E>(id: string, fence: Effect.Effect<void, E, never>) =>
         Effect.acquireRelease(
           Effect.sync(() => {
-            const listeners = fences.get(id) ?? new Set<Effect.Effect<void>>();
+            const listeners = fences.get(id) ?? new Set<Effect.Effect<void, unknown, never>>();
             listeners.add(fence);
             fences.set(id, listeners);
           }),
@@ -729,22 +799,20 @@ export const makePreviewSessionController = (now: () => number) =>
         ),
       status: (id) => valid(id, undefined, undefined, true),
       heartbeat: (id, supervisorIdentity, generation) =>
-        Effect.gen(function* () {
-          const current = yield* valid(id, undefined, generation);
-          if (current.phase === "ended" || current.phase === "expired")
-            return yield* Effect.fail(sessionError("session-ended"));
-          const time = now();
-          const rows =
-            yield* sql`UPDATE preview_sessions SET lease_deadline=${time + previewSessionLeaseMs}, supervisor_lease_until=${time + previewSupervisorLeaseMs}, last_renewed_at=${time} WHERE id=${id} AND supervisor_identity_digest=${digestIdentity(supervisorIdentity)} AND generation=${generation} AND ended_at IS NULL AND lease_deadline > ${time} RETURNING *`;
-          if (rows.length === 0) return yield* Effect.fail(sessionError("lease-expired-or-fenced"));
+        timeoutPreviewSessionHeartbeat(
+          Effect.gen(function* () {
+            const current = yield* valid(id, undefined, generation);
+            if (current.phase === "ended" || current.phase === "expired")
+              return yield* Effect.fail(sessionError("session-ended"));
+            const time = now();
+            const rows =
+              yield* sql`UPDATE preview_sessions SET lease_deadline=${time + previewSessionLeaseMs}, supervisor_lease_until=${time + previewSupervisorLeaseMs}, last_renewed_at=${time} WHERE id=${id} AND supervisor_identity_digest=${digestIdentity(supervisorIdentity)} AND generation=${generation} AND ended_at IS NULL AND lease_deadline > ${time} RETURNING *`;
+            if (rows.length === 0)
+              return yield* Effect.fail(sessionError("lease-expired-or-fenced"));
 
-          return decodeRow(
-            rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
-              string,
-              unknown
-            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-          );
-        }),
+            return yield* decodeRow(rows[0]);
+          }),
+        ),
       resume: (id, ownerIdentity, previousSupervisorIdentity) =>
         Effect.gen(function* () {
           const current = yield* valid(id, ownerIdentity);
@@ -781,16 +849,16 @@ export const makePreviewSessionController = (now: () => number) =>
             const row = yield* find(id);
             if (
               row === undefined ||
-              !isActiveRevisionNoOpOwnedBy(
+              !(yield* isActiveRevisionNoOpOwnedBy(
                 row,
                 supervisorIdentity,
                 generation,
                 requestedRevision,
                 now(),
-              )
+              ))
             )
               return yield* Effect.fail(sessionError("stale-supervisor"));
-            return decodeRow(row);
+            return yield* decodeRow(row);
           }
           return yield* persistRequestedRevision(
             id,
@@ -810,33 +878,9 @@ export const makePreviewSessionController = (now: () => number) =>
             yield* sql`UPDATE preview_sessions SET phase='active', active_revision=${activeRevision}, supervisor_lease_until=${time + previewSupervisorLeaseMs} WHERE id=${id} AND supervisor_identity_digest=${digestIdentity(supervisorIdentity)} AND generation=${generation} AND phase IN ('pending','starting') AND ended_at IS NULL AND lease_deadline > ${time} RETURNING *`;
           if (rows.length === 0) return yield* Effect.fail(sessionError("stale-supervisor"));
 
-          return decodeRow(
-            rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
-              string,
-              unknown
-            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-          );
+          return yield* decodeRow(rows[0]);
         }),
-      stop: (id, ownerIdentity) =>
-        Effect.gen(function* () {
-          const current = yield* valid(id, ownerIdentity, undefined, true);
-          if (current.endedAt !== null) {
-            yield* fenceSession(id);
-            return current;
-          }
-          const time = now();
-          const rows =
-            yield* sql`UPDATE preview_sessions SET phase='ended', supervisor_lease_until=0, ended_at=${time} WHERE id=${id} AND identity_digest=${digestIdentity(ownerIdentity)} AND ended_at IS NULL RETURNING *`;
-          yield* fenceSession(id);
-          if (rows.length === 0) return yield* valid(id, ownerIdentity, undefined, true);
-
-          return decodeRow(
-            rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
-              string,
-              unknown
-            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-          );
-        }),
+      stop: stopByOwner,
       stopSupervised: (id, supervisorIdentity, generation) =>
         Effect.gen(function* () {
           const current = yield* valid(id, undefined, generation, true);
@@ -849,12 +893,7 @@ export const makePreviewSessionController = (now: () => number) =>
           if (rows.length === 0) return yield* Effect.fail(sessionError("stale-supervisor"));
           yield* fenceSession(id);
 
-          return decodeRow(
-            rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
-              string,
-              unknown
-            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-          );
+          return yield* decodeRow(rows[0]);
         }),
       admit: (id, generation) =>
         sql.withTransaction(
@@ -867,12 +906,7 @@ export const makePreviewSessionController = (now: () => number) =>
               return yield* Effect.fail(sessionError("session-not-active-or-expired"));
             yield* sql`INSERT INTO preview_session_admissions (session_id, generation, outstanding) VALUES (${id}, ${generation}, 1) ON CONFLICT(session_id, generation) DO UPDATE SET outstanding=outstanding+1`;
 
-            return decodeRow(
-              rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
-                string,
-                unknown
-              > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-            );
+            return yield* decodeRow(rows[0]);
           }),
         ),
       authorizeCredential: (id, generation, role) =>
@@ -920,11 +954,11 @@ export const makePreviewSessionController = (now: () => number) =>
             const existing =
               yield* sql`SELECT credential_name, service_account, oauth_client_id, credential_file FROM preview_session_workload_identities WHERE session_id=${id} AND generation=${generation} AND role=${role}`;
             if (existing.length > 0) {
-              const row =
-                existing[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
-                  string,
-                  unknown
-                > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+              const row = yield* Effect.try({
+                try: () =>
+                  Schema.decodeUnknownSync(workloadCredentialIdentityRowSchema)(existing[0]),
+                catch: () => sessionError("invalid-workload-identity-row"),
+              });
               if (
                 row.credential_name !== credentialName ||
                 row.service_account !== serviceAccount ||
@@ -1105,6 +1139,53 @@ export const PreviewSessionRuntimeLive = Layer.effect(
   ),
 );
 
+type PreviewSessionLeaseHeartbeatOutcome = "renewed" | "ended" | "fenced" | "failed";
+
+const permanentlyFencedHeartbeatReasons: Readonly<Record<string, true>> = {
+  "stale-supervisor": true,
+  "identity-mismatch": true,
+  "lease-expired-or-fenced": true,
+};
+
+const hasPermanentFenceReason = Predicate.and(
+  Predicate.isTagged("PreviewSessionError"),
+  Predicate.hasProperty("reason"),
+);
+
+const isPermanentlyFencedHeartbeat = (cause: Cause.Cause<ControllerError>) =>
+  Option.match(Cause.findErrorOption(cause), {
+    onNone: () => false,
+    onSome: (error) =>
+      hasPermanentFenceReason(error) &&
+      Predicate.isString(error.reason) &&
+      permanentlyFencedHeartbeatReasons[error.reason] === true,
+  });
+
+const attemptPreviewSessionLeaseHeartbeat = (
+  controller: PreviewSessionControllerApi,
+  id: string,
+  supervisorIdentity: string,
+  generation: number,
+): Effect.Effect<PreviewSessionLeaseHeartbeatOutcome, ControllerError> =>
+  Effect.gen(function* () {
+    const heartbeat = yield* Effect.exit(controller.heartbeat(id, supervisorIdentity, generation));
+    if (Exit.isSuccess(heartbeat)) return "renewed" as const;
+    if (Cause.hasInterruptsOnly(heartbeat.cause)) return yield* Effect.failCause(heartbeat.cause);
+    const permanentlyFenced = isPermanentlyFencedHeartbeat(heartbeat.cause);
+    const current = yield* Effect.exit(
+      controller.status(id).pipe(Effect.timeoutOption(Duration.millis(previewSessionHeartbeatMs))),
+    );
+    if (Exit.isFailure(current) && Cause.hasInterruptsOnly(current.cause))
+      return yield* Effect.failCause(current.cause);
+    if (
+      Exit.isSuccess(current) &&
+      Option.isSome(current.value) &&
+      current.value.value.endedAt !== null
+    )
+      return "ended";
+    return permanentlyFenced ? "fenced" : "failed";
+  });
+
 /** Supervisor loop. Fiber interruption cancels its future renewals. */
 export const supervisePreviewSessionLease = (
   id: string,
@@ -1113,8 +1194,24 @@ export const supervisePreviewSessionLease = (
 ) =>
   Effect.gen(function* () {
     const controller = yield* PreviewSessionController;
+    let consecutiveHeartbeatFailures = 0;
     while (true) {
+      const heartbeat = yield* attemptPreviewSessionLeaseHeartbeat(
+        controller,
+        id,
+        supervisorIdentity,
+        generation,
+      );
+      if (heartbeat === "ended" || heartbeat === "fenced") return;
+      if (heartbeat === "failed") {
+        consecutiveHeartbeatFailures += 1;
+        if (consecutiveHeartbeatFailures >= previewSessionHeartbeatFailureLimit)
+          return yield* Effect.fail(
+            new PreviewSessionError({ reason: "lease-heartbeat-unconfirmed" }),
+          );
+      } else {
+        consecutiveHeartbeatFailures = 0;
+      }
       yield* Effect.sleep(Duration.millis(previewSessionHeartbeatMs));
-      yield* controller.heartbeat(id, supervisorIdentity, generation);
     }
   });

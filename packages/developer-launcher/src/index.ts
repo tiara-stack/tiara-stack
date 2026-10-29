@@ -16,6 +16,14 @@ import {
 import { NodeFileSystem } from "@effect/platform-node";
 import { FetchHttpClient, HttpClient } from "effect/unstable/http";
 import { connectedPreviewOutput } from "./connected-preview";
+export {
+  ConnectedWorkflowPreviewProvider,
+  ConnectedWorkflowPreviewRuntimeError,
+  makeConnectedWorkflowPreviewRuntime,
+  type ConnectedWorkflowPreviewActivation,
+  type ConnectedWorkflowPreviewProviderApi,
+  type ConnectedWorkflowPreviewRuntimeApi,
+} from "./connected-preview";
 import { makeDiagnostic, makeWarning } from "./diagnostics";
 import { runDoctorEffect } from "./doctor";
 import { redactExecutionText } from "./execution-shared";
@@ -208,6 +216,7 @@ export {
   type PreviewAllocationConfig,
   type PreviewAllocationConfigParseResult,
   type PreviewAllocationStatus,
+  type PreviewCleanupTimingStatus,
   type PreviewCapacityBaseline,
   type PreviewProfileDemandPlan,
   type PreviewResourceAdapter,
@@ -306,6 +315,7 @@ Usage:
   pnpm dev preview doctor --config <file>
   pnpm dev preview baseline --config <file>
   pnpm dev preview start --config <file>
+  pnpm dev preview recreate --config <file> --session <id> --confirm-development
   pnpm dev preview status --session <id>
   pnpm dev preview heartbeat --session <id> --generation <n>
   pnpm dev preview resume --session <id>
@@ -316,6 +326,7 @@ Usage:
   pnpm dev setup <mode>
 
 Connected preview actions use the durable local controller database at TIARA_PREVIEW_SESSION_DATABASE. Baseline imports operator-collected evidence from TIARA_PREVIEW_CAPACITY_BASELINE_FILE. Start requires an exact profile demand plan, fresh provider measurements, verified grants, atomic reservations, and owned allocation records; it creates a pending session but does not start an application runtime.
+Recreate requires explicit development confirmation and provider-resolved current group/snapshot evidence. It settles incompatible workflow work with old code before promoting a complete staged snapshot; it fails closed if the workflow recreation runtime is unavailable.
 
 Modes:
   fast       Run the smallest host-native development slice.
@@ -355,6 +366,7 @@ Actions:
   pnpm dev preview doctor --config <file>
   pnpm dev preview baseline --config <file>
   pnpm dev preview start --config <file>
+  pnpm dev preview recreate --config <file> --session <id> --confirm-development
   pnpm dev preview status --session <id>
   pnpm dev preview heartbeat --session <id> --generation <n>
   pnpm dev preview resume --session <id>
@@ -451,6 +463,61 @@ const renderHuman = (output: LauncherOutput, help?: string) => {
     lines.push(`  lease deadline: ${new Date(output.previewSession.leaseDeadline).toISOString()}`);
     lines.push(`  last renewed: ${new Date(output.previewSession.lastRenewedAt).toISOString()}`);
     lines.push(`  unsettled work: ${output.previewSession.unsettled}`);
+    if (output.previewSession.oldCleanupRecordId !== undefined)
+      lines.push(`  old cleanup record: ${output.previewSession.oldCleanupRecordId}`);
+    const transitionPhases = output.previewSession.workflowTransitionPhases;
+    if (transitionPhases !== undefined) {
+      lines.push("  workflow transition phases:");
+      lines.push(`    proposal: ${transitionPhases.proposal}`);
+      lines.push(`    admission: ${transitionPhases.admission}`);
+      lines.push(`    producer fencing: ${transitionPhases.producerFencing}`);
+      lines.push(`    accepted-work drain: ${transitionPhases.drain}`);
+      lines.push(`    old-code cancellation: ${transitionPhases.cancellation}`);
+      lines.push(`    lease/response reconciliation: ${transitionPhases.reconciliation}`);
+      lines.push(`    old-work settlement: ${transitionPhases.settlement}`);
+      lines.push(`    old-execution cessation: ${transitionPhases.cessation}`);
+      if (transitionPhases.drainElapsedMs !== undefined)
+        lines.push(`    accepted-work drain elapsed: ${transitionPhases.drainElapsedMs} ms`);
+      if (transitionPhases.cancellationReconciliationElapsedMs !== undefined)
+        lines.push(
+          `    cancellation/reconciliation elapsed: ${transitionPhases.cancellationReconciliationElapsedMs} ms`,
+        );
+      if (transitionPhases.cessationProofElapsedMs !== undefined)
+        lines.push(`    cessation proof elapsed: ${transitionPhases.cessationProofElapsedMs} ms`);
+      if (transitionPhases.settlementElapsedMs !== undefined)
+        lines.push(
+          `    five-minute settlement window elapsed: ${transitionPhases.settlementElapsedMs} ms`,
+        );
+      if (transitionPhases.acceptedWorkElapsedMs !== undefined)
+        lines.push(
+          `    accepted-work drain and settlement elapsed: ${transitionPhases.acceptedWorkElapsedMs} ms`,
+        );
+      lines.push(`    old-session end: ${transitionPhases.oldSessionEnd}`);
+      lines.push(`    old-session cleanup: ${transitionPhases.cleanup}`);
+      lines.push(`    fresh-group provisioning: ${transitionPhases.freshGroup}`);
+      lines.push(`    source activation: ${transitionPhases.activation}`);
+      lines.push(`    quarantine: ${transitionPhases.quarantine}`);
+      lines.push(`    ordinary reassignment fence: ${transitionPhases.ordinaryReassignment}`);
+    }
+    const recreation = output.previewSession.workflowRecreation;
+    if (recreation !== undefined) {
+      lines.push("  workflow recreation:");
+      lines.push(`    prior revision: ${recreation.priorRevision}`);
+      lines.push(`    requested revision: ${recreation.requestedRevision}`);
+      lines.push(`    reasons: ${recreation.reasons.join(", ") || "none"}`);
+      lines.push(`    old cleanup record: ${recreation.oldCleanupRecordId}`);
+      lines.push(
+        `    fresh session: ${recreation.freshSessionId} (generation ${recreation.freshGeneration})`,
+      );
+      if (recreation.recovery !== undefined) {
+        lines.push(`    recovery record: ${recreation.recovery.recoveryRecordId}`);
+        lines.push(`    recovery disposition: ${recreation.recovery.quarantineDisposition}`);
+        lines.push(`    fresh session disposition: ${recreation.recovery.freshSessionDisposition}`);
+        lines.push(
+          `    fresh group quarantine disposition: ${recreation.recovery.freshGroupQuarantineDisposition}`,
+        );
+      }
+    }
   }
   if (preview !== undefined) {
     lines.push("connected preview:");
@@ -1071,12 +1138,14 @@ const isCommandParseError = Predicate.and(Predicate.isError)(
 );
 
 const runLauncherEffect = async <A>(
-  program: Effect.Effect<A, never, FileSystem.FileSystem | HttpClient.HttpClient>,
+  program: Effect.Effect<A, Error, FileSystem.FileSystem | HttpClient.HttpClient>,
 ): Promise<A> => {
   const exit = await Effect.runPromiseExit(
     program.pipe(Effect.provide(NodeFileSystem.layer), Effect.provide(FetchHttpClient.layer)),
   );
   if (Exit.isSuccess(exit)) return exit.value;
+  if (exit.cause.reasons.length > 1)
+    throw new Error("Preview command failed with an unrecoverable cause.", { cause: exit.cause });
   throw Cause.squash(exit.cause);
 };
 
@@ -1276,7 +1345,7 @@ export const executeDevelopmentPlan = async (
 const runParsedCommand = (
   command: ParsedCommand,
   options: LauncherOptions,
-): Effect.Effect<LauncherResult, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
+): Effect.Effect<LauncherResult, Error, FileSystem.FileSystem | HttpClient.HttpClient> =>
   Effect.gen(function* () {
     const outcome = yield* Match.value(command).pipe(
       Match.when({ kind: "help" }, (helpCommand) =>

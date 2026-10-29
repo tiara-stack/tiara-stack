@@ -388,6 +388,73 @@ describe("nested ternary adoption in Vite+ lint paths", () => {
     ).toBe(true);
   }, 30_000);
 
+  it("preserves regex literal semantics in inherited nested-ternary identities", () => {
+    const sourceWithRegexDirective = (expression) =>
+      [
+        "const ready = true;",
+        'const input = "foo";',
+        "const left = 1;",
+        "const right = 2;",
+        "const fallback = 3;",
+        "// oxlint-disable-next-line no-nested-ternary -- fixture baseline",
+        String(expression),
+        "void value;",
+        "",
+      ].join("\n");
+    const original = sourceWithRegexDirective(
+      "const value = ready ? /foo  bar/.test(input) ? left : right : fallback;",
+    );
+    createFixtureBaseline(original);
+
+    const inherited = run(["exec", "vp", "lint", "-f", "json", fixtureRelative], {
+      env: { TIARA_NESTED_TERNARY_BASELINE_PATH: baselineOverride },
+    });
+    expect(inherited.status, `${String(inherited.stdout)}\n${String(inherited.stderr)}`).toBe(0);
+
+    writeFileSync(
+      fixturePath,
+      sourceWithRegexDirective(
+        "const value = ready ? /foo bar/.test(input) ? left : right : fallback;",
+      ),
+    );
+    const changedPattern = run(["exec", "vp", "lint", "-f", "json", fixtureRelative], {
+      env: { TIARA_NESTED_TERNARY_BASELINE_PATH: baselineOverride },
+    });
+    expect(changedPattern.status).not.toBe(0);
+    expect(
+      diagnostics(changedPattern).some(
+        ({ code }) => code === "tiara-effect-policy(no-nested-ternary-adoption)",
+      ),
+    ).toBe(true);
+
+    writeFileSync(
+      fixturePath,
+      sourceWithRegexDirective(
+        "const value = ready ? /foo  bar/i.test(input) ? left : right : fallback;",
+      ),
+    );
+    const changedFlags = run(["exec", "vp", "lint", "-f", "json", fixtureRelative], {
+      env: { TIARA_NESTED_TERNARY_BASELINE_PATH: baselineOverride },
+    });
+    expect(changedFlags.status).not.toBe(0);
+    expect(
+      diagnostics(changedFlags).some(
+        ({ code }) => code === "tiara-effect-policy(no-nested-ternary-adoption)",
+      ),
+    ).toBe(true);
+
+    writeFileSync(
+      fixturePath,
+      sourceWithRegexDirective(
+        "const value = ready\n  ? /foo  bar/.test(input)\n    ? left\n    : right\n  : fallback;",
+      ),
+    );
+    const formatted = run(["exec", "vp", "lint", "-f", "json", fixtureRelative], {
+      env: { TIARA_NESTED_TERNARY_BASELINE_PATH: baselineOverride },
+    });
+    expect(formatted.status, `${String(formatted.stdout)}\n${String(formatted.stderr)}`).toBe(0);
+  }, 30_000);
+
   it("distinguishes replacement tests but keeps inherited sites stable after unrelated insertion", () => {
     const liveSource = (suite, test) =>
       `import { Effect } from "effect";\nimport { it } from "@effect/vitest";\nimport { writeFile } from "node:fs/promises";\nit.effect(${JSON.stringify(suite + " / " + test)}, () => Effect.promise(() => writeFile("fixture", "value")));\n`;

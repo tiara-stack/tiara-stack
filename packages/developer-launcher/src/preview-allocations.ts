@@ -38,7 +38,172 @@ export const DEFAULT_PREVIEW_ALLOCATION_CONFIG: PreviewAllocationConfig = {
 export const DEFAULT_PREVIEW_RESOURCE_ADAPTER_TIMEOUT_MS = 60_000;
 const previewAcceptedWorkDrainMs = 5 * 60_000;
 const previewSettlementRecoveryMs = 5 * 60_000;
-const previewOwnedResourceDeletionMs = 5 * 60_000;
+const previewCleanupProofStabilityMs = 5 * 60_000;
+export const previewOwnedResourceDeletionMs = 5 * 60_000;
+export const previewCleanupReportingBudgetMs = 5_000;
+const hasFreshDeletionClaim = (
+  ledger: readonly Record<string, unknown>[],
+  observedAt: number,
+  timeoutMs: number,
+) =>
+  ledger.some(
+    (entry) =>
+      entry.state === "deleting" &&
+      typeof entry.updated_at === "number" &&
+      entry.updated_at > observedAt - timeoutMs,
+  );
+const initialDeletionWorkBudgetMs = (
+  deletionStartedAt: number | null,
+  proofStableAt: number,
+  observedAt: number,
+  hasFreshClaim: boolean,
+) => {
+  const maximumWorkMs = previewOwnedResourceDeletionMs - previewCleanupReportingBudgetMs;
+  if (deletionStartedAt === null || deletionStartedAt < proofStableAt)
+    return hasFreshClaim ? 0 : maximumWorkMs;
+  const remainingMs = deletionStartedAt + previewOwnedResourceDeletionMs - observedAt;
+  if (remainingMs > 0)
+    return Math.min(maximumWorkMs, remainingMs - previewCleanupReportingBudgetMs);
+  return hasFreshClaim ? 0 : maximumWorkMs;
+};
+const cleanupPreDeletionWindow = (
+  startedAt: number,
+  deadlineAt: number | undefined,
+  expiredReason: "cleanup-pre-deletion-deadline-exceeded" | "cleanup-resolution-deadline-exceeded",
+) => {
+  if (deadlineAt !== undefined && !Number.isFinite(deadlineAt))
+    return { error: "invalid-cleanup-deadline" } as const;
+  const workDeadlineAt =
+    (deadlineAt ?? startedAt + previewOwnedResourceDeletionMs) - previewCleanupReportingBudgetMs;
+  const workBudgetMs = workDeadlineAt - startedAt;
+  return workBudgetMs <= 0 ? { error: expiredReason } : { workDeadlineAt, workBudgetMs };
+};
+const buildProofValidationTiming = (
+  proofAt: number | null,
+  observedAt: number,
+): PreviewCleanupTimingStatus["proofValidation"] => {
+  if (proofAt === null)
+    return { status: "unverified", proofAt: null, elapsedMs: null, remainingMs: null };
+  const completeAt = proofAt + previewCleanupProofStabilityMs;
+  return {
+    status: observedAt >= completeAt ? "complete" : "validating",
+    proofAt,
+    elapsedMs: Math.max(0, Math.min(observedAt - proofAt, previewCleanupProofStabilityMs)),
+    remainingMs: Math.max(0, completeAt - observedAt),
+  };
+};
+
+const buildDeletionAttemptTiming = (
+  deletionStartedAt: number | null,
+  completedAt: number | null,
+  quarantineReason: unknown,
+  observedAt: number,
+  unverified = false,
+): PreviewCleanupTimingStatus["deletionAttempt"] => {
+  if (deletionStartedAt === null)
+    return { status: "not-started", startedAt: null, elapsedMs: null, remainingMs: null };
+  if (unverified && completedAt === null)
+    return {
+      status: "unverified",
+      startedAt: deletionStartedAt,
+      elapsedMs: null,
+      remainingMs: null,
+    };
+  const deadlineAt = deletionStartedAt + previewOwnedResourceDeletionMs;
+  let status: PreviewCleanupTimingStatus["deletionAttempt"]["status"];
+  if (completedAt !== null) status = "complete";
+  else if (observedAt >= deadlineAt) status = "expired";
+  else if (quarantineReason === "deletion-failed") status = "failed";
+  else status = "in-progress";
+  const endAt = completedAt ?? observedAt;
+  const remainingMs = status === "complete" ? 0 : Math.max(0, deadlineAt - observedAt);
+  return {
+    status,
+    startedAt: deletionStartedAt,
+    elapsedMs: Math.max(0, Math.min(endAt - deletionStartedAt, previewOwnedResourceDeletionMs)),
+    remainingMs,
+  };
+};
+
+type CleanupTimingData = {
+  readonly settlementStartedAt: number;
+  readonly completedAt: number | null;
+  readonly proofAt: number | null;
+  readonly deletionStartedAt: number | null;
+  readonly quarantineReason: unknown;
+};
+
+type CleanupProofToken = {
+  readonly proofAt: number;
+  readonly generation: number;
+};
+
+type CleanupProofValidation =
+  | { readonly _tag: "Verified"; readonly proof: CleanupProofToken }
+  | { readonly _tag: "Pending" }
+  | { readonly _tag: "ConfirmedInvalidation" }
+  | { readonly _tag: "DeadlineExpired" }
+  | { readonly _tag: "TimedOut" }
+  | { readonly _tag: "Uncertain" };
+
+const cleanupTimingDataFromRow = (
+  cleanupState: Record<string, unknown> | undefined,
+): CleanupTimingData | null => {
+  if (cleanupState === undefined || Number(cleanupState.has_cleanup_timing) !== 1) return null;
+  return {
+    settlementStartedAt: Number(cleanupState.settlement_started_at),
+    completedAt: cleanupState.completed_at == null ? null : Number(cleanupState.completed_at),
+    proofAt: cleanupState.proof_at == null ? null : Number(cleanupState.proof_at),
+    deletionStartedAt:
+      cleanupState.deletion_started_at == null ? null : Number(cleanupState.deletion_started_at),
+    quarantineReason: cleanupState.quarantine_reason,
+  };
+};
+
+const hasProofBoundDeletionAttempt = (timing: CleanupTimingData) =>
+  timing.deletionStartedAt !== null &&
+  timing.proofAt !== null &&
+  timing.deletionStartedAt >= timing.proofAt + previewCleanupProofStabilityMs;
+
+const hasUnverifiedDeletionTimestamp = (timing: CleanupTimingData) =>
+  timing.deletionStartedAt !== null &&
+  timing.completedAt === null &&
+  !hasProofBoundDeletionAttempt(timing);
+
+const visibleDeletionStartedAt = (timing: CleanupTimingData, hasFreshDeletionClaim: boolean) => {
+  if (timing.completedAt !== null || hasFreshDeletionClaim) return timing.deletionStartedAt;
+  return hasProofBoundDeletionAttempt(timing) || hasUnverifiedDeletionTimestamp(timing)
+    ? timing.deletionStartedAt
+    : null;
+};
+
+const buildCleanupTimingStatus = (
+  timing: CleanupTimingData | null,
+  observedAt: number,
+  hasFreshDeletionClaim: boolean,
+): PreviewCleanupTimingStatus | null => {
+  if (timing === null) return null;
+  const endAt = timing.completedAt ?? observedAt;
+  const deletionStartedAt = visibleDeletionStartedAt(timing, hasFreshDeletionClaim);
+  return {
+    totalElapsedMs: Math.max(0, endAt - timing.settlementStartedAt),
+    proofValidation: buildProofValidationTiming(timing.proofAt, observedAt),
+    deletionAttempt: buildDeletionAttemptTiming(
+      deletionStartedAt,
+      timing.completedAt,
+      timing.quarantineReason,
+      observedAt,
+      hasUnverifiedDeletionTimestamp(timing),
+    ),
+  };
+};
+const cleanupOutcome = (
+  cleanupState: Record<string, unknown> | undefined,
+): PreviewAllocationStatus["cleanup"] => {
+  if (cleanupState === undefined) return null;
+  if (cleanupState.completed_at !== null) return "cleaned";
+  return cleanupState.quarantine_reason == null ? "waiting" : "quarantined";
+};
 export type PreviewAllocationConfigParseResult =
   | { readonly config: PreviewAllocationConfig; readonly error?: never }
   | { readonly config?: never; readonly error: string };
@@ -99,6 +264,13 @@ export interface CapacityDemand {
   readonly provider: string;
   readonly identity: string;
 }
+
+const CapacityDemandSchema = Schema.Struct({
+  dimension: Schema.String,
+  amount: Schema.Number,
+  provider: Schema.String,
+  identity: Schema.String,
+});
 
 /** Unit-bearing dimensions providers must observe for each owned preview group. */
 export const previewCapacityDimensionsByGroup = {
@@ -232,6 +404,254 @@ export interface PreviewAllocationStatus {
     readonly failure: string | null;
   }[];
   readonly cleanup: "waiting" | "quarantined" | "cleaned" | null;
+  readonly cleanupTiming: PreviewCleanupTimingStatus | null;
+}
+
+export interface PreviewAllocationCleanupResult {
+  readonly outcome: "waiting" | "cleaned" | "quarantined";
+  /** Persisted absolute post-proof attempt deadline returned by this bounded cleanup call. */
+  readonly deletionDeadlineAt: number | null;
+  /** Remaining time to that deadline, measured with the allocation controller's clock. */
+  readonly remainingDeletionMs: number | null;
+  /**
+   * Whether cleanup established a proof-bound attempt or coherent absence, or is
+   * uncertain/contended, unverified, or invalidated.
+   */
+  readonly reportAttemptState: "known" | "absent" | "unknown" | "unverified" | "invalidated";
+  /** Typed cleanup failure preserved as data so callers can respect the report deadline. */
+  readonly failure: PreviewAllocationError | SqlError.SqlError | Error | PlatformError | null;
+}
+
+type PreviewAllocationCleanupReportWindow = {
+  state: PreviewAllocationCleanupResult["reportAttemptState"];
+  deletionDeadlineAt: number | null;
+};
+
+type CleanupProofWorkPlan =
+  | {
+      readonly _tag: "Skip";
+      readonly reportAttemptState: PreviewAllocationCleanupResult["reportAttemptState"];
+      readonly outcome: PreviewAllocationCleanupResult["outcome"];
+    }
+  | {
+      readonly _tag: "Run";
+      readonly reportAttemptState: PreviewAllocationCleanupResult["reportAttemptState"];
+      readonly outcome: PreviewAllocationCleanupResult["outcome"];
+      readonly deadlineAt: number;
+      readonly budgetMs: number;
+    };
+
+const cleanupReportWindowFromAuthorization = (authorization: {
+  readonly deletionStartedAt: number | null;
+  readonly proofAt: number | null;
+}): PreviewAllocationCleanupReportWindow => {
+  if (authorization.deletionStartedAt === null)
+    return { state: "absent", deletionDeadlineAt: null };
+  if (authorization.proofAt === null) return { state: "unverified", deletionDeadlineAt: null };
+  const proofStableAt = authorization.proofAt + previewCleanupProofStabilityMs;
+  return authorization.deletionStartedAt >= proofStableAt
+    ? {
+        state: "known",
+        deletionDeadlineAt: authorization.deletionStartedAt + previewOwnedResourceDeletionMs,
+      }
+    : { state: "unverified", deletionDeadlineAt: null };
+};
+
+const cleanupReportAttemptStateForSnapshot = (
+  state: PreviewAllocationCleanupResult["reportAttemptState"],
+  hasFreshClaim: boolean,
+): PreviewAllocationCleanupResult["reportAttemptState"] =>
+  state === "absent" && hasFreshClaim ? "unknown" : state;
+
+const cleanupSnapshotOutcome = (
+  hasUnknownResources: boolean,
+  hasFreshClaim: boolean,
+): PreviewAllocationCleanupResult["outcome"] =>
+  hasUnknownResources || hasFreshClaim ? "quarantined" : "waiting";
+
+const activeCleanupAttemptDeadlineAt = (
+  reportWindow: PreviewAllocationCleanupReportWindow,
+  reportAttemptState: PreviewAllocationCleanupResult["reportAttemptState"],
+  observedAt: number,
+  hasFreshClaim: boolean,
+) => {
+  if (reportAttemptState !== "known") return null;
+  const deadlineAt = reportWindow.deletionDeadlineAt;
+  if (deadlineAt === null) return null;
+  if (deadlineAt > observedAt || hasFreshClaim) return deadlineAt;
+  return null;
+};
+
+const cleanupProofWorkDeadlineAt = (callDeadlineAt: number, attemptDeadlineAt: number | null) =>
+  attemptDeadlineAt === null
+    ? callDeadlineAt
+    : Math.min(callDeadlineAt, attemptDeadlineAt - previewCleanupReportingBudgetMs);
+
+const planCleanupProofWork = (
+  reportWindow: PreviewAllocationCleanupReportWindow,
+  ledger: readonly Record<string, unknown>[],
+  observedAt: number,
+  callDeadlineAt: number,
+  adapterTimeoutMs: number,
+): CleanupProofWorkPlan => {
+  const hasUnknownResources = ledger.some(
+    (entry) => typeof entry.provider_resource_id !== "string" || entry.provider_resource_id === "",
+  );
+  const hasFreshClaim = hasFreshDeletionClaim(ledger, observedAt, adapterTimeoutMs);
+  const reportAttemptState = cleanupReportAttemptStateForSnapshot(
+    reportWindow.state,
+    hasFreshClaim,
+  );
+  const outcome = cleanupSnapshotOutcome(hasUnknownResources, hasFreshClaim);
+  if (
+    reportAttemptState === "unknown" ||
+    reportAttemptState === "invalidated" ||
+    (hasFreshClaim && reportAttemptState !== "known")
+  )
+    return { _tag: "Skip", reportAttemptState, outcome };
+  const activeDeadlineAt = activeCleanupAttemptDeadlineAt(
+    reportWindow,
+    reportAttemptState,
+    observedAt,
+    hasFreshClaim,
+  );
+  const deadlineAt = cleanupProofWorkDeadlineAt(callDeadlineAt, activeDeadlineAt);
+  const budgetMs = deadlineAt - observedAt;
+  return budgetMs <= 0
+    ? { _tag: "Skip", reportAttemptState, outcome }
+    : { _tag: "Run", reportAttemptState, outcome, deadlineAt, budgetMs };
+};
+
+const makePreviewAllocationCleanupResult = (
+  outcome: PreviewAllocationCleanupResult["outcome"],
+  reportWindow: PreviewAllocationCleanupReportWindow,
+  now: () => number,
+  failure: PreviewAllocationCleanupResult["failure"] = null,
+): PreviewAllocationCleanupResult => ({
+  outcome,
+  deletionDeadlineAt: reportWindow.state === "known" ? reportWindow.deletionDeadlineAt : null,
+  remainingDeletionMs:
+    reportWindow.state !== "known" || reportWindow.deletionDeadlineAt === null
+      ? null
+      : Math.max(0, reportWindow.deletionDeadlineAt - now()),
+  reportAttemptState: reportWindow.state,
+  failure,
+});
+
+const PreviewCapacityReservationRowSchema = Schema.Struct({
+  dimension: Schema.String,
+  amount: Schema.Number,
+  provider: Schema.String,
+  provider_identity: Schema.String,
+  released_at: Schema.NullOr(Schema.Number),
+});
+const PreviewAllocationLedgerStatusRowSchema = Schema.Struct({
+  resource: Schema.String,
+  provider_resource_id: Schema.NullOr(Schema.String),
+  state: Schema.Literals([
+    "allocating",
+    "owned",
+    "deleting",
+    "quarantined",
+    "deleted",
+    "not-allocated",
+  ]),
+  updated_at: Schema.Number,
+  failure: Schema.NullOr(Schema.String),
+});
+const PreviewAllocationCleanupRowSchema = Schema.Struct({
+  resource: Schema.String,
+  owner_token: Schema.String,
+  provider_resource_id: Schema.NullOr(Schema.String),
+  state: Schema.Literals([
+    "allocating",
+    "owned",
+    "deleting",
+    "quarantined",
+    "deleted",
+    "not-allocated",
+  ]),
+  updated_at: Schema.Number,
+  failure: Schema.NullOr(Schema.String),
+});
+const PreviewCleanupAuthorizationRowSchema = Schema.Struct({
+  proof_generation: Schema.Number,
+  proof_at: Schema.NullOr(Schema.Number),
+  deletion_started_at: Schema.NullOr(Schema.Number),
+  resource: Schema.NullOr(Schema.String),
+  owner_token: Schema.NullOr(Schema.String),
+  provider_resource_id: Schema.NullOr(Schema.String),
+  state: Schema.NullOr(
+    Schema.Literals(["allocating", "owned", "deleting", "quarantined", "deleted", "not-allocated"]),
+  ),
+  updated_at: Schema.NullOr(Schema.Number),
+  failure: Schema.NullOr(Schema.String),
+});
+type PreviewCleanupAuthorizationRow = typeof PreviewCleanupAuthorizationRowSchema.Type;
+const firstCleanupAuthorization = (rows: readonly PreviewCleanupAuthorizationRow[]) => {
+  const first = rows[0];
+  if (first === undefined)
+    return { proofGeneration: undefined, proofAt: null, deletionStartedAt: null };
+  return {
+    proofGeneration: first.proof_generation,
+    proofAt: first.proof_at,
+    deletionStartedAt: first.deletion_started_at,
+  };
+};
+const PreviewResourceRowSchema = Schema.Struct({ resource: Schema.String });
+const PreviewAllocationStateRowSchema = Schema.Struct({
+  state: Schema.Literals([
+    "allocating",
+    "owned",
+    "deleting",
+    "quarantined",
+    "deleted",
+    "not-allocated",
+  ]),
+});
+const PreviewAllocationOwnerRowSchema = Schema.Struct({
+  resource: Schema.String,
+  owner_token: Schema.String,
+});
+type PreviewAllocationOwnerRow = typeof PreviewAllocationOwnerRowSchema.Type;
+const PreviewCleanupCompletionRowSchema = Schema.Struct({
+  completed_at: Schema.NullOr(Schema.Number),
+});
+const PreviewCleanupProofAtRowSchema = Schema.Struct({ proof_at: Schema.NullOr(Schema.Number) });
+const PreviewDeletionAttemptStartRowSchema = Schema.Struct({
+  deletion_started_at: Schema.NullOr(Schema.Number),
+});
+const PreviewProviderIdentityRowSchema = Schema.Struct({
+  provider: Schema.String,
+  provider_identity: Schema.String,
+});
+const PersistedPreviewProfileDemandPlanRowSchema = Schema.Struct({
+  selected_roles: Schema.String,
+  owned_groups: Schema.String,
+  demands: Schema.String,
+  resources: Schema.String,
+});
+
+export interface PreviewCleanupTimingStatus {
+  readonly totalElapsedMs: number;
+  readonly proofValidation: {
+    readonly status: "unverified" | "validating" | "complete";
+    readonly proofAt: number | null;
+    readonly elapsedMs: number | null;
+    readonly remainingMs: number | null;
+  };
+  readonly deletionAttempt: {
+    readonly status:
+      | "not-started"
+      | "unverified"
+      | "in-progress"
+      | "failed"
+      | "expired"
+      | "complete";
+    readonly startedAt: number | null;
+    readonly elapsedMs: number | null;
+    readonly remainingMs: number | null;
+  };
 }
 
 export interface CapacityCheckResult extends CapacityDemand {
@@ -266,7 +686,7 @@ export interface PreviewAllocationApi {
   }) => Effect.Effect<void, PreviewAllocationError>;
   readonly checkCapacity: (
     demands: readonly CapacityDemand[],
-  ) => Effect.Effect<readonly CapacityCheckResult[], SqlError.SqlError>;
+  ) => Effect.Effect<readonly CapacityCheckResult[], PreviewAllocationError | SqlError.SqlError>;
   readonly observeCapacity: (
     measurement: CapacityMeasurement,
   ) => Effect.Effect<void, PreviewAllocationError | SqlError.SqlError>;
@@ -282,17 +702,33 @@ export interface PreviewAllocationApi {
   >;
   readonly inspect: (
     sessionId: string,
-  ) => Effect.Effect<PreviewAllocationStatus, SqlError.SqlError>;
+  ) => Effect.Effect<PreviewAllocationStatus, PreviewAllocationError | SqlError.SqlError>;
   readonly cleanup: (input: {
     readonly sessionId: string;
+    /** Bounds gateway/provider work before the post-proof deletion phase begins. */
+    readonly preDeletionDeadlineAt?: number;
   }) => Effect.Effect<
     "waiting" | "cleaned" | "quarantined",
     PreviewAllocationError | SqlError.SqlError | Error | PlatformError,
     FileSystem.FileSystem
   >;
+  readonly cleanupWithDeadline: (input: {
+    readonly sessionId: string;
+    /** Bounds gateway/provider work before the post-proof deletion phase begins. */
+    readonly preDeletionDeadlineAt?: number;
+  }) => Effect.Effect<PreviewAllocationCleanupResult, never, FileSystem.FileSystem>;
+  readonly markCleanupUnconfirmed: (input: {
+    readonly sessionId: string;
+    readonly reason:
+      | "cleanup-deadline-exceeded"
+      | "gateway-cleanup-unconfirmed"
+      | "allocation-cleanup-unconfirmed";
+  }) => Effect.Effect<void, PreviewAllocationError | SqlError.SqlError>;
   readonly resolveUnknownAllocation: (input: {
     readonly sessionId: string;
     readonly resource: string;
+    /** Bounds provider ownership resolution before the deletion phase begins. */
+    readonly preDeletionDeadlineAt?: number;
   }) => Effect.Effect<
     "resolved-owned" | "verified-absent",
     PreviewAllocationError | SqlError.SqlError | Error | PlatformError,
@@ -496,6 +932,11 @@ export const makePreviewAllocationController = (
       session_id TEXT PRIMARY KEY, ended_at INTEGER NOT NULL, proof_at INTEGER,
       quarantine_reason TEXT, completed_at INTEGER
     )`;
+      yield* sql`CREATE TABLE IF NOT EXISTS preview_cleanup_proof_fences (
+      session_id TEXT PRIMARY KEY, generation INTEGER NOT NULL
+    )`;
+      // NULL until proof is current and stable; then this anchors one absolute
+      // post-proof deletion attempt, including in-progress retries.
       yield* sql`CREATE TABLE IF NOT EXISTS preview_cleanup_timing (
       session_id TEXT PRIMARY KEY REFERENCES preview_cleanup_state(session_id),
       settlement_started_at INTEGER NOT NULL, deletion_started_at INTEGER
@@ -520,6 +961,20 @@ export const makePreviewAllocationController = (
         ? allocationError("empty-profile-demand")
         : undefined;
     };
+
+    const ensureCleanupProofFence = (sessionId: string) =>
+      sql`INSERT INTO preview_cleanup_proof_fences(session_id, generation) VALUES (${sessionId}, 0) ON CONFLICT(session_id) DO NOTHING`;
+
+    const cleanupProofIsCurrent = (sessionId: string, proof: CleanupProofToken) =>
+      Effect.map(
+        sql`SELECT 1 FROM preview_cleanup_state AS cleanup
+          JOIN preview_cleanup_proof_fences AS fence ON fence.session_id=cleanup.session_id
+          WHERE cleanup.session_id=${sessionId}
+            AND cleanup.proof_at=${proof.proofAt}
+            AND fence.generation=${proof.generation}
+            AND cleanup.proof_at + ${previewCleanupProofStabilityMs} <= ${now()}`,
+        (rows) => rows.length > 0,
+      );
 
     const readVerifiedCapacity = (demand: CapacityDemand) =>
       Effect.gen(function* () {
@@ -594,13 +1049,17 @@ export const makePreviewAllocationController = (
             yield* sql`INSERT INTO preview_allocation_ledger (session_id, resource, owner_token, state, updated_at)
           VALUES (${input.sessionId}, ${resource}, ${ownerToken}, 'allocating', ${now()})`;
           }
-          return yield* sql`SELECT resource, owner_token FROM preview_allocation_ledger WHERE session_id=${input.sessionId} ORDER BY rowid`;
+          const rows =
+            yield* sql`SELECT resource, owner_token FROM preview_allocation_ledger WHERE session_id=${input.sessionId} ORDER BY rowid`;
+          return yield* Schema.decodeUnknownEffect(Schema.Array(PreviewAllocationOwnerRowSchema))(
+            rows,
+          ).pipe(Effect.mapError(() => allocationError("allocation-owner-ledger-invalid")));
         }),
       );
 
     const allocateOneResource = (
       sessionId: string,
-      value: Record<string, unknown>,
+      value: PreviewAllocationOwnerRow,
       resourceMetadata: Readonly<Record<string, PreviewResourceMetadata>> | undefined,
       priorResources: Readonly<Record<string, string>>,
     ) =>
@@ -639,7 +1098,7 @@ export const makePreviewAllocationController = (
 
     const allocateRecordedResources = (
       sessionId: string,
-      rows: Array<Record<string, unknown>>,
+      rows: ReadonlyArray<PreviewAllocationOwnerRow>,
       resourceMetadata: Readonly<Record<string, PreviewResourceMetadata>> | undefined,
     ) =>
       Effect.gen(function* () {
@@ -677,22 +1136,19 @@ export const makePreviewAllocationController = (
           return yield* Effect.fail(allocationError("live-session-destruction-refused"));
         const cleanups =
           yield* sql`SELECT completed_at FROM preview_cleanup_state WHERE session_id=${sessionId}`;
+        const cleanupRows = yield* Effect.try({
+          try: () =>
+            Schema.decodeUnknownSync(Schema.Array(PreviewCleanupCompletionRowSchema))(cleanups),
+          catch: () => allocationError("allocation-cleanup-ledger-invalid"),
+        });
 
-        if (
-          cleanups.length > 0 &&
-          (
-            cleanups[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
-              string,
-              unknown
-            >
-          ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
-            .completed_at !== null
-        )
+        if (cleanupRows[0] !== undefined && cleanupRows[0].completed_at !== null)
           return "cleaned" as const;
         const endedAt = Number(session.ended_at);
         if (cleanups.length === 0)
           yield* sql`INSERT INTO preview_cleanup_state(session_id, ended_at, proof_at) VALUES (${sessionId}, ${endedAt}, NULL) ON CONFLICT(session_id) DO NOTHING`;
         yield* sql`INSERT INTO preview_cleanup_timing(session_id, settlement_started_at) VALUES (${sessionId}, ${endedAt}) ON CONFLICT(session_id) DO NOTHING`;
+        yield* ensureCleanupProofFence(sessionId);
         if (Number(session.unsettled) !== 0) {
           if (now() < endedAt + previewAcceptedWorkDrainMs + previewSettlementRecoveryMs)
             return "waiting" as const;
@@ -705,40 +1161,109 @@ export const makePreviewAllocationController = (
 
     const loadKnownCleanupLedger = (sessionId: string, session: Record<string, unknown>) =>
       Effect.gen(function* () {
-        const ledger =
-          yield* sql`SELECT * FROM preview_allocation_ledger WHERE session_id=${sessionId} AND state IN ('allocating','owned','quarantined','deleting') ORDER BY rowid DESC`;
-        const allRows =
-          yield* sql`SELECT resource FROM preview_allocation_ledger WHERE session_id=${sessionId}`;
-        let recordedResources: Readonly<Record<string, unknown>>;
-        try {
-          recordedResources = JSON.parse(
-            String(session.resource_ids),
-          ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Readonly<
-            Record<string, unknown>
-          > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
-        } catch {
+        yield* ensureCleanupProofFence(sessionId);
+        const authorizationRows = yield* sql`SELECT fence.generation AS proof_generation,
+            cleanup.proof_at AS proof_at,
+            timing.deletion_started_at AS deletion_started_at,
+            allocation.resource AS resource,
+            allocation.owner_token AS owner_token,
+            allocation.provider_resource_id AS provider_resource_id,
+            allocation.state AS state,
+            allocation.updated_at AS updated_at,
+            allocation.failure AS failure
+          FROM preview_cleanup_proof_fences AS fence
+          LEFT JOIN preview_cleanup_state AS cleanup ON cleanup.session_id=fence.session_id
+          LEFT JOIN preview_cleanup_timing AS timing ON timing.session_id=fence.session_id
+          LEFT JOIN preview_allocation_ledger AS allocation
+            ON allocation.session_id=fence.session_id
+              AND allocation.state IN ('allocating','owned','quarantined','deleting')
+          WHERE fence.session_id=${sessionId}
+          ORDER BY allocation.rowid DESC`;
+        const authorizationRowsResult = yield* Effect.result(
+          Schema.decodeUnknownEffect(Schema.Array(PreviewCleanupAuthorizationRowSchema))(
+            authorizationRows,
+          ).pipe(Effect.mapError(() => allocationError("cleanup-proof-fence-invalid"))),
+        );
+        if (Result.isFailure(authorizationRowsResult)) {
           yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='unknown-ownership-ledger' WHERE session_id=${sessionId}`;
           return undefined;
         }
-        const ledgerResources = new Set(
-          (
-            allRows /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
-              Record<string, unknown>
-            >
-          ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
-            .map((row) => String(row.resource)),
+        const authorization = authorizationRowsResult.success;
+        const { proofGeneration, proofAt, deletionStartedAt } =
+          firstCleanupAuthorization(authorization);
+        if (
+          proofGeneration === undefined ||
+          authorization.some((row) => row.proof_generation !== proofGeneration)
+        ) {
+          yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='unknown-ownership-ledger' WHERE session_id=${sessionId}`;
+          return undefined;
+        }
+        const ledger = authorization.flatMap((row) =>
+          row.resource === null
+            ? []
+            : [
+                {
+                  resource: row.resource,
+                  owner_token: row.owner_token,
+                  provider_resource_id: row.provider_resource_id,
+                  state: row.state,
+                  updated_at: row.updated_at,
+                  failure: row.failure,
+                },
+              ],
         );
+        const allRows =
+          yield* sql`SELECT resource FROM preview_allocation_ledger WHERE session_id=${sessionId}`;
+        const recordedResourcesResult = yield* Effect.result(
+          Effect.try({
+            try: () =>
+              Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
+                JSON.parse(String(session.resource_ids)),
+              ),
+            catch: () => allocationError("unknown-ownership-ledger"),
+          }),
+        );
+        if (Result.isFailure(recordedResourcesResult)) {
+          yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='unknown-ownership-ledger' WHERE session_id=${sessionId}`;
+          return undefined;
+        }
+        const ledgerResult = yield* Effect.result(
+          Schema.decodeUnknownEffect(Schema.Array(PreviewAllocationCleanupRowSchema))(ledger).pipe(
+            Effect.mapError(() => allocationError("allocation-ownership-ledger-invalid")),
+          ),
+        );
+        if (Result.isFailure(ledgerResult)) {
+          yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='unknown-ownership-ledger' WHERE session_id=${sessionId}`;
+          return undefined;
+        }
+        const resourceRowsResult = yield* Effect.result(
+          Schema.decodeUnknownEffect(Schema.Array(PreviewResourceRowSchema))(allRows).pipe(
+            Effect.mapError(() => allocationError("unknown-ownership-ledger")),
+          ),
+        );
+        if (Result.isFailure(resourceRowsResult)) {
+          yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='unknown-ownership-ledger' WHERE session_id=${sessionId}`;
+          return undefined;
+        }
+        const ledgerResources = new Set(resourceRowsResult.success.map((row) => row.resource));
+        const recordedResources = recordedResourcesResult.success;
         if (Object.keys(recordedResources).some((resource) => !ledgerResources.has(resource))) {
           yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='unknown-ownership-ledger' WHERE session_id=${sessionId}`;
           return undefined;
         }
 
-        return ledger /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
-          Record<string, unknown>
-        > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+        return { ledger: ledgerResult.success, proofGeneration, proofAt, deletionStartedAt };
       });
 
-    const verifyCleanupProof = (sessionId: string, ledger: readonly Record<string, unknown>[]) =>
+    const verifyCleanupProof = (
+      sessionId: string,
+      ledger: readonly Record<string, unknown>[],
+      proofGeneration: number,
+    ): Effect.Effect<
+      CleanupProofValidation,
+      SqlError.SqlError | Error | PlatformError,
+      FileSystem.FileSystem
+    > =>
       Effect.gen(function* () {
         const proof = yield* Effect.result(
           withPreviewResourceAdapterTimeout(
@@ -758,54 +1283,124 @@ export const makePreviewAllocationController = (
           ),
         );
         if (proof._tag === "Failure" || !proof.success) {
-          yield* sql`UPDATE preview_cleanup_state SET proof_at=NULL WHERE session_id=${sessionId}`;
-          return false;
+          const invalidated = yield* sql.withTransaction(
+            Effect.gen(function* () {
+              const invalidated = yield* sql`UPDATE preview_cleanup_proof_fences
+                  SET generation=generation+1
+                  WHERE session_id=${sessionId} AND generation=${proofGeneration}
+                  RETURNING generation`;
+              if (invalidated.length === 0) return false;
+              yield* sql`UPDATE preview_cleanup_state SET proof_at=NULL WHERE session_id=${sessionId}`;
+              return true;
+            }),
+          );
+          return invalidated
+            ? ({ _tag: "ConfirmedInvalidation" } as const)
+            : ({ _tag: "Uncertain" } as const);
         }
         const proofCompletedAt = now();
-        yield* sql`UPDATE preview_cleanup_state SET proof_at=COALESCE(proof_at, ${proofCompletedAt}) WHERE session_id=${sessionId}`;
-        const rows =
-          yield* sql`SELECT proof_at FROM preview_cleanup_state WHERE session_id=${sessionId}`;
-
-        const proofAt = Number(
-          (
-            rows[0] /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Record<
-              string,
-              unknown
-            >
-          ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
-            .proof_at,
-        );
-        return now() >= proofAt + 5 * 60_000;
+        const rows = yield* sql`UPDATE preview_cleanup_state
+            SET proof_at=COALESCE(proof_at, ${proofCompletedAt})
+            WHERE session_id=${sessionId}
+              AND EXISTS (
+                SELECT 1 FROM preview_cleanup_proof_fences AS fence
+                WHERE fence.session_id=${sessionId} AND fence.generation=${proofGeneration}
+              )
+            RETURNING proof_at`;
+        const proofRows = yield* Schema.decodeUnknownEffect(
+          Schema.Array(PreviewCleanupProofAtRowSchema),
+        )(rows).pipe(Effect.mapError(() => allocationError("cleanup-proof-state-invalid")));
+        const proofAt = proofRows[0]?.proof_at;
+        if (proofAt === undefined || proofAt === null) return { _tag: "Uncertain" } as const;
+        return now() >= proofAt + previewCleanupProofStabilityMs
+          ? ({ _tag: "Verified", proof: { proofAt, generation: proofGeneration } } as const)
+          : ({ _tag: "Pending" } as const);
       });
 
     const readDeletionClaimOutcome = (sessionId: string, resource: string) =>
       Effect.gen(function* () {
         const rows =
           yield* sql`SELECT state FROM preview_allocation_ledger WHERE session_id=${sessionId} AND resource=${resource}`;
-        const state = (rows[0] as Record<string, unknown> | undefined)?.state;
+        const stateRows = yield* Effect.try({
+          try: () => Schema.decodeUnknownSync(Schema.Array(PreviewAllocationStateRowSchema))(rows),
+          catch: () => allocationError("allocation-ownership-ledger-invalid"),
+        });
+        const state = stateRows[0]?.state;
         if (state === "deleted" || state === "not-allocated") return "deleted" as const;
         return state === "deleting" ? ("waiting" as const) : ("quarantined" as const);
+      });
+
+    const quarantineUnknownCleanupResource = (
+      sessionId: string,
+      resource: string,
+      proof: CleanupProofToken,
+    ) =>
+      Effect.gen(function* () {
+        const time = now();
+        const quarantined = yield* sql.withTransaction(
+          Effect.gen(function* () {
+            const updated = yield* sql`UPDATE preview_allocation_ledger
+              SET state='quarantined', failure='unknown-owner-or-resource', updated_at=${time}
+              WHERE session_id=${sessionId} AND resource=${resource}
+                AND (provider_resource_id IS NULL OR provider_resource_id='')
+                AND state IN ('allocating','owned','quarantined','deleting')
+                AND EXISTS (
+                  SELECT 1 FROM preview_cleanup_state AS cleanup
+                  JOIN preview_cleanup_proof_fences AS fence ON fence.session_id=cleanup.session_id
+                  WHERE cleanup.session_id=${sessionId}
+                    AND cleanup.completed_at IS NULL
+                    AND cleanup.proof_at=${proof.proofAt}
+                    AND fence.generation=${proof.generation}
+                )
+              RETURNING resource`;
+            if (updated.length === 0) return false;
+            yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='unknown-owner-or-resource'
+              WHERE session_id=${sessionId} AND completed_at IS NULL
+                AND proof_at=${proof.proofAt}
+                AND EXISTS (
+                  SELECT 1 FROM preview_cleanup_proof_fences AS fence
+                  WHERE fence.session_id=${sessionId} AND fence.generation=${proof.generation}
+                )
+                AND EXISTS (
+                  SELECT 1 FROM preview_allocation_ledger
+                  WHERE session_id=${sessionId}
+                    AND (provider_resource_id IS NULL OR provider_resource_id='')
+                    AND state IN ('allocating','owned','quarantined','deleting')
+                )`;
+            return true;
+          }),
+        );
+        if (quarantined) return "quarantined" as const;
+        if (!(yield* cleanupProofIsCurrent(sessionId, proof))) return "waiting" as const;
+        return yield* readDeletionClaimOutcome(sessionId, resource);
       });
 
     const deleteCleanupResource = (
       sessionId: string,
       entry: Record<string, unknown>,
       timeoutMs: number,
+      proof: CleanupProofToken,
     ) =>
       Effect.gen(function* () {
         const resource = String(entry.resource);
         const ownerToken = String(entry.owner_token);
         const providerResourceId = entry.provider_resource_id;
-        if (typeof providerResourceId !== "string" || providerResourceId === "") {
-          const time = now();
-          yield* sql`UPDATE preview_allocation_ledger SET state='quarantined', failure='unknown-owner-or-resource', updated_at=${time} WHERE session_id=${sessionId} AND resource=${resource}`;
-          yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='unknown-owner-or-resource' WHERE session_id=${sessionId}`;
-          return "quarantined" as const;
-        }
+        if (typeof providerResourceId !== "string" || providerResourceId === "")
+          return yield* quarantineUnknownCleanupResource(sessionId, resource, proof);
         const claimTime = now();
         const claimed =
-          yield* sql`UPDATE preview_allocation_ledger SET state='deleting', failure=NULL, updated_at=${claimTime} WHERE session_id=${sessionId} AND resource=${resource} AND owner_token=${ownerToken} AND provider_resource_id=${providerResourceId} AND (state IN ('owned','quarantined') OR (state='deleting' AND updated_at <= ${claimTime - validatedAdapterTimeoutMs})) RETURNING resource`;
-        if (claimed.length === 0) return yield* readDeletionClaimOutcome(sessionId, resource);
+          yield* sql`UPDATE preview_allocation_ledger SET state='deleting', failure=NULL, updated_at=${claimTime} WHERE session_id=${sessionId} AND resource=${resource} AND owner_token=${ownerToken} AND provider_resource_id=${providerResourceId} AND (state IN ('owned','quarantined') OR (state='deleting' AND updated_at <= ${claimTime - validatedAdapterTimeoutMs})) AND EXISTS (
+            SELECT 1 FROM preview_cleanup_state AS cleanup
+            JOIN preview_cleanup_proof_fences AS fence ON fence.session_id=cleanup.session_id
+            WHERE cleanup.session_id=${sessionId}
+              AND cleanup.proof_at=${proof.proofAt}
+              AND fence.generation=${proof.generation}
+              AND cleanup.proof_at + ${previewCleanupProofStabilityMs} <= ${claimTime}
+          ) RETURNING resource`;
+        if (claimed.length === 0) {
+          if (!(yield* cleanupProofIsCurrent(sessionId, proof))) return "waiting" as const;
+          return yield* readDeletionClaimOutcome(sessionId, resource);
+        }
         const removed = yield* Effect.result(
           withPreviewResourceAdapterTimeout(
             "resource-deletion",
@@ -828,32 +1423,174 @@ export const makePreviewAllocationController = (
           : yield* readDeletionClaimOutcome(sessionId, resource);
       });
 
-    const remainingDeletionPhaseMs = (sessionId: string) =>
+    /**
+     * This timestamp starts only after adapter proof is current and stable. It anchors one
+     * absolute deletion attempt across in-progress retries. A persisted legacy timestamp that
+     * predates stable proof is rebased only after proof is current and no fresh deletion claim
+     * remains. A new explicit cleanup invocation can start a new attempt only after proof is
+     * revalidated and prior deletion claims settle.
+     */
+    const persistCleanupDeletionAttemptStart = (
+      sessionId: string,
+      time: number,
+      proof: CleanupProofToken,
+      attemptStarted: boolean,
+    ) => {
+      const attemptStartedFlag = Number(attemptStarted);
+      return sql`UPDATE preview_cleanup_timing
+        SET deletion_started_at = CASE
+          WHEN deletion_started_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM preview_allocation_ledger AS claim
+              WHERE claim.session_id=${sessionId}
+                AND claim.state='deleting'
+                AND claim.updated_at > ${time - validatedAdapterTimeoutMs}
+            ) THEN ${time}
+          WHEN ${attemptStartedFlag} = 0
+            AND NOT EXISTS (
+              SELECT 1 FROM preview_allocation_ledger AS claim
+              WHERE claim.session_id=${sessionId}
+                AND claim.state='deleting'
+                AND claim.updated_at > ${time - validatedAdapterTimeoutMs}
+            )
+            AND (
+              deletion_started_at + ${previewOwnedResourceDeletionMs} <= ${time}
+              OR deletion_started_at < (
+                SELECT proof_at + ${previewCleanupProofStabilityMs}
+                FROM preview_cleanup_state
+                WHERE session_id=${sessionId}
+              )
+            ) THEN ${time}
+          ELSE deletion_started_at
+        END
+        WHERE session_id=${sessionId}
+          AND EXISTS (
+            SELECT 1 FROM preview_cleanup_state AS cleanup
+            JOIN preview_cleanup_proof_fences AS fence ON fence.session_id=cleanup.session_id
+            WHERE cleanup.session_id=${sessionId}
+              AND cleanup.proof_at=${proof.proofAt}
+              AND fence.generation=${proof.generation}
+              AND cleanup.proof_at + ${previewCleanupProofStabilityMs} <= ${time}
+          )
+        RETURNING deletion_started_at`;
+    };
+
+    const missingCleanupDeletionAttempt = (
+      sessionId: string,
+      proof: CleanupProofToken,
+      reportWindow: PreviewAllocationCleanupReportWindow,
+    ) =>
       Effect.gen(function* () {
-        const time = now();
-        const rows =
-          yield* sql`UPDATE preview_cleanup_timing SET deletion_started_at=COALESCE(deletion_started_at, ${time}) WHERE session_id=${sessionId} RETURNING deletion_started_at`;
-        const startedAt = (rows[0] as Record<string, unknown> | undefined)?.deletion_started_at;
-        if (startedAt === undefined) {
-          yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='cleanup-timing-missing' WHERE session_id=${sessionId}`;
-          return null;
+        const preservedDeadline =
+          reportWindow.state === "known" ? reportWindow.deletionDeadlineAt : null;
+        if (!(yield* cleanupProofIsCurrent(sessionId, proof))) {
+          if (preservedDeadline === null) {
+            reportWindow.state = "invalidated";
+            reportWindow.deletionDeadlineAt = null;
+          }
+          return { remainingMs: null, deletionDeadlineAt: preservedDeadline } as const;
         }
-        const remaining = Number(startedAt) + previewOwnedResourceDeletionMs - time;
-        if (remaining > 0) return remaining;
-        yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='owned-resource-deletion-deadline-exceeded' WHERE session_id=${sessionId}`;
-        yield* sql`UPDATE preview_cleanup_timing SET deletion_started_at=NULL WHERE session_id=${sessionId} AND deletion_started_at=${startedAt}`;
-        return null;
+        if (preservedDeadline === null) {
+          reportWindow.state = "unknown";
+          reportWindow.deletionDeadlineAt = null;
+        }
+        yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='cleanup-timing-missing' WHERE session_id=${sessionId}`;
+        return { remainingMs: null, deletionDeadlineAt: preservedDeadline } as const;
       });
 
-    const deleteCleanupLedger = (sessionId: string, ledger: readonly Record<string, unknown>[]) =>
+    const recordCleanupReportWindow = (
+      reportWindow: PreviewAllocationCleanupReportWindow,
+      startedAt: number,
+      proofStableAt: number,
+    ) => {
+      if (startedAt >= proofStableAt) {
+        reportWindow.state = "known";
+        reportWindow.deletionDeadlineAt = startedAt + previewOwnedResourceDeletionMs;
+      } else {
+        reportWindow.state = "absent";
+        reportWindow.deletionDeadlineAt = null;
+      }
+    };
+
+    const remainingDeletionPhase = (
+      sessionId: string,
+      attempt: { started: boolean },
+      proof: CleanupProofToken,
+      reportWindow: PreviewAllocationCleanupReportWindow,
+    ) =>
+      Effect.gen(function* () {
+        const time = now();
+        const proofStableAt = proof.proofAt + previewCleanupProofStabilityMs;
+        const rows = yield* persistCleanupDeletionAttemptStart(
+          sessionId,
+          time,
+          proof,
+          attempt.started,
+        );
+        const timerRows = yield* Schema.decodeUnknownEffect(
+          Schema.Array(PreviewDeletionAttemptStartRowSchema),
+        )(rows).pipe(Effect.mapError(() => allocationError("cleanup-timing-ledger-invalid")));
+        const startedAt = timerRows[0]?.deletion_started_at ?? undefined;
+        if (startedAt === undefined)
+          return yield* missingCleanupDeletionAttempt(sessionId, proof, reportWindow);
+        if (startedAt === time)
+          yield* sql`UPDATE preview_cleanup_state SET quarantine_reason=NULL WHERE session_id=${sessionId} AND completed_at IS NULL AND quarantine_reason IN ('deletion-failed','owned-resource-deletion-deadline-exceeded')`;
+        attempt.started = true;
+        const deletionDeadlineAt = startedAt + previewOwnedResourceDeletionMs;
+        recordCleanupReportWindow(reportWindow, startedAt, proofStableAt);
+        const remainingMs = deletionDeadlineAt - now();
+        if (remainingMs > 0) return { remainingMs, deletionDeadlineAt } as const;
+        yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='owned-resource-deletion-deadline-exceeded' WHERE session_id=${sessionId}`;
+        return { remainingMs: null, deletionDeadlineAt } as const;
+      });
+
+    const remainingDeletionWorkWindow = (
+      sessionId: string,
+      attempt: { started: boolean },
+      proof: CleanupProofToken,
+      reportWindow: PreviewAllocationCleanupReportWindow,
+    ) =>
+      Effect.gen(function* () {
+        const phase = yield* remainingDeletionPhase(sessionId, attempt, proof, reportWindow);
+        if (phase.remainingMs === null || phase.deletionDeadlineAt === null)
+          return {
+            _tag: "Outcome",
+            outcome: (yield* cleanupProofIsCurrent(sessionId, proof))
+              ? ("quarantined" as const)
+              : ("waiting" as const),
+            deletionDeadlineAt: phase.deletionDeadlineAt,
+          } as const;
+        const budgetMs = Math.floor(phase.remainingMs - previewCleanupReportingBudgetMs);
+        if (budgetMs <= 0)
+          return {
+            _tag: "Outcome",
+            outcome: "quarantined" as const,
+            deletionDeadlineAt: phase.deletionDeadlineAt,
+          } as const;
+        return { _tag: "Budget", budgetMs, deletionDeadlineAt: phase.deletionDeadlineAt } as const;
+      });
+
+    const deleteCleanupLedger = (
+      sessionId: string,
+      ledger: readonly Record<string, unknown>[],
+      attempt: { started: boolean },
+      proof: CleanupProofToken,
+      reportWindow: PreviewAllocationCleanupReportWindow,
+    ) =>
       Effect.gen(function* () {
         for (const entry of ledger) {
-          const remaining = yield* remainingDeletionPhaseMs(sessionId);
-          if (remaining === null) return "quarantined" as const;
+          const workWindow = yield* remainingDeletionWorkWindow(
+            sessionId,
+            attempt,
+            proof,
+            reportWindow,
+          );
+          if (workWindow._tag === "Outcome") return workWindow.outcome;
           const result = yield* deleteCleanupResource(
             sessionId,
             entry,
-            Math.min(validatedAdapterTimeoutMs, remaining),
+            Math.min(validatedAdapterTimeoutMs, workWindow.budgetMs),
+            proof,
           );
           if (result !== "deleted") return result;
         }
@@ -868,10 +1605,16 @@ export const makePreviewAllocationController = (
       Effect.gen(function* () {
         for (const entry of entries) {
           const resource = String(entry.resource);
-          yield* sql`UPDATE preview_allocation_ledger SET state='quarantined', failure='unknown-owner-or-resource', updated_at=${time} WHERE session_id=${sessionId} AND resource=${resource}`;
+          yield* sql`UPDATE preview_allocation_ledger SET state='quarantined', failure='unknown-owner-or-resource', updated_at=${time} WHERE session_id=${sessionId} AND resource=${resource} AND (provider_resource_id IS NULL OR provider_resource_id='') AND state IN ('allocating','owned','quarantined','deleting')`;
         }
         if (entries.length > 0)
-          yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='unknown-owner-or-resource' WHERE session_id=${sessionId}`;
+          yield* sql`UPDATE preview_cleanup_state SET quarantine_reason='unknown-owner-or-resource'
+            WHERE session_id=${sessionId} AND completed_at IS NULL AND EXISTS (
+              SELECT 1 FROM preview_allocation_ledger
+              WHERE session_id=${sessionId}
+                AND (provider_resource_id IS NULL OR provider_resource_id='')
+                AND state IN ('allocating','owned','quarantined','deleting')
+            )`;
       });
 
     const hasUnresolvedAllocations = (sessionId: string) =>
@@ -901,19 +1644,16 @@ export const makePreviewAllocationController = (
       Effect.gen(function* () {
         const rows =
           yield* sql`SELECT DISTINCT provider, provider_identity FROM preview_capacity_reservations WHERE session_id=${sessionId}`;
-
-        const identities = (
-          rows /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
-            Record<string, unknown>
-          >
-        ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
-          .map((row) => ({
-            provider: String(row.provider),
-            identity: String(row.provider_identity),
-          }));
+        const identities = yield* Effect.try({
+          try: () => Schema.decodeUnknownSync(Schema.Array(PreviewProviderIdentityRowSchema))(rows),
+          catch: () => allocationError("provider-resolution-identity-invalid"),
+        });
         if (identities.length === 0)
           return yield* Effect.fail(allocationError("provider-resolution-identity-unreserved"));
-        return identities;
+        return identities.map(({ provider, provider_identity }) => ({
+          provider,
+          identity: provider_identity,
+        }));
       });
 
     const hasResolutionOwnerMatch = (
@@ -952,6 +1692,7 @@ export const makePreviewAllocationController = (
       input: { readonly sessionId: string; readonly resource: string },
       ownerToken: string,
       providerIdentities: readonly { readonly provider: string; readonly identity: string }[],
+      timeoutMs: number,
     ) =>
       Effect.gen(function* () {
         if (adapter.resolveUnknown === undefined)
@@ -959,8 +1700,13 @@ export const makePreviewAllocationController = (
         const response = yield* Effect.result(
           withPreviewResourceAdapterTimeout(
             "ownership-resolution",
-            adapter.resolveUnknown({ ...input, ownerToken, providerIdentities }),
-            validatedAdapterTimeoutMs * 2,
+            adapter.resolveUnknown({
+              sessionId: input.sessionId,
+              resource: input.resource,
+              ownerToken,
+              providerIdentities,
+            }),
+            timeoutMs,
           ),
         );
         if (response._tag === "Failure")
@@ -994,6 +1740,7 @@ export const makePreviewAllocationController = (
     ) =>
       sql.withTransaction(
         Effect.gen(function* () {
+          yield* ensureCleanupProofFence(input.sessionId);
           const resolution = Match.value(evidence.result).pipe(
             Match.when({ status: "found" }, (found) => ({
               outcome: "found" as const,
@@ -1024,6 +1771,8 @@ export const makePreviewAllocationController = (
           );
           if (updated.length === 0)
             return yield* Effect.fail(allocationError("allocation-resolution-raced"));
+          yield* sql`UPDATE preview_cleanup_proof_fences
+            SET generation=generation+1 WHERE session_id=${input.sessionId}`;
           yield* sql`UPDATE preview_cleanup_state SET proof_at=NULL WHERE session_id=${input.sessionId}`;
           const unresolved =
             yield* sql`SELECT resource FROM preview_allocation_ledger WHERE session_id=${input.sessionId} AND (state='quarantined' OR (state IN ('allocating','deleting') AND provider_resource_id IS NULL))`;
@@ -1032,28 +1781,220 @@ export const makePreviewAllocationController = (
         }),
       );
 
-    const releaseCleanupReservations = (sessionId: string, time: number) =>
+    const releaseCleanupReservations = (
+      sessionId: string,
+      time: number,
+      proof: CleanupProofToken,
+    ) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const completed = yield* sql`UPDATE preview_cleanup_state
+            SET completed_at=${time}, quarantine_reason=NULL
+            WHERE session_id=${sessionId} AND completed_at IS NULL
+              AND proof_at=${proof.proofAt}
+              AND EXISTS (
+                SELECT 1 FROM preview_cleanup_proof_fences AS fence
+                WHERE fence.session_id=${sessionId} AND fence.generation=${proof.generation}
+              )
+            RETURNING session_id`;
+          if (completed.length === 0) return false;
+          yield* sql`UPDATE preview_capacity_reservations SET released_at=${time} WHERE session_id=${sessionId} AND released_at IS NULL`;
+          return true;
+        }),
+      );
+
+    const releaseReservationsAfterDeletion = (
+      sessionId: string,
+      attempt: { started: boolean },
+      proof: CleanupProofToken,
+      reportWindow: PreviewAllocationCleanupReportWindow,
+    ) =>
       Effect.gen(function* () {
-        yield* sql`UPDATE preview_capacity_reservations SET released_at=${time} WHERE session_id=${sessionId} AND released_at IS NULL`;
-        yield* sql`UPDATE preview_cleanup_state SET completed_at=${time}, quarantine_reason=NULL WHERE session_id=${sessionId}`;
+        const workWindow = yield* remainingDeletionWorkWindow(
+          sessionId,
+          attempt,
+          proof,
+          reportWindow,
+        );
+        if (workWindow._tag === "Outcome") return workWindow.outcome;
+        if (yield* hasUnresolvedAllocations(sessionId)) return "quarantined" as const;
+        const released = yield* releaseCleanupReservations(sessionId, now(), proof).pipe(
+          Effect.timeoutOption(Duration.millis(workWindow.budgetMs)),
+        );
+        if (Option.isNone(released)) return "quarantined" as const;
+        if (!released.value)
+          return (yield* cleanupProofIsCurrent(sessionId, proof))
+            ? ("quarantined" as const)
+            : ("waiting" as const);
+        return "cleaned" as const;
       });
 
     const cleanupResources = (
       sessionId: string,
       ledger: readonly Record<string, unknown>[],
-      unknownResourcesCount: number,
-      time: number,
+      proof: CleanupProofToken,
+      priorDeletionStartedAt: number | null,
+      reportWindow: PreviewAllocationCleanupReportWindow,
     ) =>
       Effect.gen(function* () {
-        if (!(yield* verifyCleanupProof(sessionId, ledger)))
-          return unknownResourcesCount > 0 ? ("quarantined" as const) : ("waiting" as const);
-        const deletion = yield* deleteCleanupLedger(sessionId, ledger);
-        if (deletion === "quarantined") return "quarantined" as const;
-        if (deletion === "waiting") return "waiting" as const;
-        if ((yield* remainingDeletionPhaseMs(sessionId)) === null) return "quarantined" as const;
-        if (yield* hasUnresolvedAllocations(sessionId)) return "quarantined" as const;
-        yield* releaseCleanupReservations(sessionId, time);
-        return "cleaned" as const;
+        const deletionAttempt = { started: false };
+        const initialTime = now();
+        const result = (outcome: PreviewAllocationCleanupResult["outcome"]) =>
+          makePreviewAllocationCleanupResult(outcome, reportWindow, now);
+        const proofStableAt = proof.proofAt + previewCleanupProofStabilityMs;
+        const freshDeletionClaim = hasFreshDeletionClaim(
+          ledger,
+          initialTime,
+          validatedAdapterTimeoutMs,
+        );
+        const initialWorkBudgetMs = initialDeletionWorkBudgetMs(
+          priorDeletionStartedAt,
+          proofStableAt,
+          initialTime,
+          freshDeletionClaim,
+        );
+        if (initialWorkBudgetMs <= 0) return result("quarantined");
+        // Charge the first persisted timing operation to the same attempt observed with its
+        // proof-generation and ledger snapshot, leaving the reporting reserve available.
+        const initialWorkWindow = yield* remainingDeletionWorkWindow(
+          sessionId,
+          deletionAttempt,
+          proof,
+          reportWindow,
+        ).pipe(Effect.timeoutOption(Duration.millis(initialWorkBudgetMs)));
+        if (Option.isNone(initialWorkWindow))
+          return yield* Effect.fail(allocationError("cleanup-deletion-deadline-exceeded"));
+        const workWindow = initialWorkWindow.value;
+        if (workWindow._tag === "Outcome") return result(workWindow.outcome);
+        const deletionPhase = Effect.gen(function* () {
+          const deletion = yield* deleteCleanupLedger(
+            sessionId,
+            ledger,
+            deletionAttempt,
+            proof,
+            reportWindow,
+          );
+          if (deletion !== "deleted") return deletion;
+          return yield* releaseReservationsAfterDeletion(
+            sessionId,
+            deletionAttempt,
+            proof,
+            reportWindow,
+          );
+        });
+        const completed = yield* deletionPhase.pipe(
+          Effect.timeoutOption(Duration.millis(workWindow.budgetMs)),
+        );
+        if (Option.isSome(completed)) return result(completed.value);
+        return yield* Effect.fail(allocationError("cleanup-deletion-deadline-exceeded"));
+      });
+
+    const cleanupWithDeadline = (input: {
+      readonly sessionId: string;
+      readonly preDeletionDeadlineAt?: number;
+    }) =>
+      Effect.gen(function* () {
+        const reportWindow: PreviewAllocationCleanupReportWindow = {
+          state: "unknown",
+          deletionDeadlineAt: null,
+        };
+        const result = (
+          outcome: PreviewAllocationCleanupResult["outcome"],
+          failure: PreviewAllocationCleanupResult["failure"] = null,
+        ) => makePreviewAllocationCleanupResult(outcome, reportWindow, now, failure);
+        const cleanup = Effect.gen(function* () {
+          const startedAt = now();
+          const preDeletionWindow = cleanupPreDeletionWindow(
+            startedAt,
+            input.preDeletionDeadlineAt,
+            "cleanup-pre-deletion-deadline-exceeded",
+          );
+          if ("error" in preDeletionWindow)
+            return yield* Effect.fail(allocationError(preDeletionWindow.error));
+
+          const prepareCleanup = Effect.gen(function* () {
+            const sessionState = yield* loadCleanupSession(input.sessionId);
+            if (typeof sessionState === "string") {
+              reportWindow.state = "absent";
+              return { _tag: "Outcome", outcome: sessionState } as const;
+            }
+            const authorization = yield* loadKnownCleanupLedger(
+              input.sessionId,
+              sessionState.session,
+            );
+            if (authorization === undefined) {
+              reportWindow.state = "unknown";
+              reportWindow.deletionDeadlineAt = null;
+              return { _tag: "Outcome", outcome: "quarantined" } as const;
+            }
+            Object.assign(reportWindow, cleanupReportWindowFromAuthorization(authorization));
+            const ledger = authorization.ledger;
+            const unknownResources = ledger.filter(
+              (entry) =>
+                typeof entry.provider_resource_id !== "string" || entry.provider_resource_id === "",
+            );
+            const proofWorkPlan = planCleanupProofWork(
+              reportWindow,
+              ledger,
+              now(),
+              preDeletionWindow.workDeadlineAt,
+              validatedAdapterTimeoutMs,
+            );
+            reportWindow.state = proofWorkPlan.reportAttemptState;
+            if (reportWindow.state !== "known") reportWindow.deletionDeadlineAt = null;
+            if (proofWorkPlan._tag === "Skip")
+              return { _tag: "Outcome", outcome: proofWorkPlan.outcome } as const;
+            const proofValidationResult = yield* Effect.gen(function* () {
+              yield* markUnknownRowsQuarantined(input.sessionId, unknownResources, now());
+              return yield* verifyCleanupProofWithinDeadline(
+                input.sessionId,
+                ledger,
+                authorization.proofGeneration,
+                proofWorkPlan.deadlineAt,
+              );
+            }).pipe(Effect.timeoutOption(Duration.millis(proofWorkPlan.budgetMs)));
+            const proofValidation = Option.getOrElse(
+              proofValidationResult,
+              () => ({ _tag: "TimedOut" }) as const,
+            );
+            if (proofValidation._tag === "Uncertain") {
+              reportWindow.state = "unknown";
+              reportWindow.deletionDeadlineAt = null;
+              return { _tag: "Outcome", outcome: "waiting" as const } as const;
+            }
+            if (proofValidation._tag === "ConfirmedInvalidation") {
+              if (reportWindow.state !== "known") {
+                reportWindow.state = "invalidated";
+                reportWindow.deletionDeadlineAt = null;
+              }
+              return { _tag: "Outcome", outcome: proofWorkPlan.outcome } as const;
+            }
+            if (proofValidation._tag !== "Verified")
+              return { _tag: "Outcome", outcome: proofWorkPlan.outcome } as const;
+            return {
+              _tag: "Ready",
+              ledger,
+              proof: proofValidation.proof,
+              deletionStartedAt: authorization.deletionStartedAt,
+            } as const;
+          });
+          const prepared = yield* prepareCleanup.pipe(
+            Effect.timeoutOption(Duration.millis(preDeletionWindow.workBudgetMs)),
+          );
+          if (Option.isNone(prepared))
+            return yield* Effect.fail(allocationError("cleanup-pre-deletion-deadline-exceeded"));
+          if (prepared.value._tag === "Outcome") return result(prepared.value.outcome);
+          return yield* cleanupResources(
+            input.sessionId,
+            prepared.value.ledger,
+            prepared.value.proof,
+            prepared.value.deletionStartedAt,
+            reportWindow,
+          );
+        });
+        const attempted = yield* Effect.result(cleanup);
+        if (Result.isFailure(attempted)) return result("quarantined", attempted.failure);
+        return attempted.success;
       });
 
     const api: PreviewAllocationApi = {
@@ -1083,44 +2024,59 @@ export const makePreviewAllocationController = (
         Effect.gen(function* () {
           const rows =
             yield* sql`SELECT selected_roles, owned_groups, demands, resources FROM preview_profile_demand_plans WHERE profile=${input.profile}`;
-          const persisted = rows[0] as Record<string, unknown> | undefined;
+          const persistedRows = yield* Effect.try({
+            try: () =>
+              Schema.decodeUnknownSync(Schema.Array(PersistedPreviewProfileDemandPlanRowSchema))(
+                rows,
+              ),
+            catch: () => allocationError("persisted-profile-demand-plan-invalid"),
+          });
+          const persisted = persistedRows[0];
           const normalizeSet = (values: readonly string[]) => [...new Set(values)].sort();
-          const plan =
-            persisted !== undefined &&
-            JSON.stringify(
-              normalizeSet(
-                JSON.parse(
-                  String(persisted.selected_roles),
-                ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as string[] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-              ),
-            ) === JSON.stringify(normalizeSet(input.selectedRoles)) &&
-            JSON.stringify(
-              normalizeSet(
-                JSON.parse(
-                  String(persisted.owned_groups),
-                ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as string[] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-              ),
-            ) === JSON.stringify(normalizeSet(input.ownedGroups))
-              ? {
-                  demands: JSON.parse(
-                    String(persisted.demands),
-                  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as readonly CapacityDemand[] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-
-                  resources: JSON.parse(
-                    String(persisted.resources),
-                  ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as readonly string[] /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-                }
-              : yield* Effect.mapError(
-                  withPreviewResourceAdapterTimeout(
-                    "profile-planning",
-                    adapter.planProfile(input),
-                    validatedAdapterTimeoutMs,
+          let plan: PreviewProfileDemandPlan | undefined;
+          if (persisted !== undefined) {
+            const selections = yield* Effect.try({
+              try: () => ({
+                selectedRoles: Schema.decodeUnknownSync(Schema.Array(Schema.String))(
+                  JSON.parse(persisted.selected_roles),
+                ),
+                ownedGroups: Schema.decodeUnknownSync(Schema.Array(Schema.String))(
+                  JSON.parse(persisted.owned_groups),
+                ),
+              }),
+              catch: () => allocationError("persisted-profile-demand-plan-invalid"),
+            });
+            if (
+              JSON.stringify(normalizeSet(selections.selectedRoles)) ===
+                JSON.stringify(normalizeSet(input.selectedRoles)) &&
+              JSON.stringify(normalizeSet(selections.ownedGroups)) ===
+                JSON.stringify(normalizeSet(input.ownedGroups))
+            ) {
+              plan = yield* Effect.try({
+                try: () => ({
+                  demands: Schema.decodeUnknownSync(Schema.Array(CapacityDemandSchema))(
+                    JSON.parse(persisted.demands),
                   ),
-                  (error) =>
-                    allocationError(
-                      `profile-demand-unavailable:${allocationFailureDescription(error)}`,
-                    ),
-                );
+                  resources: Schema.decodeUnknownSync(Schema.Array(Schema.String))(
+                    JSON.parse(persisted.resources),
+                  ),
+                }),
+                catch: () => allocationError("persisted-profile-demand-plan-invalid"),
+              });
+            }
+          }
+          if (plan === undefined)
+            plan = yield* Effect.mapError(
+              withPreviewResourceAdapterTimeout(
+                "profile-planning",
+                adapter.planProfile(input),
+                validatedAdapterTimeoutMs,
+              ),
+              (error) =>
+                allocationError(
+                  `profile-demand-unavailable:${allocationFailureDescription(error)}`,
+                ),
+            );
           if (
             hasCompleteProfileDemand({
               profile: input.profile,
@@ -1156,13 +2112,16 @@ export const makePreviewAllocationController = (
             if (row === undefined) {
               const otherRows =
                 yield* sql`SELECT provider, provider_identity FROM preview_capacity_measurements WHERE dimension=${demand.dimension}`;
-
-              const observedProviders = (
-                otherRows /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
-                  Record<string, unknown>
-                >
-              ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
-                .map((other) => `${String(other.provider)}/${String(other.provider_identity)}`);
+              const providerRows = yield* Effect.try({
+                try: () =>
+                  Schema.decodeUnknownSync(Schema.Array(PreviewProviderIdentityRowSchema))(
+                    otherRows,
+                  ),
+                catch: () => allocationError("capacity-provider-ledger-invalid"),
+              });
+              const observedProviders = providerRows.map(
+                (other) => `${other.provider}/${other.provider_identity}`,
+              );
               return {
                 ...demand,
                 status:
@@ -1228,97 +2187,150 @@ export const makePreviewAllocationController = (
           if (existing.length > 0)
             return yield* Effect.fail(allocationError("session-already-reserved"));
           const rows = yield* reserveCapacityAndLedger(input);
-          return yield* allocateRecordedResources(
-            input.sessionId,
-
-            rows /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
-              Record<string, unknown>
-            > /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-            input.resourceMetadata,
-          );
+          return yield* allocateRecordedResources(input.sessionId, rows, input.resourceMetadata);
         }),
       cleanup: (input) =>
-        Effect.gen(function* () {
-          const time = now();
-          const sessionState = yield* loadCleanupSession(input.sessionId);
-          if (sessionState === "cleaned") return "cleaned" as const;
-          if (sessionState === "waiting") return "waiting" as const;
-          if (sessionState === "quarantined") return "quarantined" as const;
-          const ledger = yield* loadKnownCleanupLedger(input.sessionId, sessionState.session);
-          if (ledger === undefined) return "quarantined" as const;
-          const unknownResources = ledger.filter(
-            (entry) =>
-              typeof entry.provider_resource_id !== "string" || entry.provider_resource_id === "",
-          );
-          yield* markUnknownRowsQuarantined(input.sessionId, unknownResources, time);
-          return yield* cleanupResources(input.sessionId, ledger, unknownResources.length, time);
-        }),
+        Effect.flatMap(cleanupWithDeadline(input), (result) =>
+          result.failure === null ? Effect.succeed(result.outcome) : Effect.fail(result.failure),
+        ),
+      cleanupWithDeadline,
       resolveUnknownAllocation: (input) =>
         Effect.gen(function* () {
-          const ownerToken = yield* readUnknownAllocationTarget(input.sessionId, input.resource);
-          const providerIdentities = yield* readProviderIdentities(input.sessionId);
-          const evidence = yield* verifyResolutionEvidence(input, ownerToken, providerIdentities);
-          yield* persistResolutionEvidence(input, ownerToken, evidence);
-          return Match.value(evidence.result).pipe(
-            Match.when({ status: "found" }, () => "resolved-owned" as const),
-            Match.when({ status: "absent" }, () => "verified-absent" as const),
-            Match.exhaustive,
+          const startedAt = now();
+          const preDeletionWindow = cleanupPreDeletionWindow(
+            startedAt,
+            input.preDeletionDeadlineAt,
+            "cleanup-resolution-deadline-exceeded",
           );
+          if ("error" in preDeletionWindow)
+            return yield* Effect.fail(allocationError(preDeletionWindow.error));
+
+          const resolve = Effect.gen(function* () {
+            const ownerToken = yield* readUnknownAllocationTarget(input.sessionId, input.resource);
+            const providerIdentities = yield* readProviderIdentities(input.sessionId);
+            const timeoutMs = Math.min(
+              validatedAdapterTimeoutMs * 2,
+              preDeletionWindow.workDeadlineAt - now(),
+            );
+            if (timeoutMs <= 0)
+              return yield* Effect.fail(allocationError("cleanup-resolution-deadline-exceeded"));
+            const evidence = yield* verifyResolutionEvidence(
+              input,
+              ownerToken,
+              providerIdentities,
+              timeoutMs,
+            );
+            yield* persistResolutionEvidence(input, ownerToken, evidence);
+            return Match.value(evidence.result).pipe(
+              Match.when({ status: "found" }, () => "resolved-owned" as const),
+              Match.when({ status: "absent" }, () => "verified-absent" as const),
+              Match.exhaustive,
+            );
+          });
+          const resolved = yield* resolve.pipe(
+            Effect.timeoutOption(Duration.millis(preDeletionWindow.workBudgetMs)),
+          );
+          if (Option.isNone(resolved))
+            return yield* Effect.fail(allocationError("cleanup-resolution-deadline-exceeded"));
+          return resolved.value;
         }),
       inspect: (sessionId) =>
         Effect.gen(function* () {
-          const reservations =
+          const reservationRows =
             yield* sql`SELECT * FROM preview_capacity_reservations WHERE session_id=${sessionId} ORDER BY dimension`;
-          const allocations =
+          const allocationRows =
             yield* sql`SELECT * FROM preview_allocation_ledger WHERE session_id=${sessionId} ORDER BY resource`;
-          const cleanup =
-            yield* sql`SELECT * FROM preview_cleanup_state WHERE session_id=${sessionId}`;
-          const cleanupState = cleanup[0] as Record<string, unknown> | undefined;
+          const cleanupRows =
+            yield* sql`SELECT cleanup_state.*, timing.settlement_started_at, timing.deletion_started_at,
+              CASE WHEN timing.session_id IS NULL THEN 0 ELSE 1 END AS has_cleanup_timing
+            FROM preview_cleanup_state AS cleanup_state
+            LEFT JOIN preview_cleanup_timing AS timing ON timing.session_id=cleanup_state.session_id
+            WHERE cleanup_state.session_id=${sessionId}`;
+          const reservations = yield* Effect.try({
+            try: () =>
+              Schema.decodeUnknownSync(Schema.Array(PreviewCapacityReservationRowSchema))(
+                reservationRows,
+              ),
+            catch: () => allocationError("allocation-reservation-ledger-invalid"),
+          });
+          const allocations = yield* Effect.try({
+            try: () =>
+              Schema.decodeUnknownSync(Schema.Array(PreviewAllocationLedgerStatusRowSchema))(
+                allocationRows,
+              ),
+            catch: () => allocationError("allocation-ownership-ledger-invalid"),
+          });
+          const cleanupState = yield* Effect.try({
+            try: () =>
+              cleanupRows.length === 0
+                ? undefined
+                : Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
+                    cleanupRows[0],
+                  ),
+            catch: () => allocationError("allocation-cleanup-ledger-invalid"),
+          });
+          const observedAt = now();
+          const hasFreshDeletionClaim = allocations.some(
+            (allocation) =>
+              allocation.state === "deleting" &&
+              allocation.updated_at > observedAt - validatedAdapterTimeoutMs,
+          );
           return {
-            reservations: (
-              reservations /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
-                Record<string, unknown>
-              >
-            ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
-              .map((row) => ({
-                dimension: String(row.dimension),
-                amount: Number(row.amount),
-                provider: String(row.provider),
-                identity: String(row.provider_identity),
-                releasedAt: row.released_at === null ? null : Number(row.released_at),
-              })),
-
-            allocations: (
-              allocations /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as Array<
-                Record<string, unknown>
-              >
-            ) /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */
-              .map((row) => ({
-                resource: String(row.resource),
-                providerResourceId:
-                  typeof row.provider_resource_id === "string" ? row.provider_resource_id : null,
-
-                state:
-                  row.state /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as
-                    | "allocating"
-                    | "owned"
-                    | "deleting"
-                    | "quarantined"
-                    | "deleted"
-                    | "not-allocated" /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */,
-                failure: typeof row.failure === "string" ? row.failure : null,
-              })),
-            cleanup:
-              cleanupState === undefined // oxlint-disable-line no-nested-ternary -- inherited master site
-                ? null
-                : cleanupState.completed_at !== null // oxlint-disable-line no-nested-ternary -- inherited master site
-                  ? "cleaned"
-                  : cleanupState.quarantine_reason == null
-                    ? "waiting"
-                    : "quarantined",
+            reservations: reservations.map((row) => ({
+              dimension: row.dimension,
+              amount: row.amount,
+              provider: row.provider,
+              identity: row.provider_identity,
+              releasedAt: row.released_at,
+            })),
+            allocations: allocations.map((row) => ({
+              resource: String(row.resource),
+              providerResourceId: row.provider_resource_id,
+              state: row.state,
+              failure: row.failure,
+            })),
+            cleanup: cleanupOutcome(cleanupState),
+            cleanupTiming: buildCleanupTimingStatus(
+              cleanupTimingDataFromRow(cleanupState),
+              observedAt,
+              hasFreshDeletionClaim,
+            ),
           };
         }),
+      markCleanupUnconfirmed: (input) =>
+        Effect.gen(function* () {
+          const session = yield* readRequiredSession(input.sessionId);
+          if (session.ended_at === null)
+            return yield* Effect.fail(allocationError("live-session-destruction-refused"));
+          const endedAt = Number(session.ended_at);
+          yield* sql`INSERT INTO preview_cleanup_state(session_id, ended_at, proof_at) VALUES (${input.sessionId}, ${endedAt}, NULL) ON CONFLICT(session_id) DO NOTHING`;
+          yield* sql`INSERT INTO preview_cleanup_timing(session_id, settlement_started_at) VALUES (${input.sessionId}, ${endedAt}) ON CONFLICT(session_id) DO NOTHING`;
+          yield* sql`UPDATE preview_cleanup_state SET quarantine_reason=${input.reason} WHERE session_id=${input.sessionId} AND completed_at IS NULL`;
+        }),
     };
+
+    function verifyCleanupProofWithinDeadline(
+      sessionId: string,
+      ledger: readonly Record<string, unknown>[],
+      proofGeneration: number,
+      preDeletionDeadlineAt: number | undefined,
+    ): Effect.Effect<
+      CleanupProofValidation,
+      SqlError.SqlError | Error | PlatformError,
+      FileSystem.FileSystem
+    > {
+      if (preDeletionDeadlineAt === undefined)
+        return verifyCleanupProof(sessionId, ledger, proofGeneration);
+      return Effect.gen(function* () {
+        const remainingProofMs = preDeletionDeadlineAt - now();
+        if (remainingProofMs <= 0) return { _tag: "DeadlineExpired" } as const;
+        const proof = yield* verifyCleanupProof(sessionId, ledger, proofGeneration).pipe(
+          Effect.timeoutOption(Duration.millis(remainingProofMs)),
+        );
+        return Option.getOrElse(proof, () => ({ _tag: "TimedOut" }) as const);
+      });
+    }
+
     return api;
   });
 

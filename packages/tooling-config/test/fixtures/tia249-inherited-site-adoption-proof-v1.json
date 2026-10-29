@@ -1,0 +1,156 @@
+{
+  "baseHead": "a143086dc0dede4f0825899279fbe8d59327fd6c",
+  "baselineBeforeSha256": "7a197a222f2bd5a3234ffd1e3403dfe034f5fd63ef9eea597becf379e4a8b361",
+  "baselineCountsAfter": {
+    "typescript/no-unsafe-type-assertion": 700,
+    "typescript/restrict-template-expressions": 51
+  },
+  "baselineCountsBefore": {
+    "typescript/no-unsafe-type-assertion": 712,
+    "typescript/restrict-template-expressions": 51
+  },
+  "baselineLinesAfter": 751,
+  "baselineLinesBefore": 763,
+  "checks": {
+    "allOtherBuiltinRowsAndTopLevelEntriesUnchanged": true,
+    "allRemovedSourceSnippetsAbsent": true,
+    "fallowBaselinesUnchanged": true,
+    "nestedTernaryEntriesUnchanged": true,
+    "remainingCurrentGeneratedSitesExactlyMatchPreservedRows": true
+  },
+  "currentGeneratedSitesAfterTypedAdoption": [
+    {
+      "line": 612,
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "d541f28d81886fe4b419739af79d2d8e416bad1289c075cee890596072f46477",
+      "source": "        group  as keyof typeof previewCapacityDimensionsByGroup"
+    },
+    {
+      "line": 1861,
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "c6cb84815764d80bcf43b97b718b29b65746c204adda5d4368c8d56268bfb7be",
+      "source": "        JSON.parse("
+    }
+  ],
+  "currentSiteGenerationReceipt": {
+    "receiptSha256": "ff4fddd1aca4e47b12e42071eba9e3f45ae845c2297103582fefc761c31003b6",
+    "stdoutSha256": "599eb5bfef31958d78c0af7d81211eb955fec21a9e7f667882c05eb9f3a5a59b",
+    "artifactRef": "TIA-249:a143086d:current-site-generation-receipt"
+  },
+  "currentWorkingSourceIdentity": "d96acfc3275a326ec7478e8999a0d2d4aeccd18d4232cd89ffd8c90c29a9c5e8",
+  "currentWorkingSourceRows": 1353,
+  "decisionScopeSha256": "4ec86a1c8cbfb62cd4808bc7f2a80befe70bba0447fc0fabce67f91e670cca49",
+  "diagnosticCounts": {
+    "afterTypedAdoptionChangedSiteComments": 0,
+    "afterTypedAdoptionOrphanRows": 1,
+    "beforeTypedAdoptionChangedSiteComments": 22,
+    "beforeTypedAdoptionOrphanRows": 1
+  },
+  "fallowBaselineSha256": {
+    ".github/fallow-baselines/dead-code.json": "6a3c06d0219f8e3b962e796cc15d61f65cb64ca984f8bc4c2404984b82f20d11",
+    ".github/fallow-baselines/dupes.json": "351a5a7ef6fa6d491fe319bbca813b746fde2b7b6d9f9a5db7d88273bc1bd18f",
+    ".github/fallow-baselines/health.json": "9d32180fc16f089ab52db5abd4b348d226f98c63e3eb5a9bac3b4eb4c2af0e3c"
+  },
+  "initialLintReceipt": {
+    "receiptSha256": "13962033f9f669a4ecc66803f736ca81ff004e4a9585d31dc3f740978987b168",
+    "stdoutSha256": "f10fad4e6d5f77194572ba9547bb76149dbf62fe81880b6fd3a716855f31becb",
+    "artifactRef": "TIA-249:a143086d:initial-lint-receipt"
+  },
+  "newAllowances": 0,
+  "policyExpansion": false,
+  "preservedSiteIds": [
+    "c6cb84815764d80bcf43b97b718b29b65746c204adda5d4368c8d56268bfb7be",
+    "d541f28d81886fe4b419739af79d2d8e416bad1289c075cee890596072f46477"
+  ],
+  "removedRegistryRows": 12,
+  "removedSiteIds": [
+    {
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "48c3192847bf1efb9b0fa9bcacf55dfe88dee491fa020da98c68ca635ead4a11",
+      "source": "        if (cleanups.length > 0 && (cleanups[0] as Record<string, unknown>).completed_at !== null)",
+      "sourceAbsentAfterAdoption": true
+    },
+    {
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "e1ac46f936ebd4d9d57be09b04b80252fd82a361ec13b7db25e83fbba99ccdb9",
+      "source": "          recordedResources = JSON.parse(String(session.resource_ids)) as Readonly<",
+      "sourceAbsentAfterAdoption": true
+    },
+    {
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "9e1b15eda8f43babf40054fa1cf89cb17bbdd53efde3e32691beaff9acbf9fcc",
+      "source": "          (allRows as Array<Record<string, unknown>>).map((row) => String(row.resource)),",
+      "sourceAbsentAfterAdoption": true
+    },
+    {
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "d1c5bec7a51065dae333275c28b7bc6c412f47f64d0e1926d11a94d3e25ced8b",
+      "source": "        return ledger as Array<Record<string, unknown>>;",
+      "sourceAbsentAfterAdoption": true
+    },
+    {
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "b2dfc753c02cf83fd601635783ca0ab81b42cfa1ebcddb5e41fd8b9d9443c5fb",
+      "source": "        const proofAt = Number((rows[0] as Record<string, unknown>).proof_at);",
+      "sourceAbsentAfterAdoption": true
+    },
+    {
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "3270b1ecb1904676760876cac630dbaeca81e68932f897cd008e94611ccf2bf2",
+      "source": "        const identities = (rows as Array<Record<string, unknown>>).map((row) => ({",
+      "sourceAbsentAfterAdoption": true
+    },
+    {
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "dea82255d69b2b4176a64bc0a4ea56885c59cce8d24892ba694e5efcc339d827",
+      "source": "              normalizeSet(JSON.parse(String(persisted.selected_roles)) as string[]),",
+      "sourceAbsentAfterAdoption": true
+    },
+    {
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "4bb678d70ff6397529ec43b25ce87b3a66e36eb52b10e1666d1d32c32f07d5ec",
+      "source": "            JSON.stringify(normalizeSet(JSON.parse(String(persisted.owned_groups)) as string[])) ===",
+      "sourceAbsentAfterAdoption": true
+    },
+    {
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "c12455251c4c47e0e9a15b5138a8b10ffedacf0c5c4c894d8f74ce11c962271f",
+      "source": "                  demands: JSON.parse(String(persisted.demands)) as readonly CapacityDemand[],",
+      "sourceAbsentAfterAdoption": true
+    },
+    {
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "67dad0e00ee7abbfc0985b6a445543b2b91e721a70965573feb23d7e660a8ac9",
+      "source": "                  resources: JSON.parse(String(persisted.resources)) as readonly string[],",
+      "sourceAbsentAfterAdoption": true
+    },
+    {
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "ca4e45d96d7dd6df6090592a5b9f2e8cd0638d5727a0fa6504873f8fbd88ff28",
+      "source": "              const observedProviders = (otherRows as Array<Record<string, unknown>>).map(",
+      "sourceAbsentAfterAdoption": true
+    },
+    {
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "52712f43ba6144806cd48148564accbf4469385083e9324b7d5852755a15e602",
+      "source": "            rows as Array<Record<string, unknown>>,",
+      "sourceAbsentAfterAdoption": true
+    }
+  ],
+  "schema": "mechanical-current-site-bijection-v1",
+  "sourceDirectiveCounts": {
+    "afterAdoption": 4,
+    "atA143": 28,
+    "removedDirectiveComments": 24
+  },
+  "targetBuiltinRowsBefore": 14,
+  "targetFile": "packages/developer-launcher/src/preview-allocations.ts",
+  "typedAdoptionLintReceipt": {
+    "receiptSha256": "79fc3cd0af49f9cc1ad9e34eb98223e7f61b043b9fcbb11b499dae78ba8ce827",
+    "stdoutSha256": "a2f94f25dcd95d4ffe602e0eb2c44d048396da1f3fa5322bf0b63fab578a23e4",
+    "artifactRef": "TIA-249:a143086d:typed-adoption-lint-receipt"
+  },
+  "portableArtifactId": "TIA-249:a143086d:inherited-site-adoption-proof-v1",
+  "sourceEvidenceSha256": "2c716340c6a5138b1f2af4e5914cd7917dd614eed99bfa92386f3d9a41f13af4",
+  "decisionScopeRef": "TIA-249:0d18c7f9:changed-inspection-site-adoption-scope-v1"
+}

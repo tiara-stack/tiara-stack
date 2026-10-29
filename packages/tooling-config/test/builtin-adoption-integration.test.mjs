@@ -577,6 +577,98 @@ const readRouteBaselineState = () => {
   return { baselineManifest, baselinePin, currentBaselineSha, routeEntries };
 };
 
+it("keeps inherited-site adoption evidence repository-relative and content-addressed", () => {
+  const { baselineManifest, baselinePin, currentBaselineSha } = readRouteBaselineState();
+  const adoption = baselineManifest.$provenance.tia249InheritedSiteAdoption;
+  const proofPath = adoption.evidencePath;
+  const decisionScopePath = adoption.decisionScopePath;
+  const proofBytes = readFileSync(path.join(root, proofPath));
+  const decisionScopeBytes = readFileSync(path.join(root, decisionScopePath));
+  const proof = JSON.parse(proofBytes.toString("utf8"));
+  const decisionScope = JSON.parse(decisionScopeBytes.toString("utf8"));
+  const adoptionStringValues = [];
+  const collectStringValues = (value) => {
+    if (typeof value === "string") adoptionStringValues.push(value);
+    else if (Array.isArray(value)) value.forEach(collectStringValues);
+    else if (value !== null && typeof value === "object")
+      Object.entries(value).forEach(([key, nested]) => {
+        adoptionStringValues.push(key);
+        collectStringValues(nested);
+      });
+  };
+  collectStringValues(adoption);
+
+  expect(path.isAbsolute(proofPath)).toBe(false);
+  expect(path.isAbsolute(decisionScopePath)).toBe(false);
+  expect(
+    adoptionStringValues.some((value) => path.isAbsolute(value) || path.win32.isAbsolute(value)),
+  ).toBe(false);
+  expect(adoption.currentSiteGenerationReceipt).toEqual({
+    artifactId: "TIA-249:a143086d:capture:763a421ead7f",
+    receiptSha256: "ff4fddd1aca4e47b12e42071eba9e3f45ae845c2297103582fefc761c31003b6",
+    stdoutSha256: "599eb5bfef31958d78c0af7d81211eb955fec21a9e7f667882c05eb9f3a5a59b",
+  });
+  expect(adoption.initialLintReceipt).toEqual({
+    artifactId: "TIA-249:a143086d:capture:49c70f8216e0",
+    receiptSha256: "13962033f9f669a4ecc66803f736ca81ff004e4a9585d31dc3f740978987b168",
+    stdoutSha256: "f10fad4e6d5f77194572ba9547bb76149dbf62fe81880b6fd3a716855f31becb",
+  });
+  expect(adoption.typedAdoptionLintReceipt).toEqual({
+    artifactId: "TIA-249:a143086d:capture:90dcc6511bfc",
+    receiptSha256: "79fc3cd0af49f9cc1ad9e34eb98223e7f61b043b9fcbb11b499dae78ba8ce827",
+    stdoutSha256: "a2f94f25dcd95d4ffe602e0eb2c44d048396da1f3fa5322bf0b63fab578a23e4",
+  });
+  expect(adoption.evidenceSha256).toBe(createHash("sha256").update(proofBytes).digest("hex"));
+  expect(adoption.decisionScopeSha256).toBe(
+    createHash("sha256").update(decisionScopeBytes).digest("hex"),
+  );
+  expect(proof.portableArtifactId).toBe(adoption.evidenceSourceRef);
+  expect(proof.sourceEvidenceSha256).toBe(adoption.evidenceSourceSha256);
+  expect(proof.decisionScopeRef).toBe(adoption.decisionScopeSourceRef);
+  expect(JSON.stringify(proof)).not.toContain("/opt/data/");
+  expect(JSON.stringify(decisionScope)).not.toContain("/opt/data/");
+  expect(adoption.decisionScopeSourceSha256).toBe(adoption.decisionScopeSha256);
+  const latestRepair = adoption.latestRepairAdoption;
+  const currentRows = baselineManifest.$builtins[latestRepair.targetFile] ?? [];
+  const currentGeneratedRows = currentRows
+    .map(({ rule, site, source }) => ({ rule, site, source }))
+    .sort(
+      (left, right) => left.rule.localeCompare(right.rule) || left.site.localeCompare(right.site),
+    );
+  expect(latestRepair).toMatchObject({
+    sourceHead: "b4fdb58204482b7c6cc3552832a6ebe882c402ac",
+    sourceRows: 1355,
+    targetFile: "packages/developer-launcher/src/connected-preview.test.ts",
+    targetBuiltinRowsBefore: 31,
+    targetBuiltinRowsAfter: 27,
+    currentGeneratedSiteCount: 27,
+    removedRegistryRows: 4,
+    removedSourceDirectivePairs: 4,
+    newAllowances: 0,
+    policyExpansion: false,
+  });
+  expect(currentGeneratedRows.map(({ site }) => site)).toEqual(
+    [...latestRepair.currentGeneratedSiteIds].sort((left, right) => left.localeCompare(right)),
+  );
+  expect(latestRepair.removedSiteIds.map(({ site }) => site)).toEqual([
+    "46510ee4447c92a912c8263d4122227833a4c516a5a052aea62b856fe43c65d1",
+    "47f854a19e177db0a25ccf5693f7b59bacee57ee4b348cd40744034d94451afd",
+    "8b6781f4cefa3ffd2d01c7c894a17950e0c6a6ad3926a21505295ca6c96b9d1b",
+    "af2f8e5cfc25bc01fad0aa738ce2be1b3a3e53a92b7eec3a3982d5c39aebce04",
+  ]);
+  expect(latestRepair.currentSiteGenerationReceipt).toMatchObject({
+    artifactId: "TIA-249:b4fdb582:current-site-generation:cbe2c4a95712",
+    receiptSha256: "e0f5e707998348331f39acdc76efe1ed61cc3835f07f7cf679cbb120c7615c9c",
+    stdoutSha256: "043f1b256771fb93e43e8ce52ac9cb634de718cc99d64cfaaf64e9755fcf3444",
+  });
+  expect(latestRepair.preAdoptionLintDiagnostics).toEqual({
+    changedSiteDirectiveDiagnostics: 10,
+    orphanMessages: 1,
+    note: "Diagnostic messages are not registry row counts.",
+  });
+  expect(baselinePin).toBe(currentBaselineSha);
+});
+
 const routeMappingIsBaseProven = ({ baseMatch, pluginSite }) =>
   baseMatch.line === pluginSite.line && pluginSite.site === pluginSite.legacySite;
 
@@ -602,7 +694,7 @@ const assertRouteBaselineState = (routeProof, lintResult, routeDiagnostics) => {
   assertRouteBaselineEntries(routeEntries, routeProof);
   expect(baselinePin).toBe(currentBaselineSha);
   expect(baselineManifest.$provenance.builtinBaselineCounts).toMatchObject({
-    "typescript/no-unsafe-type-assertion": 727,
+    "typescript/no-unsafe-type-assertion": 696,
     "typescript/restrict-template-expressions": 51,
   });
   expect(lintResult.status).not.toBe(0);

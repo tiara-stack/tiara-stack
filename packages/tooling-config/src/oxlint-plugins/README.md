@@ -60,8 +60,11 @@ diagnostic inventory later found 26 additional child occurrences already
 present in the exact master source but hidden inside inherited sites: nine
 unsafe assertions and 17 template interpolations. Each child was linked to its
 master blob and parser span before it was added. The current pinned baseline
-therefore contains 727 unsafe-assertion occurrences and 51
-template-interpolation occurrences. PASS19 enrolls exactly 28 base-proven
+therefore contains 712 unsafe-assertion occurrences and 51
+template-interpolation occurrences. The TIA-249 rebase removed twelve inherited
+unsafe assertions: one bounded action decode in `commands.ts` and eleven Schema
+decodes in `preview-sessions.ts`. Those sites were removed from the baseline.
+PASS19 enrolls exactly 28 base-proven
 `typescript/no-unsafe-type-assertion` occurrences in
 `packages/sheet-web/src/routeTree.gen.ts`, already present in the generated
 route tree but outside the earlier lint target. Each has an exact paired native
@@ -69,8 +72,10 @@ directive and a distinct AST-site identity. No other route-tree or new source
 occurrence is enrolled. The original 725-site migration remains historical and
 unchanged. One original master unsafe assertion in the connected-preview
 doctor lookup was later resolved by the runtime-safe fallback and pruned
-one-to-one. The 26 additional master-proven child occurrences (nine unsafe
-assertions and 17 template interpolations) remain active.
+one-to-one. The TIA-249 cleanup timing inspection replaced three inherited
+unchecked SQL-row assertions with Effect Schema decoding and removed those
+three baseline entries. The 26 additional master-proven child occurrences
+(nine unsafe assertions and 17 template interpolations) remain active.
 
 The sheet-web TanStack Start config installs
 `createGeneratedRouteAdoptionPlugin` as a Router GeneratorPlugin. It decorates
@@ -94,11 +99,13 @@ shape. Unrelated top-level statement position is excluded from the identity.
 Effect test identities also include whether a callback uses `it.effect` or
 `it.live` and its occurrence among same-label sibling callbacks. This prevents
 a resolved live callback from grandfathering the same runtime call if it is
-changed back to effect mode. The initial master-proven manifest contained seven custom policy sites. All
+changed back to effect mode. The initial master-proven manifest contained seven
+custom policy sites. All
 seven original sites have now been resolved to `it.live` and pruned one-to-one
 across the P6, P13, and P14 migrations, leaving zero active custom policy
 allowances. The custom adoption checks remain active for future sites. Native
-baseline counts remain 727 unsafe assertions and 51 template interpolations.
+baseline counts now stand at 712 unsafe assertions and 51 template
+interpolations.
 The identity is matched with multiplicity, so removing an inherited site does
 not create room for another site. The adapter also rejects stale or moved
 suppressions. At initial migration, all 725 original diagnostic expressions were present in `master`: 695 match exactly and 30 differ only by formatting (whitespace or a

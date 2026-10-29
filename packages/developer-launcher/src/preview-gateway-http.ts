@@ -1,5 +1,5 @@
 import { previewHttpsServerLayer } from "./preview-https";
-import { Context, Effect, FileSystem, Layer, Match, Schema, Scope } from "effect";
+import { Cause, Context, Effect, FileSystem, Layer, Match, Option, Schema, Scope } from "effect";
 import {
   HttpRouter,
   HttpIncomingMessage,
@@ -17,6 +17,7 @@ import {
   PreviewGatewayProbeTargetSchema,
   previewGatewayMaxApplicationRequestBytes,
   previewGatewayMaxApplicationResponseBytes,
+  previewGatewayCleanupFailureFromCause,
   type PreviewGatewayApi,
   type PreviewGatewayAdmission,
 } from "./preview-gateway";
@@ -74,6 +75,18 @@ export const dispatchPreviewGatewayProtocol = (gateway: PreviewGatewayApi, input
 
 const unavailable = () => new PreviewGatewayError({ reason: "unavailable" });
 const noStore = { "cache-control": "no-store", "x-content-type-options": "nosniff" };
+
+const responseForGatewayCause = (
+  cause: Cause.Cause<unknown>,
+  statusForError: (error: PreviewGatewayError) => number,
+) => {
+  const error = previewGatewayCleanupFailureFromCause(cause);
+  return Option.isSome(error)
+    ? Effect.succeed(
+        HttpServerResponse.empty({ status: statusForError(error.value), headers: noStore }),
+      )
+    : Effect.failCause(cause);
+};
 
 const bridge = (
   admission: PreviewGatewayAdmission,
@@ -359,9 +372,7 @@ const previewProbeRequestFor = (
     if (upgrade) return yield* bridge(admission, request, admission.connection.socket);
     const body = yield* admission.guard(admission.connection.http(admission.headers));
     return HttpServerResponse.text(body, { headers: noStore });
-  }).pipe(
-    Effect.catch(() => Effect.succeed(HttpServerResponse.empty({ status: 503, headers: noStore }))),
-  );
+  }).pipe(Effect.catchCause((cause) => responseForGatewayCause(cause, () => 503)));
 
 const forwardApplicationRequest = (
   admission: PreviewGatewayAdmission,
@@ -417,25 +428,15 @@ const applicationRequestFor = (
       return HttpServerResponse.empty({ status: 503, headers: noStore });
     return yield* forwardApplicationRequest(admission, request, path, upgrade);
   }).pipe(
-    Effect.catch((error) =>
-      Effect.succeed(
-        HttpServerResponse.empty({
-          status:
-            error instanceof PreviewGatewayError && error.reason === "payload-too-large"
-              ? 413
-              : 503,
-          headers: noStore,
-        }),
-      ),
+    Effect.catchCause((cause) =>
+      responseForGatewayCause(cause, (error) => (error.reason === "payload-too-large" ? 413 : 503)),
     ),
   );
 const applicationRequest = (gateway: PreviewGatewayApi) =>
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     return yield* applicationRequestFor(gateway, request);
-  }).pipe(
-    Effect.catch(() => Effect.succeed(HttpServerResponse.empty({ status: 503, headers: noStore }))),
-  );
+  }).pipe(Effect.catchCause((cause) => responseForGatewayCause(cause, () => 503)));
 
 /** Session-host root and explicit application alias share one authenticated route target. */
 export const PreviewGatewayHttpRoutes = (gateway: PreviewGatewayApi) =>
