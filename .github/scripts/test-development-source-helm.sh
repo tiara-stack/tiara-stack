@@ -124,6 +124,64 @@ assert_workloads_use_tiara_node_pool() {
 assert_workloads_use_tiara_node_pool values-production.yaml
 assert_workloads_use_tiara_node_pool values-development.yaml
 
+assert_production_workflow_runner_memory() {
+  local rendered
+  rendered=$(render_scheduling_profile values-production.yaml)
+
+  awk '
+    function check_document() {
+      if (kind != "Deployment" || name != "sheet-workflows-runner") {
+        return
+      }
+
+      found = 1
+      if (request_memory != "512Mi" || limit_memory != "2Gi") {
+        invalid = 1
+      }
+    }
+    function reset_document() {
+      kind = ""
+      name = ""
+      resource_section = ""
+      request_memory = ""
+      limit_memory = ""
+    }
+    /^---[[:space:]]*$/ {
+      check_document()
+      reset_document()
+      next
+    }
+    /^kind: / {
+      kind = $2
+    }
+    /^  name: / && name == "" {
+      name = $2
+    }
+    /^            limits:[[:space:]]*$/ {
+      resource_section = "limits"
+    }
+    /^            requests:[[:space:]]*$/ {
+      resource_section = "requests"
+    }
+    /^              memory: / {
+      if (resource_section == "limits") {
+        limit_memory = $2
+      } else if (resource_section == "requests") {
+        request_memory = $2
+      }
+    }
+    END {
+      check_document()
+      if (!found || invalid) {
+        printf "Expected production sheet-workflows-runner memory request/limit 512Mi/2Gi; found %s/%s\n", request_memory, limit_memory > "/dev/stderr"
+        exit 1
+      }
+    }
+  ' <<<"$rendered"
+}
+
+assert_production_workflow_runner_memory
+
 assert_helm_failure() {
   local expected_anchor=$1
   local expected_detail=$2

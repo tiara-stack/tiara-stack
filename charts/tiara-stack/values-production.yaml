@@ -60,6 +60,15 @@ services:
   sheetWorkflowsRunner:
     secretRef:
       name: sheet-workflows-secret
+    # The ordinary runner exceeded the shared 512Mi limit during production startup.
+    # Reserve enough heap for workflow module loading while keeping room on the DOKS node.
+    resources:
+      requests:
+        cpu: 50m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 2Gi
   sheetWorkflowsBrowserRunner:
     secretRef:
       name: sheet-workflows-secret
