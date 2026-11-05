@@ -483,6 +483,12 @@
           "allThreeFallowBaselinesUnchanged": true
         }
       }
+    },
+    "tia250PostAdoptionSiteCleanup": {
+      "artifactId": "TIA-250:e30a4abc:inherited-site-cleanup-v1",
+      "evidencePath": "packages/tooling-config/test/fixtures/tia250-inherited-site-cleanup-v1.json",
+      "evidenceSha256": "051f1481ebafcd86fd64fd9fb24e8c201923ef252d4b7351b31188ab2d74ab3b",
+      "schema": "ticket-owned-post-adoption-site-cleanup-v1"
     }
   },
   "$policy": {

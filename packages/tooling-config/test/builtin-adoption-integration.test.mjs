@@ -629,6 +629,39 @@ it("keeps inherited-site adoption evidence repository-relative and content-addre
   expect(JSON.stringify(decisionScope)).not.toContain("/opt/data/");
   expect(adoption.decisionScopeSourceSha256).toBe(adoption.decisionScopeSha256);
   const latestRepair = adoption.latestRepairAdoption;
+  const cleanupRecord = baselineManifest.$provenance.tia250PostAdoptionSiteCleanup;
+  expect(cleanupRecord).toMatchObject({
+    artifactId: "TIA-250:e30a4abc:inherited-site-cleanup-v1",
+    evidencePath: "packages/tooling-config/test/fixtures/tia250-inherited-site-cleanup-v1.json",
+    schema: "ticket-owned-post-adoption-site-cleanup-v1",
+  });
+  expect(path.isAbsolute(cleanupRecord.evidencePath)).toBe(false);
+  expect(path.win32.isAbsolute(cleanupRecord.evidencePath)).toBe(false);
+  const cleanupBytes = readFileSync(path.join(root, cleanupRecord.evidencePath));
+  const cleanup = JSON.parse(cleanupBytes.toString("utf8"));
+  expect(createHash("sha256").update(cleanupBytes).digest("hex")).toBe(
+    cleanupRecord.evidenceSha256,
+  );
+  expect(cleanup).toMatchObject({
+    artifactId: cleanupRecord.artifactId,
+    schema: cleanupRecord.schema,
+    ticketId: "TIA-250",
+    sourceCommitAtPreparation: "e30a4abcce42b92418cae385d19b47335f61ad8f",
+    inheritedRepairArtifactId: latestRepair.artifactId,
+    targetFile: latestRepair.targetFile,
+  });
+  expect(path.isAbsolute(cleanup.targetFile)).toBe(false);
+  expect(path.win32.isAbsolute(cleanup.targetFile)).toBe(false);
+  expect(JSON.stringify(cleanup)).not.toContain("/opt/data/");
+  expect(cleanup.removedSites).toHaveLength(1);
+  const cleanupSiteIds = cleanup.removedSites.map(({ site }) => site);
+  expect(new Set(cleanupSiteIds).size).toBe(cleanupSiteIds.length);
+  const cleanupSource = readFileSync(path.join(root, cleanup.targetFile), "utf8");
+  for (const { site, source, replacementSource } of cleanup.removedSites) {
+    expect(latestRepair.currentGeneratedSiteIds).toContain(site);
+    expect(cleanupSource).not.toContain(source);
+    expect(cleanupSource).toContain(replacementSource);
+  }
   const currentRows = baselineManifest.$builtins[latestRepair.targetFile] ?? [];
   const currentGeneratedRows = currentRows
     .map(({ rule, site, source }) => ({ rule, site, source }))
@@ -647,8 +680,19 @@ it("keeps inherited-site adoption evidence repository-relative and content-addre
     newAllowances: 0,
     policyExpansion: false,
   });
-  expect(currentGeneratedRows.map(({ site }) => site)).toEqual(
-    [...latestRepair.currentGeneratedSiteIds].sort((left, right) => left.localeCompare(right)),
+  const historicalSiteIds = [...latestRepair.currentGeneratedSiteIds].sort((left, right) =>
+    left.localeCompare(right),
+  );
+  const currentSiteIds = currentGeneratedRows
+    .map(({ site }) => site)
+    .sort((left, right) => left.localeCompare(right));
+  const currentSiteIdSet = new Set(currentSiteIds);
+  const removedHistoricalSiteIds = historicalSiteIds.filter((site) => !currentSiteIdSet.has(site));
+  expect(removedHistoricalSiteIds).toEqual(
+    [...cleanupSiteIds].sort((left, right) => left.localeCompare(right)),
+  );
+  expect(currentSiteIds).toEqual(
+    historicalSiteIds.filter((site) => !cleanupSiteIds.includes(site)),
   );
   expect(latestRepair.removedSiteIds.map(({ site }) => site)).toEqual([
     "46510ee4447c92a912c8263d4122227833a4c516a5a052aea62b856fe43c65d1",
