@@ -54,6 +54,10 @@ import {
 import { WorkflowStore } from "effect-zero-workflow";
 import { ReadOnlyWorkflowAuthorization } from "@/workflows/readOnly/authorization";
 import { isBrowserRunnerFleetReady } from "../services/clusterReadiness";
+import {
+  browserRunnerCapabilityGroupFor,
+  browserRunnerCapabilityIdentity,
+} from "../services/browserRunnerCapability";
 
 const sheetDbMigrationArtifactDigest = getSheetDbMigrationArtifactDigest();
 
@@ -79,28 +83,25 @@ const makeBrowserReadinessSqlClient = (
     }).pipe(Effect.provide(Reactivity.layer));
   });
 
-const ordinaryOnlyBrowserReadiness = (sql: string, parameters: ReadonlyArray<unknown>) => {
-  const hasBrowserGroupFence = sql.includes('"sheet_workflows_locks".shard_id LIKE ?');
-  const browserGroupPattern = hasBrowserGroupFence
-    ? parameters.find(
-        (parameter): parameter is string =>
-          typeof parameter === "string" && parameter.endsWith(":%"),
-      )
-    : undefined;
-  const ordinaryShardIds = Array.from({ length: 300 }, (_, shard) => `dispatch:${shard}`);
-  const countedShardIds = ordinaryShardIds.filter((shardId) => {
-    if (!hasBrowserGroupFence) return true;
-    return (
-      browserGroupPattern !== undefined && shardId.startsWith(browserGroupPattern.slice(0, -1))
+const browserReadinessForGroups =
+  (groups: ReadonlyArray<{ readonly group: string; readonly count: number }>) =>
+  (sql: string, parameters: ReadonlyArray<unknown>) => {
+    const groupPattern = parameters.find(
+      (parameter): parameter is string => typeof parameter === "string" && parameter.endsWith(":%"),
     );
-  });
-  return (
-    sql.includes("runner.healthy = TRUE") &&
-    sql.includes("runner.last_heartbeat > NOW()") &&
-    sql.includes('"sheet_workflows_locks".address = runner.address') &&
-    countedShardIds.length === 300
-  );
-};
+    const ownedShardIds = groups.flatMap(({ group, count }) =>
+      Array.from({ length: count }, (_, shard) => `${group}:${shard}`),
+    );
+    return (
+      sql.includes("runner.healthy = TRUE") &&
+      sql.includes("runner.last_heartbeat > NOW()") &&
+      sql.includes('"sheet_workflows_locks".address = runner.address') &&
+      sql.includes('"sheet_workflows_locks".shard_id LIKE ?') &&
+      groupPattern !== undefined &&
+      ownedShardIds.filter((shardId) => shardId.startsWith(groupPattern.slice(0, -1))).length ===
+        300
+    );
+  };
 
 const requestPath = (path: string) => path.replace(":invocationId", "not-an-invocation-id");
 
@@ -327,19 +328,35 @@ describe("sheet workflow HTTP contract boundary", () => {
   );
 
   it.effect(
-    "rejects browser workflows before durable acceptance when the browser group is unavailable",
+    "admits browser enqueue only for the selected compatible browser capability group",
     () =>
       Effect.scoped(
         Effect.gen(function* () {
+          const capabilityIdentity = yield* browserRunnerCapabilityIdentity;
+          const selectedGroup = browserRunnerCapabilityGroupFor(capabilityIdentity);
+          const wrongVersionGroup = browserRunnerCapabilityGroupFor({
+            ...capabilityIdentity,
+            playwrightVersion: `${capabilityIdentity.playwrightVersion}-old`,
+          });
+          const wrongScopeGroup = browserRunnerCapabilityGroupFor({
+            ...capabilityIdentity,
+            databaseEndpointIdentity: `${capabilityIdentity.databaseEndpointIdentity}/other`,
+          });
+          const wrongCatalogGroup = browserRunnerCapabilityGroupFor({
+            ...capabilityIdentity,
+            loadedCatalogDigest: `sha256:${"e".repeat(64)}`,
+          });
+          const wrongSchemaGroup = browserRunnerCapabilityGroupFor({
+            ...capabilityIdentity,
+            loadedSchemaArtifactDigest: `sha256:${"f".repeat(64)}`,
+          });
           let enqueueCalls = 0;
-          const readinessSqlClient = yield* makeBrowserReadinessSqlClient(
-            ordinaryOnlyBrowserReadiness,
-          );
           const executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, never> = {
-            enqueue: () =>
+            enqueue: (contract, _context, request) =>
               Effect.sync(() => {
                 enqueueCalls += 1;
-              }).pipe(Effect.andThen(Effect.die("browser readiness must reject before enqueue"))),
+                return makeRunReference(contract, request.invocationId);
+              }),
             get: () => Stream.die("unused"),
             list: () => Stream.die("unused"),
           };
@@ -367,17 +384,88 @@ describe("sheet workflow HTTP contract boundary", () => {
             }),
           );
           const routes = workflowContractRoutes(ScreenshotsCaptureAndDeliver);
-          const response = yield* handler.pipe(
-            Effect.provideService(
-              HttpServerRequest.HttpServerRequest,
-              HttpServerRequest.fromWeb(routeRequest("POST", routes.enqueue, JSON.stringify(body))),
-            ),
-            Effect.provideService(SqlClient.SqlClient, readinessSqlClient),
-          );
+          const scenarios = [
+            {
+              label: "selected runtime and group",
+              groups: [{ group: selectedGroup, count: 300 }],
+              status: 202,
+              enqueues: 1,
+            },
+            {
+              label: "ordinary-only shard ownership",
+              groups: [{ group: "dispatch", count: 300 }],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "mixed browser capability and ordinary ownership",
+              groups: [
+                { group: selectedGroup, count: 150 },
+                { group: "dispatch", count: 150 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "wrong admitted Playwright version",
+              groups: [{ group: wrongVersionGroup, count: 300 }],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "selected store identity changed before guarded admission",
+              groups: [{ group: wrongScopeGroup, count: 300 }],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "mismatched declared workflow catalog",
+              groups: [{ group: wrongCatalogGroup, count: 300 }],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "mismatched admitted schema artifact",
+              groups: [{ group: wrongSchemaGroup, count: 300 }],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "browser capability lost before admission",
+              groups: [],
+              status: 503,
+              enqueues: 0,
+            },
+          ] as const;
 
-          expect(response.status).toBe(503);
-          expect(enqueueCalls).toBe(0);
+          for (const scenario of scenarios) {
+            const enqueueCallsBeforeScenario = enqueueCalls;
+            const readinessSqlClient = yield* makeBrowserReadinessSqlClient(
+              browserReadinessForGroups(scenario.groups),
+            );
+            const response = yield* handler.pipe(
+              Effect.provideService(
+                HttpServerRequest.HttpServerRequest,
+                HttpServerRequest.fromWeb(
+                  routeRequest("POST", routes.enqueue, JSON.stringify(body)),
+                ),
+              ),
+              Effect.provideService(SqlClient.SqlClient, readinessSqlClient),
+            );
+            expect(response.status, scenario.label).toBe(scenario.status);
+            expect(enqueueCalls - enqueueCallsBeforeScenario, scenario.label).toBe(
+              scenario.enqueues,
+            );
+          }
         }),
+      ).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown({
+              POSTGRES_URL: "postgres://workflows:test@127.0.0.1:5432/workflows",
+            }),
+          ),
+        ),
       ),
   );
 

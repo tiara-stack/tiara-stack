@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { parse as parseYaml } from "yaml";
 import { Cause, Clock, Context, Effect, Layer, Match, Option, Schema } from "effect";
 import {
   RunnerRevisionStatusSchema,
@@ -193,20 +194,284 @@ const hasOnlyPlaywrightDependencyChangePaths = (changedPaths: ReadonlyArray<stri
   changedPaths.includes(sheetWorkflowsPackageManifestPath) &&
   changedPaths.every((path) => path === sheetWorkflowsPackageManifestPath || path === pnpmLockPath);
 
-const withoutPlaywrightDependency = (manifest: WorkspacePackageManifest) => ({
-  ...manifest,
-  dependencies: Object.fromEntries(
-    Object.entries(manifest.dependencies ?? {}).filter(([name]) => name !== "playwright"),
-  ),
-});
+type JsonValue = typeof Schema.Json.Type;
+type JsonRecord = Readonly<Record<string, JsonValue>>;
 
-const isPlaywrightOnlyManifestChange = (
-  before: WorkspacePackageManifest,
-  after: WorkspacePackageManifest,
-) =>
-  before.dependencies?.playwright !== after.dependencies?.playwright &&
-  JSON.stringify(withoutPlaywrightDependency(before)) ===
-    JSON.stringify(withoutPlaywrightDependency(after));
+const JsonRecordSchema = Schema.Record(Schema.String, Schema.Json);
+
+const isJsonRecord = (value: JsonValue | undefined): value is JsonRecord =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const jsonRecordProperty = (record: JsonRecord, key: string): JsonRecord | undefined => {
+  const value = record[key];
+  return isJsonRecord(value) ? value : undefined;
+};
+
+const canonicalJson = (value: JsonValue): JsonValue => {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (isJsonRecord(value))
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => {
+          if (left < right) return -1;
+          if (left > right) return 1;
+          return 0;
+        })
+        .map(([key, entry]) => [key, canonicalJson(entry)]),
+    );
+  return value;
+};
+
+const jsonEqual = (left: JsonValue, right: JsonValue) =>
+  JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+
+const decodeJsonRecord = (text: string): JsonRecord | undefined => {
+  try {
+    return Schema.decodeUnknownSync(Schema.fromJsonString(JsonRecordSchema))(text);
+  } catch {
+    return undefined;
+  }
+};
+
+const decodePnpmLockfile = (snapshot: StagedSourceSnapshot): JsonRecord | undefined => {
+  const lockfile = snapshot.files.find(({ path }) => path === pnpmLockPath);
+  if (lockfile === undefined || lockfile.contentEncoding !== "utf8") return undefined;
+  try {
+    return Schema.decodeUnknownSync(JsonRecordSchema)(parseYaml(lockfile.content));
+  } catch {
+    return undefined;
+  }
+};
+
+const withoutPlaywrightManifestDependency = (manifest: JsonRecord): JsonRecord | undefined => {
+  const dependencies = jsonRecordProperty(manifest, "dependencies");
+  if (dependencies === undefined) return undefined;
+  const remainingDependencies = Object.fromEntries(
+    Object.entries(dependencies).filter(([name]) => name !== "playwright"),
+  );
+  return { ...manifest, dependencies: remainingDependencies };
+};
+
+const readPnpmImporterPlaywright = (lockfile: JsonRecord) => {
+  const importers = jsonRecordProperty(lockfile, "importers");
+  const importer = importers && jsonRecordProperty(importers, "packages/sheet-workflows");
+  const dependencies = importer && jsonRecordProperty(importer, "dependencies");
+  const playwright = dependencies && jsonRecordProperty(dependencies, "playwright");
+  if (playwright === undefined) return undefined;
+  const specifier = playwright.specifier;
+  const version = playwright.version;
+  return typeof specifier === "string" && typeof version === "string"
+    ? { specifier, version }
+    : undefined;
+};
+
+const lockPackageKey = (name: string, version: string, packages: JsonRecord) => {
+  const exact = `${name}@${version}`;
+  if (Object.hasOwn(packages, exact)) return exact;
+  const peerQualified = Object.keys(packages).filter(
+    (key) => key.startsWith(`${exact}(`) || key.startsWith(`${exact}_`),
+  );
+  return peerQualified.length === 1 ? peerQualified[0] : undefined;
+};
+
+const lockDependencyEntries = (
+  packageRecord: JsonRecord,
+): ReadonlyArray<readonly [string, string]> | undefined => {
+  const dependencySections = ["dependencies", "optionalDependencies"] as const;
+  const entries: Array<readonly [string, string]> = [];
+  for (const section of dependencySections) {
+    const dependencies = packageRecord[section];
+    if (dependencies === undefined) continue;
+    if (!isJsonRecord(dependencies)) return undefined;
+    for (const [name, version] of Object.entries(dependencies)) {
+      if (typeof version !== "string") return undefined;
+      entries.push([name, version]);
+    }
+  }
+  return entries;
+};
+
+const lockPackageDependencyKeys = (
+  packageKey: string,
+  packages: JsonRecord,
+  snapshots: JsonRecord,
+): ReadonlyArray<string> | undefined => {
+  const packageRecord = jsonRecordProperty(packages, packageKey);
+  const snapshotRecord = jsonRecordProperty(snapshots, packageKey);
+  if (packageRecord === undefined || snapshotRecord === undefined) return undefined;
+  const packageDependencies = lockDependencyEntries(packageRecord);
+  const snapshotDependencies = lockDependencyEntries(snapshotRecord);
+  if (packageDependencies === undefined || snapshotDependencies === undefined) return undefined;
+
+  const keys: string[] = [];
+  for (const [name, version] of [...packageDependencies, ...snapshotDependencies]) {
+    const dependencyKey = lockPackageKey(name, version, packages);
+    if (dependencyKey === undefined) return undefined;
+    keys.push(dependencyKey);
+  }
+  return keys;
+};
+
+const playwrightLockClosure = (lockfile: JsonRecord): ReadonlySet<string> | undefined => {
+  const packages = jsonRecordProperty(lockfile, "packages");
+  const snapshots = jsonRecordProperty(lockfile, "snapshots");
+  const importer = readPnpmImporterPlaywright(lockfile);
+  if (packages === undefined || snapshots === undefined || importer === undefined) return undefined;
+  const root = lockPackageKey("playwright", importer.version, packages);
+  if (root === undefined) return undefined;
+
+  const pending = [root];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const packageKey = pending.pop();
+    if (packageKey === undefined || visited.has(packageKey)) continue;
+    visited.add(packageKey);
+    const dependencies = lockPackageDependencyKeys(packageKey, packages, snapshots);
+    if (dependencies === undefined) return undefined;
+    pending.push(...dependencies);
+  }
+  return visited;
+};
+
+const playwrightLockChangesAreIsolated = (
+  beforeLockfile: JsonRecord,
+  afterLockfile: JsonRecord,
+) => {
+  const beforeClosure = playwrightLockClosure(beforeLockfile);
+  const afterClosure = playwrightLockClosure(afterLockfile);
+  if (beforeClosure === undefined || afterClosure === undefined) return false;
+  const closure = new Set([...beforeClosure, ...afterClosure]);
+  const beforeWithoutPlaywright = withoutPlaywrightLockChanges(beforeLockfile, closure);
+  const afterWithoutPlaywright = withoutPlaywrightLockChanges(afterLockfile, closure);
+  return (
+    beforeWithoutPlaywright !== undefined &&
+    afterWithoutPlaywright !== undefined &&
+    jsonEqual(beforeWithoutPlaywright, afterWithoutPlaywright)
+  );
+};
+
+const withoutPlaywrightLockChanges = (
+  lockfile: JsonRecord,
+  closure: ReadonlySet<string>,
+): JsonRecord | undefined => {
+  const importers = jsonRecordProperty(lockfile, "importers");
+  const sheetWorkflowsImporter =
+    importers && jsonRecordProperty(importers, "packages/sheet-workflows");
+  const dependencies =
+    sheetWorkflowsImporter && jsonRecordProperty(sheetWorkflowsImporter, "dependencies");
+  const packages = jsonRecordProperty(lockfile, "packages");
+  const snapshots = jsonRecordProperty(lockfile, "snapshots");
+  if (
+    importers === undefined ||
+    sheetWorkflowsImporter === undefined ||
+    dependencies === undefined ||
+    packages === undefined ||
+    snapshots === undefined
+  )
+    return undefined;
+
+  const remainingDependencies = Object.fromEntries(
+    Object.entries(dependencies).filter(([name]) => name !== "playwright"),
+  );
+  const remainingPackages = Object.fromEntries(
+    Object.entries(packages).filter(([key]) => !closure.has(key)),
+  );
+  const remainingSnapshots = Object.fromEntries(
+    Object.entries(snapshots).filter(([key]) => !closure.has(key)),
+  );
+  return {
+    ...lockfile,
+    importers: {
+      ...importers,
+      "packages/sheet-workflows": {
+        ...sheetWorkflowsImporter,
+        dependencies: remainingDependencies,
+      },
+    },
+    packages: remainingPackages,
+    snapshots: remainingSnapshots,
+  };
+};
+
+type PlaywrightManifestVersionChange = {
+  readonly previous: string;
+  readonly next: string;
+};
+
+const readSheetWorkflowsManifest = (snapshot: StagedSourceSnapshot) => {
+  const file = snapshot.files.find(({ path }) => path === sheetWorkflowsPackageManifestPath);
+  if (file === undefined || file.contentEncoding !== "utf8") return undefined;
+  return decodeJsonRecord(file.content);
+};
+
+const playwrightManifestDependency = (manifest: JsonRecord): string | undefined => {
+  const dependencies = jsonRecordProperty(manifest, "dependencies");
+  const version = dependencies?.playwright;
+  return typeof version === "string" ? version : undefined;
+};
+
+const manifestsDifferOnlyByPlaywright = (before: JsonRecord, after: JsonRecord) => {
+  const beforeWithoutPlaywright = withoutPlaywrightManifestDependency(before);
+  const afterWithoutPlaywright = withoutPlaywrightManifestDependency(after);
+  return (
+    beforeWithoutPlaywright !== undefined &&
+    afterWithoutPlaywright !== undefined &&
+    jsonEqual(beforeWithoutPlaywright, afterWithoutPlaywright)
+  );
+};
+
+const playwrightManifestVersionChange = (
+  previous: StagedSourceSnapshot,
+  next: StagedSourceSnapshot,
+): PlaywrightManifestVersionChange | undefined => {
+  const beforeManifest = readSheetWorkflowsManifest(previous);
+  const afterManifest = readSheetWorkflowsManifest(next);
+  if (beforeManifest === undefined || afterManifest === undefined) return undefined;
+  const beforePlaywright = playwrightManifestDependency(beforeManifest);
+  const afterPlaywright = playwrightManifestDependency(afterManifest);
+  if (
+    beforePlaywright === undefined ||
+    afterPlaywright === undefined ||
+    beforePlaywright === afterPlaywright
+  )
+    return undefined;
+  if (!manifestsDifferOnlyByPlaywright(beforeManifest, afterManifest)) return undefined;
+
+  return { previous: beforePlaywright, next: afterPlaywright };
+};
+
+const playwrightLockChangeMatchesManifest = (
+  previous: StagedSourceSnapshot,
+  next: StagedSourceSnapshot,
+  manifestChange: PlaywrightManifestVersionChange,
+) => {
+  const beforeLockfile = decodePnpmLockfile(previous);
+  const afterLockfile = decodePnpmLockfile(next);
+  if (beforeLockfile === undefined || afterLockfile === undefined) return false;
+  const beforeResolution = readPnpmImporterPlaywright(beforeLockfile);
+  const afterResolution = readPnpmImporterPlaywright(afterLockfile);
+  if (
+    beforeResolution === undefined ||
+    afterResolution === undefined ||
+    beforeResolution.specifier !== manifestChange.previous ||
+    afterResolution.specifier !== manifestChange.next ||
+    beforeResolution.version === afterResolution.version
+  )
+    return false;
+
+  return playwrightLockChangesAreIsolated(beforeLockfile, afterLockfile);
+};
+
+const isPlaywrightOnlyManifestAndLockChange = (
+  previous: StagedSourceSnapshot,
+  next: StagedSourceSnapshot,
+) => {
+  const manifestChange = playwrightManifestVersionChange(previous, next);
+  return (
+    manifestChange !== undefined &&
+    playwrightLockChangeMatchesManifest(previous, next, manifestChange)
+  );
+};
 
 const playwrightOnlyDependencyChange = (
   previous: StagedSourceSnapshot,
@@ -217,7 +482,10 @@ const playwrightOnlyDependencyChange = (
   const before = workspacePackageManifests(previous).get("sheet-workflows")?.manifest;
   const after = workspacePackageManifests(next).get("sheet-workflows")?.manifest;
   return (
-    before !== undefined && after !== undefined && isPlaywrightOnlyManifestChange(before, after)
+    before !== undefined &&
+    after !== undefined &&
+    before.dependencies?.playwright !== after.dependencies?.playwright &&
+    isPlaywrightOnlyManifestAndLockChange(previous, next)
   );
 };
 

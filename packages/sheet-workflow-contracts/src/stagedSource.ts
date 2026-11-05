@@ -55,9 +55,23 @@ const excludedBrowserProfilePaths = [
 
 const excludedBrowserStatePaths = [
   /(^|\/)(?:\.auth|(?:browser|brave|chrome|chromium|edge)-(?:profile|user-data))(\/|$)/i,
-  /(^|\/)(?:storage[-_]?state|auth[-_]?state)(?:\.[^/]*)?(\/|$)/i,
-  /(^|\/)(?:cookies?(?:\.(?:json|txt|sqlite(?:-(?:shm|wal))?))?|cookie-jar(?:\.[^/]*)?)(\/|$)/i,
+  /(^|\/)(?:storage[-_]?state|auth[-_]?state)(\/|$)/i,
 ] as const;
+
+const browserStateArtifactFile =
+  /^(?:storage[-_]?state|auth[-_]?state)(?:\.(?:json|jsonc|jsonl|txt|state|db|sqlite(?:-(?:shm|wal))?))?$/i;
+const cookieArtifactFile =
+  /^(?:cookies?|cookie-jar)(?:\.(?:json|jsonc|jsonl|txt|csv|db|sqlite(?:-(?:shm|wal))?))?$/i;
+const sourceCodeFile = /\.(?:[cm]?tsx?|[cm]?jsx?|d\.ts)$/i;
+
+const isBrowserStateArtifactPath = (path: string) => {
+  const fileName = path.slice(path.lastIndexOf("/") + 1);
+  if (browserStateArtifactFile.test(fileName) || cookieArtifactFile.test(fileName)) return true;
+  const segments = path.split("/");
+  if (segments.some((part) => /^cookie-jar$/i.test(part))) return true;
+  if (sourceCodeFile.test(fileName)) return false;
+  return segments.some((part) => /^cookies?$/i.test(part));
+};
 
 /** Shared transfer path check so the host and runner reject the same files. */
 export const isSafeStagedSourcePath = Predicate.and(
@@ -72,7 +86,8 @@ export const isSafeStagedSourcePath = Predicate.and(
         (path: string) =>
           !excludedPath.test(path) &&
           !excludedBrowserProfilePaths.some((pattern) => pattern.test(path)) &&
-          !excludedBrowserStatePaths.some((pattern) => pattern.test(path)),
+          !excludedBrowserStatePaths.some((pattern) => pattern.test(path)) &&
+          !isBrowserStateArtifactPath(path),
       ),
     ),
   ),

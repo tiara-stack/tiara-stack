@@ -1,5 +1,5 @@
 import { NodeHttpServer } from "@effect/platform-node";
-import { Duration, Effect, FileSystem, Layer, Option, Ref } from "effect";
+import { Duration, Effect, FileSystem, Layer, Match, Option, Ref } from "effect";
 import type { ConfigError } from "effect/Config";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
@@ -31,6 +31,7 @@ import { config } from "@/config";
 import { sheetWorkflowsRuntimePolicy } from "@/config/runtimePolicy";
 import {
   AutonomousTriggerService,
+  browserRunnerCapabilityGroup,
   sheetBotCacheClientLayer,
   sheetBotDeliveryClientLayer,
   sheetDataProviderLayer,
@@ -162,12 +163,20 @@ export const shardingConfigLayer = Layer.unwrap(
     const runnerListenHost = yield* config.workflowsRunnerListenHost;
     const runnerListenPort = yield* config.workflowsRunnerListenPort;
     const role = yield* config.sheetWorkflowsRole;
+    const browserCapabilityGroup = yield* browserRunnerCapabilityGroup;
+    const assignedShardGroups = Match.value(role).pipe(
+      Match.when("browser-runner", () => [
+        ...assignedSheetWorkflowShardGroups(role),
+        browserCapabilityGroup,
+      ]),
+      Match.orElse(() => assignedSheetWorkflowShardGroups(role)),
+    );
 
     return ShardingConfig.layer({
       runnerAddress: Option.some(runnerAddress),
       runnerListenAddress: Option.some(RunnerAddress.make(runnerListenHost, runnerListenPort)),
-      assignedShardGroups: assignedSheetWorkflowShardGroups(role),
-      availableShardGroups: availableSheetWorkflowShardGroups,
+      assignedShardGroups,
+      availableShardGroups: [...availableSheetWorkflowShardGroups, browserCapabilityGroup],
       shardsPerGroup: 300,
       // Production PostgreSQL can sit behind a managed connection pool. Session-level
       // advisory locks can then outlive a runner connection and strand its shards.

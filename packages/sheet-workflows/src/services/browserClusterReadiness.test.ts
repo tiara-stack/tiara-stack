@@ -1,8 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Stream } from "effect";
+import { ConfigProvider, Effect, Stream } from "effect";
 import { Reactivity } from "effect/unstable/reactivity";
 import { SqlClient, Statement } from "effect/unstable/sql";
 import type { Connection } from "effect/unstable/sql/SqlConnection";
+import { browserRunnerCapabilityGroup } from "./browserRunnerCapability";
 import { isBrowserRunnerFleetReady } from "./clusterReadiness";
 
 type ReadinessRunner = {
@@ -100,6 +101,7 @@ describe("browser runner cluster readiness", () => {
     Effect.gen(function* () {
       const queries: string[] = [];
       const parameterSets: unknown[][] = [];
+      const browserCapabilityGroup = yield* browserRunnerCapabilityGroup;
       const browserRunner: ReadinessRunner = {
         address: "10.0.0.12:34431",
         healthy: true,
@@ -122,10 +124,22 @@ describe("browser runner cluster readiness", () => {
         readonly expected: boolean;
       }> = [
         {
-          label: "owned browser group",
+          label: "owned browser capability group",
+          runners: [browserRunner],
+          locks: rowsFor(browserCapabilityGroup, 300),
+          expected: true,
+        },
+        {
+          label: "legacy browser action group without current compatibility binding",
           runners: [browserRunner],
           locks: rowsFor("browser", 300),
-          expected: true,
+          expected: false,
+        },
+        {
+          label: "300 locks held under a mismatched browser capability identity",
+          runners: [browserRunner],
+          locks: rowsFor(`browser-capability-v1-${"a".repeat(64)}`, 300),
+          expected: false,
         },
         {
           label: "ordinary-only group",
@@ -136,7 +150,7 @@ describe("browser runner cluster readiness", () => {
         {
           label: "mixed browser and ordinary groups",
           runners: [browserRunner],
-          locks: [...rowsFor("browser", 150), ...rowsFor("dispatch", 150)],
+          locks: [...rowsFor(browserCapabilityGroup, 150), ...rowsFor("dispatch", 150)],
           expected: false,
         },
         {
@@ -146,21 +160,21 @@ describe("browser runner cluster readiness", () => {
           expected: false,
         },
         {
-          label: "stale browser locks",
+          label: "stale browser capability locks",
           runners: [browserRunner],
-          locks: rowsFor("browser", 300, 36),
+          locks: rowsFor(browserCapabilityGroup, 300, 36),
           expected: false,
         },
         {
-          label: "stale browser runner heartbeat",
+          label: "stale browser capability runner heartbeat",
           runners: [{ ...browserRunner, heartbeatAgeSeconds: 36 }],
-          locks: rowsFor("browser", 300),
+          locks: rowsFor(browserCapabilityGroup, 300),
           expected: false,
         },
         {
-          label: "unhealthy browser runner",
+          label: "unhealthy browser capability runner",
           runners: [{ ...browserRunner, healthy: false }],
-          locks: rowsFor("browser", 300),
+          locks: rowsFor(browserCapabilityGroup, 300),
           expected: false,
         },
       ];
@@ -181,8 +195,16 @@ describe("browser runner cluster readiness", () => {
       expect(queries[0]).toContain('FROM "sheet_workflows_runners" AS runner');
       expect(queries[0]).toContain('"sheet_workflows_locks".address = runner.address');
       expect(queries[0]).toContain('"sheet_workflows_locks".shard_id LIKE ?');
-      expect(parameterSets[0]).toContain("browser:%");
+      expect(parameterSets[0]).toContain(`${browserCapabilityGroup}:%`);
       expect(parameterSets[0]).toContain(300);
-    }),
+    }).pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromUnknown({
+            POSTGRES_URL: "postgres://workflows:test@127.0.0.1:5432/workflows",
+          }),
+        ),
+      ),
+    ),
   );
 });

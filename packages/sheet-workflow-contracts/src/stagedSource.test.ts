@@ -126,6 +126,7 @@ describe("staged source snapshot structural contract", () => {
       ".config/BraveSoftware/Brave-Browser/Default/Preferences",
       "Library/Application Support/Microsoft Edge/Default/Cookies",
       "playwright/.auth/user.json",
+      "tests/fixtures/authState.json",
       "tests/fixtures/storageState.json",
       "tests/fixtures/cookies.sqlite",
     ];
@@ -147,7 +148,8 @@ describe("staged source snapshot structural contract", () => {
       utf8File("pnpm-lock.yaml", "lockfileVersion: '9.0'"),
       utf8File("packages/sheet-workflows/src/browser-profile.ts", "export const profile = 1"),
       utf8File("packages/sheet-workflows/src/storage-state-schema.ts", "export const schema = 1"),
-      utf8File("packages/sheet-workflows/src/cookies.ts", "export const cookies = []"),
+      utf8File("packages/sheet-workflows/src/authState.ts", "export const authState = 1"),
+      utf8File("packages/sheet-workflows/src/cookies/index.ts", "export const cookies = []"),
     ]);
 
     expect(validateStagedSourceSnapshot(source, source.completion.filesDigest)).toBeUndefined();
@@ -189,6 +191,8 @@ describe("staged source snapshot structural contract", () => {
       utf8File("package.json", '{"name":"workspace"}'),
       utf8File("pnpm-lock.yaml", "lockfileVersion: '9.0'"),
       utf8File("packages/sheet-workflows/src/cookies.ts", "export const cookies = []"),
+      utf8File("packages/sheet-workflows/src/cookies/index.ts", "export const cookies = []"),
+      utf8File("packages/sheet-workflows/src/authState.ts", "export const authState = 1"),
     ]);
     expect(
       validateStagedSourceSnapshot(ordinarySource, ordinarySource.completion.filesDigest),

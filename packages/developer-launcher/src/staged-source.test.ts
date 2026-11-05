@@ -55,6 +55,67 @@ const snapshot = (
     ...files.map(([path, content]) => utf8File(path, content)),
   ]);
 
+const playwrightWorkspaceSnapshot = (
+  revision: string,
+  playwrightVersion: string,
+  options: {
+    readonly manifestChange?: Readonly<Record<string, unknown>>;
+    readonly lockfileChange?: Readonly<Record<string, unknown>>;
+    readonly unrelatedImporterVersion?: string;
+  } = {},
+) => {
+  const manifest = {
+    name: "sheet-workflows",
+    version: "0.0.0",
+    private: true,
+    scripts: { build: "vp pack" },
+    dependencies: { playwright: playwrightVersion, effect: "catalog:" },
+    ...options.manifestChange,
+  };
+  const lockfile = {
+    lockfileVersion: "9.0",
+    settings: { autoInstallPeers: true },
+    importers: {
+      ".": {},
+      "packages/sheet-workflows": {
+        dependencies: {
+          playwright: { specifier: playwrightVersion, version: playwrightVersion },
+          effect: { specifier: "catalog:", version: "4.0.0-beta.67" },
+        },
+      },
+      "packages/unrelated": {
+        dependencies: {
+          tinyglobby: {
+            specifier: options.unrelatedImporterVersion ?? "1.0.0",
+            version: options.unrelatedImporterVersion ?? "1.0.0",
+          },
+        },
+      },
+    },
+    packages: {
+      [`playwright@${playwrightVersion}`]: {
+        resolution: { integrity: `sha512-playwright-${playwrightVersion}` },
+        dependencies: { "playwright-core": playwrightVersion },
+      },
+      [`playwright-core@${playwrightVersion}`]: {
+        resolution: { integrity: `sha512-core-${playwrightVersion}` },
+      },
+    },
+    snapshots: {
+      [`playwright@${playwrightVersion}`]: {
+        dependencies: { "playwright-core": playwrightVersion },
+      },
+      [`playwright-core@${playwrightVersion}`]: {},
+    },
+    ...options.lockfileChange,
+  };
+  return sealStagedSourceSnapshot(revision, [
+    utf8File("package.json", '{"name":"workspace"}'),
+    utf8File("pnpm-lock.yaml", JSON.stringify(lockfile)),
+    utf8File("packages/sheet-workflows/package.json", JSON.stringify(manifest)),
+  ]);
+};
+
 const withFileMode = (
   tree: StagedSourceSnapshot,
   path: string,
@@ -1639,6 +1700,33 @@ describe("staged source snapshots", () => {
     }),
   );
 
+  it("limits the Playwright fast path to complete manifest and lockfile impact", () => {
+    const previous = playwrightWorkspaceSnapshot("r1", "1.58.1");
+    const playwrightOnly = playwrightWorkspaceSnapshot("r2", "1.58.2");
+    const selected = ["ordinary-runner", "browser-runner"] as const;
+    expect(affectedRunnerRoles(previous, playwrightOnly, selected)).toEqual(["browser-runner"]);
+
+    const scriptAndDependencyChange = playwrightWorkspaceSnapshot("r3", "1.58.2", {
+      manifestChange: { scripts: { build: "vp pack", postinstall: "node setup.mjs" } },
+    });
+    expect(affectedRunnerRoles(previous, scriptAndDependencyChange, selected)).toEqual(selected);
+
+    const otherManifestFieldChange = playwrightWorkspaceSnapshot("r4", "1.58.2", {
+      manifestChange: { exports: { "./runtime": "./dist/runtime.mjs" } },
+    });
+    expect(affectedRunnerRoles(previous, otherManifestFieldChange, selected)).toEqual(selected);
+
+    const unrelatedImporterChange = playwrightWorkspaceSnapshot("r5", "1.58.2", {
+      unrelatedImporterVersion: "1.1.0",
+    });
+    expect(affectedRunnerRoles(previous, unrelatedImporterChange, selected)).toEqual(selected);
+
+    const otherLockfileChange = playwrightWorkspaceSnapshot("r6", "1.58.2", {
+      lockfileChange: { settings: { autoInstallPeers: false } },
+    });
+    expect(affectedRunnerRoles(previous, otherLockfileChange, selected)).toEqual(selected);
+  });
+
   it.effect("does not restart workflow roles for a mode-only unrelated source edit", () =>
     Effect.gen(function* () {
       const manifestsAndSources = [
@@ -2122,18 +2210,8 @@ describe("staged source snapshots", () => {
       Effect.gen(function* () {
         const restarted: string[] = [];
         const rebuilt: Array<{ revision: string; roles: ReadonlyArray<string> }> = [];
-        const before = snapshot("r1", [
-          [
-            "packages/sheet-workflows/package.json",
-            '{"name":"sheet-workflows","dependencies":{"playwright":"1.58.2"}}',
-          ],
-        ]);
-        const after = snapshot("r2", [
-          [
-            "packages/sheet-workflows/package.json",
-            '{"name":"sheet-workflows","dependencies":{"playwright":"1.58.3"}}',
-          ],
-        ]);
+        const before = playwrightWorkspaceSnapshot("r1", "1.58.2");
+        const after = playwrightWorkspaceSnapshot("r2", "1.58.3");
         const result = yield* activateWithRuntime({
           snapshot: after,
           previous: before,

@@ -1,6 +1,10 @@
 import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { config } from "@/config";
+import {
+  browserRunnerCapabilityGroup,
+  browserRunnerCapabilityShardPattern,
+} from "./browserRunnerCapability";
 
 type ClusterReadinessRow = {
   readonly ready: boolean;
@@ -11,7 +15,6 @@ const SHARD_LOCK_WINDOW_SECONDS = 35;
 const SHARD_LOCK_COUNT_PER_WORKFLOW_GROUP = 300;
 const ORDINARY_SHARD_LOCK_COUNT = 2 * SHARD_LOCK_COUNT_PER_WORKFLOW_GROUP;
 const BROWSER_SHARD_LOCK_COUNT = SHARD_LOCK_COUNT_PER_WORKFLOW_GROUP;
-const BROWSER_SHARD_GROUP_PATTERN = "browser:%";
 
 const shardLockCountByRole = {
   api: ORDINARY_SHARD_LOCK_COUNT,
@@ -117,6 +120,7 @@ export const isClusterRunnerFleetReady = Effect.gen(function* () {
 /** Browser workflows remain unaccepted until a healthy runner owns browser shards. */
 export const isBrowserRunnerFleetReady = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  const browserCapabilityGroup = yield* browserRunnerCapabilityGroup;
   const [row] = yield* sql<ClusterReadinessRow>`
     SELECT EXISTS (
       SELECT 1
@@ -127,7 +131,7 @@ export const isBrowserRunnerFleetReady = Effect.gen(function* () {
           SELECT COUNT(*)
           FROM "sheet_workflows_locks"
           WHERE "sheet_workflows_locks".address = runner.address
-            AND "sheet_workflows_locks".shard_id LIKE ${BROWSER_SHARD_GROUP_PATTERN}
+            AND "sheet_workflows_locks".shard_id LIKE ${browserRunnerCapabilityShardPattern(browserCapabilityGroup)}
             AND "sheet_workflows_locks".acquired_at > NOW() - (${SHARD_LOCK_WINDOW_SECONDS} * INTERVAL '1 second')
         ) = ${BROWSER_SHARD_LOCK_COUNT}
     ) AS ready

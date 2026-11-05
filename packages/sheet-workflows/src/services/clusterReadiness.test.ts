@@ -11,6 +11,7 @@ import {
 const configLayer = (env: Record<string, unknown> = {}) =>
   ConfigProvider.layer(
     ConfigProvider.fromUnknown({
+      POSTGRES_URL: "postgres://workflows:test@127.0.0.1:5432/workflows",
       WORKFLOWS_RUNNER_HOST: "10.0.0.12",
       WORKFLOWS_RUNNER_PORT: "34431",
       ...env,
