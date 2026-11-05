@@ -48,6 +48,7 @@ import type { CalculationProviderError } from "@/workflows/calculations/provider
 import { getClusterRunnerReadinessSnapshot, postgresSqlLayer } from "@/services";
 import { smokeWorkflowLayer } from "@/workflows/smoke";
 import { selectAutonomousTriggerSelection } from "@/workflows/autonomousTriggerLayer";
+import { screenshotShardGroups } from "@/workflows/screenshots/catalog";
 import {
   readOnlyWorkflowAuthorizationLayer,
   readOnlyWorkflowDataSourceLayer,
@@ -144,12 +145,25 @@ import {
   sheetWorkflowRuntimeDefinitions,
 } from "@/workflows/runtimeDefinitions";
 
-const availableSheetWorkflowShardGroups = ["dispatch", "autoCheckin", "browser"] as const;
+type SheetWorkflowRole = "combined" | "api" | "producer" | "runner" | "browser-runner";
 
-export const assignedSheetWorkflowShardGroups = (
-  role: "combined" | "api" | "producer" | "runner" | "browser-runner",
-): ReadonlyArray<(typeof availableSheetWorkflowShardGroups)[number]> =>
-  role === "browser-runner" ? ["browser"] : role === "producer" ? [] : ["dispatch", "autoCheckin"]; // oxlint-disable-line no-nested-ternary -- inherited master site
+const browserGroups = [screenshotShardGroups.browser] as const;
+const ordinaryShardGroups = ["dispatch", "autoCheckin"] as const;
+const availableSheetWorkflowShardGroups = [...ordinaryShardGroups, ...browserGroups] as const;
+
+const assignedSheetWorkflowShardGroupsByRole = {
+  combined: ordinaryShardGroups,
+  api: ordinaryShardGroups,
+  producer: [],
+  runner: ordinaryShardGroups,
+  "browser-runner": browserGroups,
+} satisfies Record<
+  SheetWorkflowRole,
+  ReadonlyArray<(typeof availableSheetWorkflowShardGroups)[number]>
+>;
+
+export const assignedSheetWorkflowShardGroups = (role: SheetWorkflowRole) =>
+  assignedSheetWorkflowShardGroupsByRole[role];
 
 const configuredRunnerAddress = Effect.gen(function* () {
   const runnerHost = yield* config.workflowsRunnerHost;

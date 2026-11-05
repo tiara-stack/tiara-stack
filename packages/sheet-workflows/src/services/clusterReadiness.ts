@@ -5,6 +5,7 @@ import {
   browserRunnerCapabilityGroup,
   browserRunnerCapabilityShardPattern,
 } from "./browserRunnerCapability";
+import { screenshotShardGroups } from "@/workflows/screenshots/catalog";
 
 type ClusterReadinessRow = {
   readonly ready: boolean;
@@ -117,16 +118,24 @@ export const isClusterRunnerFleetReady = Effect.gen(function* () {
   Effect.withSpan("sheet-workflows.runner.fleetReady"),
 );
 
-/** Browser workflows remain unaccepted until a healthy runner owns browser shards. */
+/** Browser workflows remain unaccepted until one compatible runner owns both browser groups. */
 export const isBrowserRunnerFleetReady = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const browserCapabilityGroup = yield* browserRunnerCapabilityGroup;
+  const browserActionShardPattern = `${screenshotShardGroups.browser}:%`;
   const [row] = yield* sql<ClusterReadinessRow>`
     SELECT EXISTS (
       SELECT 1
       FROM "sheet_workflows_runners" AS runner
       WHERE runner.healthy = TRUE
         AND runner.last_heartbeat > NOW() - (${HEARTBEAT_WINDOW_SECONDS} * INTERVAL '1 second')
+        AND (
+          SELECT COUNT(*)
+          FROM "sheet_workflows_locks"
+          WHERE "sheet_workflows_locks".address = runner.address
+            AND "sheet_workflows_locks".shard_id LIKE ${browserActionShardPattern}
+            AND "sheet_workflows_locks".acquired_at > NOW() - (${SHARD_LOCK_WINDOW_SECONDS} * INTERVAL '1 second')
+        ) = ${BROWSER_SHARD_LOCK_COUNT}
         AND (
           SELECT COUNT(*)
           FROM "sheet_workflows_locks"

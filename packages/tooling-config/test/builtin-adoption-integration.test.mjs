@@ -710,6 +710,40 @@ it("keeps inherited-site adoption evidence repository-relative and content-addre
     orphanMessages: 1,
     note: "Diagnostic messages are not registry row counts.",
   });
+  const browserShardCleanup = baselineManifest.$provenance.tia250BrowserShardSiteCleanup;
+  expect(browserShardCleanup).toMatchObject({
+    artifactId: "TIA-250:62f489db:browser-shard-site-cleanup-v1",
+    evidencePath: "packages/tooling-config/test/fixtures/tia250-browser-shard-site-cleanup-v1.json",
+    schema: "ticket-owned-nested-ternary-site-removal-v1",
+  });
+  const browserShardCleanupBytes = readFileSync(path.join(root, browserShardCleanup.evidencePath));
+  const browserShardCleanupEvidence = JSON.parse(browserShardCleanupBytes.toString("utf8"));
+  expect(createHash("sha256").update(browserShardCleanupBytes).digest("hex")).toBe(
+    browserShardCleanup.evidenceSha256,
+  );
+  expect(browserShardCleanupEvidence).toMatchObject({
+    artifactId: browserShardCleanup.artifactId,
+    schema: browserShardCleanup.schema,
+    ticketId: "TIA-250",
+    sourceCommitAtPreparation: "62f489db00e6c68b00e66487d907a736777fc3d0",
+    targetFile: "packages/sheet-workflows/src/cluster/runtime.ts",
+    removedSite:
+      'Program.body/ExportNamedDeclaration.declaration/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body::["variable:assignedSheetWorkflowShardGroups"]::role === "browser-runner" ? ["browser"] : role === "producer" ? [] : ["dispatch", "autoCheckin"]',
+    removedExpression:
+      'role === "browser-runner" ? ["browser"] : role === "producer" ? [] : ["dispatch", "autoCheckin"]',
+    newAllowances: 0,
+    policyExpansion: false,
+  });
+  expect(path.isAbsolute(browserShardCleanup.evidencePath)).toBe(false);
+  expect(JSON.stringify(browserShardCleanupEvidence)).not.toContain("/opt/data/");
+  expect(baselineManifest.$provenance.siteCount).toBe(202);
+  expect(baselineManifest[browserShardCleanupEvidence.targetFile]).toBeUndefined();
+  const runtimeSource = readFileSync(
+    path.join(root, browserShardCleanupEvidence.targetFile),
+    "utf8",
+  );
+  expect(runtimeSource).toContain('"browser-runner": browserGroups');
+  expect(runtimeSource).not.toContain(browserShardCleanupEvidence.removedExpression);
   expect(baselinePin).toBe(currentBaselineSha);
 });
 

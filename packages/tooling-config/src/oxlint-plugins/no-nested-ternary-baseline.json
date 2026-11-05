@@ -3,7 +3,7 @@
     "base": "416a69d554f4fab5926c768b1d3537e94ab9adca",
     "rule": "Oxlint AST ConditionalExpression with structural path, enclosing named AST anchors, and normalized expression; generated from master source by vp lint baseline mode",
     "scope": ["packages/**/*", "deploy/**/*", ".github/**/*", "root vite.config.ts"],
-    "siteCount": 203,
+    "siteCount": 202,
     "customPolicySiteCount": 0,
     "builtinBaselineLines": 747,
     "builtinBaselineCounts": {
@@ -489,6 +489,12 @@
       "evidencePath": "packages/tooling-config/test/fixtures/tia250-inherited-site-cleanup-v1.json",
       "evidenceSha256": "051f1481ebafcd86fd64fd9fb24e8c201923ef252d4b7351b31188ab2d74ab3b",
       "schema": "ticket-owned-post-adoption-site-cleanup-v1"
+    },
+    "tia250BrowserShardSiteCleanup": {
+      "artifactId": "TIA-250:62f489db:browser-shard-site-cleanup-v1",
+      "evidencePath": "packages/tooling-config/test/fixtures/tia250-browser-shard-site-cleanup-v1.json",
+      "evidenceSha256": "1dc5fab632159f6533bde09f82dbbe08831b1b00a157462c1e3aef383627e15c",
+      "schema": "ticket-owned-nested-ternary-site-removal-v1"
     }
   },
   "$policy": {
@@ -856,9 +862,6 @@
   ],
   "packages/sheet-workflows/src/runner/stagedSourceSupervisor.ts": [
     "Program.body/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body/BlockStatement.body[1]/ReturnStatement.argument/CallExpression.arguments[0]/FunctionExpression.body/BlockStatement.body[9]/VariableDeclaration.declarations[0]/VariableDeclarator.init::[\"variable:promoteSnapshot\",\"variable:active\"]::activeTargetResult._tag === \"Success\" && activeTargetResult.success === requestedTarget ? { revision: snapshot.revision, digest: snapshot.completion.filesDigest } : activeTargetResult._tag === \"Success\" && activeTargetResult.success === previousTarget ? previous : undefined"
-  ],
-  "packages/sheet-workflows/src/cluster/runtime.ts": [
-    "Program.body/ExportNamedDeclaration.declaration/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body::[\"variable:assignedSheetWorkflowShardGroups\"]::role === \"browser-runner\" ? [\"browser\"] : role === \"producer\" ? [] : [\"dispatch\", \"autoCheckin\"]"
   ],
   "packages/sheet-workflows/src/services/rolloutGateDecision.ts": [
     "Program.body/ExportNamedDeclaration.declaration/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body/BlockStatement.body[2]/ReturnStatement.argument/ObjectExpression.properties[4]/Property.value::[\"variable:selectRolloutGateDecision\",\"member:reason\"]::Predicate.isNotUndefined(storedReason) && storedReason.length > 0 ? storedReason : matched ? \"reason-missing\" : (fallbackReason ?? \"unconfigured\")"

@@ -53,6 +53,7 @@ import {
 } from "./workflowHttp";
 import { WorkflowStore } from "effect-zero-workflow";
 import { ReadOnlyWorkflowAuthorization } from "@/workflows/readOnly/authorization";
+import { screenshotShardGroups } from "@/workflows/screenshots/definition";
 import { isBrowserRunnerFleetReady } from "../services/clusterReadiness";
 import {
   browserRunnerCapabilityGroupFor,
@@ -84,22 +85,39 @@ const makeBrowserReadinessSqlClient = (
   });
 
 const browserReadinessForGroups =
-  (groups: ReadonlyArray<{ readonly group: string; readonly count: number }>) =>
+  (
+    groups: ReadonlyArray<{
+      readonly group: string;
+      readonly count: number;
+      readonly owner?: string;
+    }>,
+  ) =>
   (sql: string, parameters: ReadonlyArray<unknown>) => {
-    const groupPattern = parameters.find(
+    const groupPatterns = parameters.filter(
       (parameter): parameter is string => typeof parameter === "string" && parameter.endsWith(":%"),
     );
-    const ownedShardIds = groups.flatMap(({ group, count }) =>
-      Array.from({ length: count }, (_, shard) => `${group}:${shard}`),
+    const requiredLockCounts = parameters.filter(
+      (parameter): parameter is number => typeof parameter === "number" && parameter === 300,
     );
+    const owners = new Set(groups.map(({ owner }) => owner ?? "browser-runner-a"));
     return (
       sql.includes("runner.healthy = TRUE") &&
       sql.includes("runner.last_heartbeat > NOW()") &&
-      sql.includes('"sheet_workflows_locks".address = runner.address') &&
-      sql.includes('"sheet_workflows_locks".shard_id LIKE ?') &&
-      groupPattern !== undefined &&
-      ownedShardIds.filter((shardId) => shardId.startsWith(groupPattern.slice(0, -1))).length ===
-        300
+      sql.split('"sheet_workflows_locks".address = runner.address').length - 1 === 2 &&
+      (sql.match(/"sheet_workflows_locks"\.shard_id LIKE \?/g)?.length ?? 0) === 2 &&
+      groupPatterns.length === 2 &&
+      requiredLockCounts.length === 2 &&
+      [...owners].some((owner) =>
+        groupPatterns.every((pattern) => {
+          const group = pattern.slice(0, -2);
+          return (
+            groups
+              .filter((row) => (row.owner ?? "browser-runner-a") === owner)
+              .filter((row) => row.group === group)
+              .reduce((count, row) => count + row.count, 0) === 300
+          );
+        }),
+      )
     );
   };
 
@@ -328,7 +346,7 @@ describe("sheet workflow HTTP contract boundary", () => {
   );
 
   it.effect(
-    "admits browser enqueue only for the selected compatible browser capability group",
+    "admits browser enqueue only when one owner holds the compatible and action shard groups",
     () =>
       Effect.scoped(
         Effect.gen(function* () {
@@ -384,49 +402,89 @@ describe("sheet workflow HTTP contract boundary", () => {
             }),
           );
           const routes = workflowContractRoutes(ScreenshotsCaptureAndDeliver);
+          const actionGroup = screenshotShardGroups.browser;
           const scenarios = [
             {
-              label: "selected runtime and group",
-              groups: [{ group: selectedGroup, count: 300 }],
+              label: "selected runtime owns both action and capability groups",
+              groups: [
+                { group: selectedGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
               status: 202,
               enqueues: 1,
             },
             {
-              label: "ordinary-only shard ownership",
-              groups: [{ group: "dispatch", count: 300 }],
+              label: "current capability owner cannot borrow action locks from another runner",
+              groups: [
+                { group: selectedGroup, count: 300, owner: "runner-a" },
+                { group: actionGroup, count: 300, owner: "runner-b" },
+              ],
               status: 503,
               enqueues: 0,
             },
             {
-              label: "mixed browser capability and ordinary ownership",
+              label: "capability-only shard ownership",
+              groups: [{ group: selectedGroup, count: 300 }],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "action-only shard ownership",
+              groups: [{ group: actionGroup, count: 300 }],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "partial action group does not satisfy readiness",
               groups: [
-                { group: selectedGroup, count: 150 },
-                { group: "dispatch", count: 150 },
+                { group: selectedGroup, count: 300 },
+                { group: actionGroup, count: 299 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "ordinary-only shard ownership",
+              groups: [
+                { group: "dispatch", count: 300 },
+                { group: actionGroup, count: 300 },
               ],
               status: 503,
               enqueues: 0,
             },
             {
               label: "wrong admitted Playwright version",
-              groups: [{ group: wrongVersionGroup, count: 300 }],
+              groups: [
+                { group: wrongVersionGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
               status: 503,
               enqueues: 0,
             },
             {
               label: "selected store identity changed before guarded admission",
-              groups: [{ group: wrongScopeGroup, count: 300 }],
+              groups: [
+                { group: wrongScopeGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
               status: 503,
               enqueues: 0,
             },
             {
               label: "mismatched declared workflow catalog",
-              groups: [{ group: wrongCatalogGroup, count: 300 }],
+              groups: [
+                { group: wrongCatalogGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
               status: 503,
               enqueues: 0,
             },
             {
               label: "mismatched admitted schema artifact",
-              groups: [{ group: wrongSchemaGroup, count: 300 }],
+              groups: [
+                { group: wrongSchemaGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
               status: 503,
               enqueues: 0,
             },
