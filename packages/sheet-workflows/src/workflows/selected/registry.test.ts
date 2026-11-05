@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { Schema } from "effect";
 import { workflowContractZeroGroupIdentifier } from "effect-zero-workflow/contract/transport";
 import { AnnouncementSheetWorkflowContracts } from "../announcements/catalog";
 import { CalculationSheetWorkflowContracts } from "../calculations/catalog";
@@ -17,6 +18,13 @@ import { TeamSheetWorkflowContracts } from "../teams/catalog";
 import { TeamSubmissionsSheetWorkflowContracts } from "../teamSubmissions/catalog";
 import { WorkspaceSheetWorkflowContracts } from "../workspaces/catalog";
 import { assertRegistrationValidationFails } from "../shared/testHelpers";
+import { sheetWorkflowRuntimeDefinitions } from "../runtimeDefinitions";
+import {
+  sheetWorkflowCatalogDigestFor,
+  sheetWorkflowContractCatalogDigest,
+  selectedSheetWorkflowActionVersions,
+  selectedSheetWorkflowDurableFormatVersions,
+} from "../catalogIdentity";
 import {
   makeSelectedSheetWorkflowZeroGroups,
   SelectedSheetWorkflowContracts,
@@ -59,4 +67,67 @@ describe("selected Sheet Workflow registry", () => {
       SelectedSheetWorkflowRegistrations,
     ),
   );
+
+  it("binds the compatibility digest to schemas and Action Versions", () => {
+    const first = SelectedSheetWorkflowRegistrations[0]!;
+    const changedVersion = SelectedSheetWorkflowRegistrations.map((registration) =>
+      registration === first
+        ? { ...registration, definitionVersion: `${registration.definitionVersion}-changed` }
+        : registration,
+    );
+    const changedSchema = SelectedSheetWorkflowRegistrations.map((registration) =>
+      registration === first
+        ? {
+            ...registration,
+            contract: {
+              ...registration.contract,
+              input: Schema.Struct({ compatibilityRevision: Schema.String }),
+            },
+          }
+        : registration,
+    );
+    const changedActionVersion = selectedSheetWorkflowActionVersions.map((entry, index) =>
+      index === 0 ? { ...entry, version: `${entry.version}-changed` } : entry,
+    );
+    const changedDurableFormatVersion = selectedSheetWorkflowDurableFormatVersions.map(
+      (entry, index) => (index === 0 ? { ...entry, version: `${entry.version}-changed` } : entry),
+    );
+    const changedRuntimeDefinitionSet = sheetWorkflowRuntimeDefinitions.slice(1);
+
+    expect(sheetWorkflowCatalogDigestFor(SelectedSheetWorkflowRegistrations)).toBe(
+      sheetWorkflowContractCatalogDigest,
+    );
+    expect(
+      sheetWorkflowCatalogDigestFor(
+        SelectedSheetWorkflowRegistrations,
+        selectedSheetWorkflowActionVersions,
+        selectedSheetWorkflowDurableFormatVersions,
+        sheetWorkflowRuntimeDefinitions,
+      ),
+    ).toBe(sheetWorkflowContractCatalogDigest);
+    expect(sheetWorkflowCatalogDigestFor(changedVersion)).not.toBe(
+      sheetWorkflowContractCatalogDigest,
+    );
+    expect(sheetWorkflowCatalogDigestFor(changedSchema)).not.toBe(
+      sheetWorkflowContractCatalogDigest,
+    );
+    expect(
+      sheetWorkflowCatalogDigestFor(SelectedSheetWorkflowRegistrations, changedActionVersion),
+    ).not.toBe(sheetWorkflowContractCatalogDigest);
+    expect(
+      sheetWorkflowCatalogDigestFor(
+        SelectedSheetWorkflowRegistrations,
+        selectedSheetWorkflowActionVersions,
+        changedDurableFormatVersion,
+      ),
+    ).not.toBe(sheetWorkflowContractCatalogDigest);
+    expect(
+      sheetWorkflowCatalogDigestFor(
+        SelectedSheetWorkflowRegistrations,
+        selectedSheetWorkflowActionVersions,
+        selectedSheetWorkflowDurableFormatVersions,
+        changedRuntimeDefinitionSet,
+      ),
+    ).not.toBe(sheetWorkflowContractCatalogDigest);
+  });
 });

@@ -14,6 +14,47 @@ export const config = {
     "WORKFLOWS_STATE_PLANE_POLICY",
   ).pipe(Config.withDefault("deployment-default")),
   port: Config.port("PORT").pipe(Config.withDefault(3000)),
+  host: Config.option(Config.string("HOST")),
+  workflowsSourceRevision: Config.schema(
+    Schema.String.check(Schema.isPattern(/^(?:|sha256:[a-f0-9]{64})$/)),
+    "WORKFLOWS_SOURCE_REVISION",
+  ).pipe(Config.withDefault("")),
+  workflowsPreviewSessionId: Config.schema(
+    Schema.String.check(
+      Schema.isPattern(
+        /^(?:|[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/i,
+      ),
+    ),
+    "WORKFLOWS_PREVIEW_SESSION_ID",
+  ).pipe(Config.withDefault("")),
+  workflowsPreviewApiEndpoint: Config.schema(
+    Schema.String.check(Schema.isPattern(/^(?:|https:\/\/[a-z0-9.-]+(?::[0-9]{1,5})?)$/)),
+    "WORKFLOWS_PREVIEW_API_ENDPOINT",
+  ).pipe(Config.withDefault("")),
+  workflowsPreviewGeneration: Config.schema(
+    Schema.Int.check(Schema.isGreaterThan(0)),
+    "WORKFLOWS_PREVIEW_GENERATION",
+  ).pipe(Config.withDefault(1)),
+  workflowsPreviewGroupTarget: Config.schema(
+    Schema.String.check(Schema.isPattern(/^(?:|workflow-execution:[A-Za-z0-9._:-]{1,500})$/)),
+    "WORKFLOWS_PREVIEW_GROUP_TARGET",
+  ).pipe(Config.withDefault("")),
+  workflowsPreviewApiArtifactDigest: Config.schema(
+    Schema.String.check(Schema.isPattern(/^sha256:[a-f0-9]{64}$/)),
+    "WORKFLOWS_PREVIEW_API_ARTIFACT_DIGEST",
+  ).pipe(Config.withDefault("sha256:" + "0".repeat(64))),
+  workflowsPreviewManifestDigest: Config.schema(
+    Schema.String.check(Schema.isPattern(/^sha256:[a-f0-9]{64}$/)),
+    "WORKFLOWS_PREVIEW_MANIFEST_DIGEST",
+  ).pipe(Config.withDefault("sha256:" + "0".repeat(64))),
+  workflowsPreviewCatalogDigest: Config.schema(
+    Schema.String.check(Schema.isPattern(/^sha256:[a-f0-9]{64}$/)),
+    "WORKFLOWS_PREVIEW_CATALOG_DIGEST",
+  ).pipe(Config.withDefault("sha256:" + "0".repeat(64))),
+  workflowsPreviewSchemaArtifactDigest: Config.schema(
+    Schema.String.check(Schema.isPattern(/^sha256:[a-f0-9]{64}$/)),
+    "WORKFLOWS_PREVIEW_SCHEMA_ARTIFACT_DIGEST",
+  ).pipe(Config.withDefault("sha256:" + "0".repeat(64))),
   podNamespace: Config.string("POD_NAMESPACE"),
   sheetWorkflowsRole: Config.string("SHEET_WORKFLOWS_ROLE").pipe(
     Config.withDefault("combined"),

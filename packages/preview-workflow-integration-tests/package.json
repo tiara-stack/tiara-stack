@@ -1,0 +1,29 @@
+{
+  "name": "preview-workflow-integration-tests",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "format": "vp fmt --check",
+    "format:apply": "vp fmt",
+    "lint": "vp lint src",
+    "test": "pnpm --filter developer-launcher build && vp test run"
+  },
+  "devDependencies": {
+    "@effect/platform-node": "catalog:",
+    "@effect/sql-sqlite-node": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "developer-launcher": "workspace:*",
+    "effect": "catalog:",
+    "effect-zero-workflow": "workspace:*",
+    "sheet-db-schema": "workspace:*",
+    "sheet-workflow-contracts": "workspace:*",
+    "sheet-workflows": "workspace:*",
+    "sheet-zero-server": "workspace:*",
+    "tooling-config": "workspace:*",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "vitest": "catalog:"
+  }
+}

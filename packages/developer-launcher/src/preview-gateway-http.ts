@@ -139,6 +139,51 @@ const permitsProbeOrigin = (
   );
 };
 
+const isValidPublicListenerPort = (port: number) =>
+  Number.isSafeInteger(port) && port >= 1 && port <= 65535;
+
+const isPublicGatewayHostname = (hostname: string) => /^[a-z0-9.-]+$/.test(hostname);
+
+const hasCanonicalPublicGatewayAuthority = (rawHost: string, parsed: URL) =>
+  parsed.username === "" &&
+  parsed.password === "" &&
+  parsed.pathname === "/" &&
+  parsed.search === "" &&
+  parsed.hash === "" &&
+  rawHost.toLowerCase().replace(/:443$/, "") === parsed.host.toLowerCase();
+
+const isUsablePublicGatewayHost = (
+  rawHost: string | undefined,
+  listenerPort: number,
+): rawHost is string =>
+  rawHost !== undefined &&
+  rawHost.length > 0 &&
+  rawHost.trim() === rawHost &&
+  isValidPublicListenerPort(listenerPort);
+
+const matchesPublicGatewayListener = (rawHost: string, listenerPort: number, parsed: URL) => {
+  const hostname = parsed.hostname.toLowerCase();
+  const port = parsed.port === "" ? 443 : Number(parsed.port);
+  return (
+    isPublicGatewayHostname(hostname) &&
+    port === listenerPort &&
+    hasCanonicalPublicGatewayAuthority(rawHost, parsed)
+  );
+};
+
+const parsePublicGatewayHost = (rawHost: string | undefined, listenerPort: number) => {
+  if (!isUsablePublicGatewayHost(rawHost, listenerPort)) return undefined;
+  let parsed: URL;
+  try {
+    parsed = new URL(`https://${rawHost}`);
+  } catch {
+    return undefined;
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  if (!matchesPublicGatewayListener(rawHost, listenerPort, parsed)) return undefined;
+  return { hostname, authority: parsed.host.toLowerCase() };
+};
+
 const isSafeApplicationDocumentNavigation = (
   request: HttpServerRequest.HttpServerRequest,
   path: string,
@@ -357,18 +402,18 @@ const previewProbeRequestFor = (
   request: HttpServerRequest.HttpServerRequest,
 ) =>
   Effect.gen(function* () {
-    const host = request.headers.host;
-    if (request.method !== "GET" || host === undefined || !/^[a-z0-9.-]+$/.test(host))
+    const host = parsePublicGatewayHost(request.headers.host, gateway.publicPort?.() ?? 443);
+    if (request.method !== "GET" || host === undefined)
       return HttpServerResponse.empty({ status: 400, headers: noStore });
     const upgrade = request.headers.upgrade?.toLowerCase() === "websocket";
-    if (!permitsProbeOrigin(request, host, upgrade))
+    if (!permitsProbeOrigin(request, host.authority, upgrade))
       return HttpServerResponse.empty({ status: 403, headers: noStore });
     if (
       request.url !== "/_preview/probe" ||
       request.headers["sec-websocket-protocol"] !== undefined
     )
       return HttpServerResponse.empty({ status: 400, headers: noStore });
-    const admission = yield* gateway.open({ hostname: host, headers: request.headers });
+    const admission = yield* gateway.open({ hostname: host.hostname, headers: request.headers });
     if (upgrade) return yield* bridge(admission, request, admission.connection.socket);
     const body = yield* admission.guard(admission.connection.http(admission.headers));
     return HttpServerResponse.text(body, { headers: noStore });
@@ -413,17 +458,17 @@ const applicationRequestFor = (
       return yield* previewProbeRequestFor(gateway, request);
     const path = applicationPath(request.url);
     if (path === undefined) return HttpServerResponse.empty({ status: 400, headers: noStore });
-    const host = request.headers.host;
+    const host = parsePublicGatewayHost(request.headers.host, gateway.publicPort?.() ?? 443);
     const upgrade = request.headers.upgrade?.toLowerCase() === "websocket";
-    if (
-      host === undefined ||
-      !/^[a-z0-9.-]+$/.test(host) ||
-      !permitsApplicationRequest(request, host, upgrade, path)
-    )
+    if (host === undefined || !permitsApplicationRequest(request, host.authority, upgrade, path))
       return HttpServerResponse.empty({ status: 403, headers: noStore });
     if (!allowedApplicationMethods.has(request.method))
       return HttpServerResponse.empty({ status: 405, headers: noStore });
-    const admission = yield* gateway.open({ hostname: host, headers: request.headers, path });
+    const admission = yield* gateway.open({
+      hostname: host.hostname,
+      headers: request.headers,
+      path,
+    });
     if (admission.readiness.application !== "ready")
       return HttpServerResponse.empty({ status: 503, headers: noStore });
     return yield* forwardApplicationRequest(admission, request, path, upgrade);
@@ -443,15 +488,20 @@ export const PreviewGatewayHttpRoutes = (gateway: PreviewGatewayApi) =>
   HttpRouter.add("*", "*", applicationRequest(gateway));
 
 /** Only a TLS listener is exposed. DNS/certificate provisioning is operator-owned. */
-export const PreviewGatewayHttpsLive = (options: {
-  readonly host: string;
-  readonly port: number;
-  readonly certificate: string;
-  readonly privateKey: string;
-}) =>
+export const PreviewGatewayHttpsLive = (
+  options: {
+    readonly host: string;
+    readonly port: number;
+    readonly certificate: string;
+    readonly privateKey: string;
+  },
+  onListening?: (port: number) => void,
+) =>
   HttpRouter.serve(
     Layer.unwrap(
       Effect.gen(function* () {
+        const server = yield* HttpServer.HttpServer;
+        if (server.address._tag === "TcpAddress") onListening?.(server.address.port);
         const gateway = yield* PreviewGateway;
         return PreviewGatewayHttpRoutes(gateway).pipe(Layer.provideMerge(HttpRouter.layer));
       }),

@@ -65,6 +65,48 @@ export * from "./types";
 export * from "./preview-gateway";
 export * from "./preview-gateway-http";
 export {
+  PreviewWorkflowApiReadinessSchema,
+  PreviewWorkflowApiSupervisor,
+  PreviewWorkflowApiSupervisorError,
+  PreviewWorkflowApiSupervisorLayer,
+  makePreviewWorkflowApiSupervisor,
+  makePreviewWorkflowApiSupervisorError,
+  previewWorkflowApiProcessRequest,
+  type PreviewWorkflowApiProcess,
+  type PreviewWorkflowApiDatabaseTarget,
+  type PreviewWorkflowApiReadiness,
+  type PreviewWorkflowApiSupervisorAdapters,
+  type PreviewWorkflowApiSupervisorApi,
+} from "./preview-workflow-api-supervisor";
+export {
+  PreviewWorkflowApiApplicationRoute,
+  PreviewWorkflowApiCredentialProvider,
+  PreviewWorkflowApiHostError,
+  PreviewWorkflowApiSupervisorLive,
+  makePreviewWorkflowApiSupervisorAdapters,
+  makePreviewWorkflowApiWorkflowRequestRunner,
+  type PreviewWorkflowApiApplicationRouteApi,
+  type PreviewWorkflowApiCredentialProviderApi,
+  type PreviewWorkflowApiRuntimeArtifactAttestations,
+} from "./preview-workflow-api-host";
+export {
+  PreviewSharedWorkflowAdmission,
+  PreviewSharedWorkflowAdmissionLive,
+  PreviewSharedWorkflowError,
+  PreviewSharedWorkflowGroupSchema,
+  PreviewSharedWorkflowRequestSchema,
+  makePreviewSharedWorkflowAdmission,
+  previewSharedWorkflowGroupTarget,
+  previewSharedWorkflowTarget,
+  previewSharedWorkflowContractTargets,
+  type PreviewSharedWorkflowAdmissionInput,
+  type PreviewSharedWorkflowHttpRequestInput,
+  type PreviewSharedWorkflowHttpRequestRunner,
+  type PreviewSharedWorkflowAdmissionApi,
+  type PreviewSharedWorkflowGroup,
+  type PreviewSharedWorkflowRequest,
+} from "./preview-shared-workflow";
+export {
   executeFast,
   executeCompose,
   makeComposeExecutionContext,
@@ -565,6 +607,12 @@ const renderHuman = (output: LauncherOutput, help?: string) => {
         lines.push(`      state identity: ${details.stateIdentity}`);
       if (details?.deployedManifestDigest !== undefined) {
         lines.push(`      deployed manifest: ${details.deployedManifestDigest}`);
+      }
+      if (details?.schemaArtifactDigest !== undefined) {
+        lines.push(`      schema artifact: ${details.schemaArtifactDigest}`);
+      }
+      if (details?.workflowContractCatalogDigest !== undefined) {
+        lines.push(`      Workflow Contract catalog: ${details.workflowContractCatalogDigest}`);
       }
       if (details?.allocationProfile !== undefined) {
         lines.push(`      allocation profile: ${details.allocationProfile}`);

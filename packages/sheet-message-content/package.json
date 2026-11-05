@@ -10,54 +10,67 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
+      "development": "./src/index.ts",
       "default": "./dist/index.mjs"
     },
     "./checkinAnnouncement": {
       "types": "./dist/checkinAnnouncement.d.mts",
+      "development": "./src/checkinAnnouncement.ts",
       "default": "./dist/checkinAnnouncement.mjs"
     },
     "./checkinMessages": {
       "types": "./dist/checkinMessages.d.mts",
+      "development": "./src/checkinMessages.ts",
       "default": "./dist/checkinMessages.mjs"
     },
     "./checkinPrompt": {
       "types": "./dist/checkinPrompt.d.mts",
+      "development": "./src/checkinPrompt.ts",
       "default": "./dist/checkinPrompt.mjs"
     },
     "./checkinSummary": {
       "types": "./dist/checkinSummary.d.mts",
+      "development": "./src/checkinSummary.ts",
       "default": "./dist/checkinSummary.mjs"
     },
     "./components": {
       "types": "./dist/components.d.mts",
+      "development": "./src/components.ts",
       "default": "./dist/components.mjs"
     },
     "./rendering": {
       "types": "./dist/rendering.d.mts",
+      "development": "./src/rendering.ts",
       "default": "./dist/rendering.mjs"
     },
     "./roomOrderContent": {
       "types": "./dist/roomOrderContent.d.mts",
+      "development": "./src/roomOrderContent.ts",
       "default": "./dist/roomOrderContent.mjs"
     },
     "./roomOrderMessage": {
       "types": "./dist/roomOrderMessage.d.mts",
+      "development": "./src/roomOrderMessage.ts",
       "default": "./dist/roomOrderMessage.mjs"
     },
     "./schedule": {
       "types": "./dist/schedule.d.mts",
+      "development": "./src/schedule.ts",
       "default": "./dist/schedule.mjs"
     },
     "./slotRendering": {
       "types": "./dist/slotRendering.d.mts",
+      "development": "./src/slotRendering.ts",
       "default": "./dist/slotRendering.mjs"
     },
     "./teamSubmissionButtons": {
       "types": "./dist/teamSubmissionButtons.d.mts",
+      "development": "./src/teamSubmissionButtons.ts",
       "default": "./dist/teamSubmissionButtons.mjs"
     },
     "./text": {
       "types": "./dist/text.d.mts",
+      "development": "./src/text.ts",
       "default": "./dist/text.mjs"
     },
     "./package.json": "./package.json"

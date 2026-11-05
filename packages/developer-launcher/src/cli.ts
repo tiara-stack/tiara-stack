@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { NodeRuntime, NodeServices } from "@effect/platform-node";
+import { NodeFileSystem, NodeHttpClient, NodeRuntime, NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import * as Console from "effect/Console";
 import * as Clock from "effect/Clock";
@@ -9,6 +9,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Match from "effect/Match";
 import * as Option from "effect/Option";
+import * as Scope from "effect/Scope";
 import { FetchHttpClient } from "effect/unstable/http";
 import {
   closeSync,
@@ -27,6 +28,7 @@ import { fileURLToPath } from "node:url";
 import { Argument, Command, Flag } from "effect/unstable/cli";
 import {
   executeDevelopmentPlan,
+  renderLauncherOutput,
   renderLifecycleTerminal,
   runLauncherFromParsed,
   type DevelopmentPlanExecutionOptions,
@@ -44,14 +46,44 @@ import {
   type LauncherResult,
   type ProcessExecutor,
 } from "./types";
-import { normalizeChangedSurfaces, parseCommand, type CommandOptions } from "./commands";
-import { makePreviewGateway, PreviewGateway } from "./preview-gateway";
+import {
+  normalizeChangedSurfaces,
+  parseCommand,
+  parsePositionals,
+  type CommandOptions,
+} from "./commands";
+import { makePreviewGatewaySessionLayer } from "./preview-gateway-session-layer";
+import { PreviewGateway, PreviewGatewayError } from "./preview-gateway";
 import {
   ConnectedWorkflowPreviewProvider,
   makeConnectedWorkflowPreviewRuntime,
   type ConnectedWorkflowPreviewProviderApi,
 } from "./connected-preview";
 import { PreviewSessionController, PreviewSessionControllerLive } from "./preview-sessions";
+import {
+  makePreviewWorkflowApiSupervisor,
+  PreviewWorkflowApiSupervisor,
+  type PreviewWorkflowApiSupervisorApi,
+} from "./preview-workflow-api-supervisor";
+import {
+  makePreviewWorkflowApiSupervisorAdapters,
+  PreviewWorkflowApiApplicationRoute,
+  PreviewWorkflowApiCredentialProvider,
+  PreviewWorkflowApiHostError,
+} from "./preview-workflow-api-host";
+import {
+  loadPreviewWorkflowApiTrustedAuthority,
+  loadPreviewWorkflowApiTrustedAuthorityWithKey,
+  makePreviewWorkflowApiAuthorityExpiryAssertion,
+  makePreviewWorkflowApiCredentialProvider,
+  PreviewWorkflowApiTrustedAuthority,
+} from "./preview-workflow-api-authority";
+import {
+  loadPreviewGatewayAdapters,
+  PreviewGatewayRuntime,
+  type PreviewGatewayRuntimeLoadResult,
+} from "./preview-gateway-runtime";
+import { CliLayerAcquisitionFailureForTesting } from "./cli-layer-test-support";
 import {
   makeLocalFilesystemPreviewResourceAdapter,
   parsePreviewAllocationConfig,
@@ -268,9 +300,109 @@ const formatLauncherResult = (
   };
 };
 
+const resolvePreviewWorkflowApiCredentialConfiguration = Effect.gen(function* () {
+  const configuredCredentials = yield* Effect.serviceOption(PreviewWorkflowApiCredentialProvider);
+  const authorityState = yield* Effect.serviceOption(PreviewWorkflowApiTrustedAuthority);
+  const authority =
+    Option.isSome(authorityState) && Option.isSome(authorityState.value)
+      ? authorityState.value.value
+      : undefined;
+  const configuredProvider = Option.isSome(configuredCredentials)
+    ? configuredCredentials.value
+    : undefined;
+  const baseProvider =
+    configuredProvider ??
+    (authority === undefined
+      ? undefined
+      : makePreviewWorkflowApiCredentialProvider({
+          authority,
+          readEnvironment: (name) => process.env[name],
+        }));
+  if (baseProvider === undefined) return undefined;
+  if (authority === undefined) return { credentialProvider: baseProvider };
+
+  const assertAuthorityCurrent = makePreviewWorkflowApiAuthorityExpiryAssertion({
+    expiresAt: authority.expiresAt,
+  });
+  const credentialProvider = {
+    ...baseProvider,
+    assertCurrent: assertAuthorityCurrent,
+    resolveDatabaseTarget: (input: Parameters<typeof baseProvider.resolveDatabaseTarget>[0]) =>
+      assertAuthorityCurrent().pipe(
+        Effect.andThen(baseProvider.resolveDatabaseTarget(input)),
+        Effect.tap(() => assertAuthorityCurrent()),
+      ),
+    resolve: (input: Parameters<typeof baseProvider.resolve>[0]) =>
+      assertAuthorityCurrent().pipe(
+        Effect.andThen(baseProvider.resolve(input)),
+        Effect.tap(() => assertAuthorityCurrent()),
+      ),
+  };
+  return {
+    credentialProvider,
+    trustedRuntimeArtifactAttestations: authority.runtimeArtifactAttestations,
+  };
+});
+
+const resolvePreviewWorkflowApiSupervisor = Effect.gen(function* () {
+  const configured = yield* Effect.serviceOption(PreviewWorkflowApiSupervisor);
+  if (Option.isSome(configured)) return configured.value;
+  const gatewayRuntime = yield* Effect.serviceOption(PreviewGatewayRuntime);
+  if (Option.isNone(gatewayRuntime) || Option.isNone(gatewayRuntime.value.runtime))
+    return undefined;
+  const route = yield* Effect.serviceOption(PreviewWorkflowApiApplicationRoute);
+  if (Option.isNone(route)) return undefined;
+  const credentialConfiguration = yield* resolvePreviewWorkflowApiCredentialConfiguration;
+  if (credentialConfiguration === undefined) return undefined;
+  const adapters = yield* makePreviewWorkflowApiSupervisorAdapters({
+    credentialProvider: credentialConfiguration.credentialProvider,
+    route: route.value,
+    ...(credentialConfiguration.trustedRuntimeArtifactAttestations === undefined
+      ? {}
+      : {
+          trustedRuntimeArtifactAttestations:
+            credentialConfiguration.trustedRuntimeArtifactAttestations,
+        }),
+  }).pipe(Effect.provide(NodeHttpClient.layerNodeHttp), Effect.provide(NodeFileSystem.layer));
+  return makePreviewWorkflowApiSupervisor(adapters);
+});
+
+const previewGatewayUnavailableReasonFrom = (
+  runtimeState: Option.Option<PreviewGatewayRuntimeLoadResult>,
+) =>
+  Option.isSome(runtimeState)
+    ? Option.getOrUndefined(runtimeState.value.unavailableReason)
+    : undefined;
+
+const previewWorkflowApiSupervisorUnavailableReasonFrom = (input: {
+  readonly supervisor: PreviewWorkflowApiSupervisorApi | undefined;
+  readonly failure: PreviewWorkflowApiHostError | undefined;
+  readonly runtimeState: Option.Option<PreviewGatewayRuntimeLoadResult>;
+}): string | undefined => {
+  if (input.supervisor !== undefined) return undefined;
+  if (input.failure === undefined) return previewGatewayUnavailableReasonFrom(input.runtimeState);
+  return [input.failure.reason, input.failure.phase].filter((part) => part !== undefined).join(":");
+};
+
 const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
   Effect.gen(function* () {
     const clock = yield* Clock.Clock;
+    const gatewayRuntimeState = yield* Effect.serviceOption(PreviewGatewayRuntime);
+    const workflowApiSupervisorResolution = yield* resolvePreviewWorkflowApiSupervisor.pipe(
+      Effect.map((supervisor) => ({ supervisor, failure: undefined })),
+      Effect.catch((failure: PreviewWorkflowApiHostError) =>
+        Effect.succeed({ supervisor: undefined, failure }),
+      ),
+    );
+    const workflowApiSupervisor = workflowApiSupervisorResolution.supervisor;
+    const previewGatewayRuntimeUnavailableReason =
+      previewGatewayUnavailableReasonFrom(gatewayRuntimeState);
+    const workflowApiSupervisorUnavailableReason =
+      previewWorkflowApiSupervisorUnavailableReasonFrom({
+        supervisor: workflowApiSupervisor,
+        failure: workflowApiSupervisorResolution.failure,
+        runtimeState: gatewayRuntimeState,
+      });
     const sessionController = yield* Effect.serviceOption(PreviewSessionController);
     const allocationController = yield* Effect.serviceOption(PreviewAllocationController);
     const relayProvider = yield* Effect.serviceOption(PreviewRelayProvider);
@@ -329,6 +461,26 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
         : {}),
       ...(Option.isSome(gateway) ? { previewGateway: gateway.value } : {}),
       ...(Option.isSome(relayProvider) ? { previewRelayProvider: relayProvider.value } : {}),
+      ...(workflowApiSupervisor === undefined
+        ? {}
+        : {
+            previewWorkflowApiSupervisor: workflowApiSupervisor,
+            onPreviewSessionReady: (
+              session: import("./preview-sessions").PreviewSession,
+              applicationOrigin: string,
+            ) =>
+              process.stderr.write(
+                `Connected workflow API preview ${session.id} is ready at ${applicationOrigin} for revision ${session.activeRevision ?? "unknown"} (generation ${session.generation}).\n`,
+              ),
+          }),
+      ...(workflowApiSupervisorUnavailableReason === undefined
+        ? {}
+        : {
+            previewWorkflowApiSupervisorUnavailableReason: workflowApiSupervisorUnavailableReason,
+          }),
+      ...(previewGatewayRuntimeUnavailableReason === undefined
+        ? {}
+        : { previewGatewayRuntimeUnavailableReason }),
     };
     const completed = yield* Effect.tryPromise({
       try: async () => {
@@ -355,13 +507,96 @@ const runParsedCommand = (config: Parameters<typeof launcherOptions>[0]) =>
     return completed;
   });
 
+const renderSessionLayerAcquisitionFailure = (
+  config: Parameters<typeof launcherOptions>[0],
+  failure: unknown,
+) =>
+  Effect.promise(() => runLauncherFromParsed(config.operands, launcherOptions(config))).pipe(
+    Effect.map((result) => {
+      if (!(failure instanceof PreviewGatewayError) || result.output.errors.length === 0)
+        return result;
+      const output = {
+        ...result.output,
+        errors: result.output.errors.map((diagnostic, index) =>
+          index === 0
+            ? {
+                ...diagnostic,
+                message: `${diagnostic.message} (PreviewGatewayError: ${failure.reason})`,
+              }
+            : diagnostic,
+        ),
+      };
+      return {
+        ...result,
+        output,
+        stdout: config.jsonStream
+          ? renderLifecycleTerminal(output, result.exitCode)
+          : renderLauncherOutput(output, config.json),
+      };
+    }),
+    Effect.flatMap((result) => {
+      const formatted = formatLauncherResult(result, config, undefined, false);
+      return completeCommandOutput(formatted.output);
+    }),
+  );
+
+const handleCliActionLayerFailure = <Failure>(
+  config: Parameters<typeof launcherOptions>[0],
+  failure: Failure,
+) => {
+  let action: string | undefined;
+  try {
+    const parsed = parsePositionals(config.operands, launcherOptions(config));
+    action = parsed.kind === "preview" ? parsed.action : undefined;
+  } catch {
+    action = undefined;
+  }
+  return action !== undefined && sessionActions.has(action)
+    ? renderSessionLayerAcquisitionFailure(config, failure)
+    : Effect.fail(new Error("The CLI action layer could not be acquired.", { cause: failure }));
+};
+
+const runCommandWithActionLayer = (config: Parameters<typeof launcherOptions>[0]) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const testFailure = yield* Effect.serviceOption(CliLayerAcquisitionFailureForTesting);
+      if (Option.isSome(testFailure)) {
+        return yield* Layer.build(
+          Layer.fromBuild((_memoMap, layerScope) =>
+            Effect.acquireRelease(
+              Effect.sync(() => {
+                testFailure.value.onBuild();
+              }),
+              () => Effect.sync(() => testFailure.value.onRelease()),
+            ).pipe(
+              Effect.provideService(Scope.Scope, layerScope),
+              Effect.andThen(Effect.fail(testFailure.value.error)),
+            ),
+          ),
+        ).pipe(
+          Effect.matchEffect({
+            onFailure: (failure) => handleCliActionLayerFailure(config, failure),
+            onSuccess: () =>
+              Effect.die(new Error("The injected CLI layer failure unexpectedly succeeded")),
+          }),
+        );
+      }
+      return yield* Layer.build(cliActionLayer).pipe(
+        Effect.matchEffect({
+          onFailure: (failure) => handleCliActionLayerFailure(config, failure),
+          onSuccess: (context) => Effect.provideContext(runParsedCommand(config), context),
+        }),
+      );
+    }),
+  );
+
 export const command = Command.make(
   "dev",
   {
     operands: Argument.string("command").pipe(Argument.variadic()),
     ...commonFlags,
   },
-  runParsedCommand,
+  runCommandWithActionLayer,
 ).pipe(
   Command.withDescription(
     "Select a safe TiaraStack development mode, inspect connected preview admission, or run read-only prerequisite checks",
@@ -487,6 +722,7 @@ const sessionActions = new Set([
   "cleanup",
   "resolve",
 ]);
+const workflowApiSessionActions = new Set(["start", "resume", "recreate"]);
 const args = process.argv.slice(2);
 const previewActionFromArguments = (arguments_: readonly string[]) => {
   try {
@@ -496,7 +732,82 @@ const previewActionFromArguments = (arguments_: readonly string[]) => {
     return undefined;
   }
 };
-const previewAction = previewActionFromArguments(args);
+const previewSessionIdFromArguments = (arguments_: readonly string[]) => {
+  try {
+    const parsed = parseCommand(arguments_);
+    return parsed.kind === "preview" ? (parsed.options.sessionId ?? undefined) : undefined;
+  } catch {
+    return undefined;
+  }
+};
+export const previewGatewayListenerSelectionForArguments = (arguments_: readonly string[]) => ({
+  action: previewActionFromArguments(arguments_),
+  sessionId: previewSessionIdFromArguments(arguments_),
+});
+export function previewWorkflowApiAuthorityLayerForArguments(
+  arguments_: readonly string[],
+  input: { readonly checkout: string; readonly environment: NodeJS.ProcessEnv },
+  trustedPublicKeyPem?: string,
+) {
+  const action = previewActionFromArguments(arguments_);
+  return action !== undefined && workflowApiSessionActions.has(action)
+    ? Layer.effect(
+        PreviewWorkflowApiTrustedAuthority,
+        trustedPublicKeyPem === undefined
+          ? loadPreviewWorkflowApiTrustedAuthority(input)
+          : loadPreviewWorkflowApiTrustedAuthorityWithKey(input, trustedPublicKeyPem),
+      ).pipe(Layer.provide(NodeFileSystem.layer))
+    : Layer.succeed(PreviewWorkflowApiTrustedAuthority, Option.none());
+}
+type PreviewGatewayRuntimeLoader = (input: {
+  readonly checkout: string;
+  readonly environment: NodeJS.ProcessEnv;
+  readonly authority: import("./preview-workflow-api-authority").PreviewWorkflowApiAuthorityPayload;
+}) => Effect.Effect<PreviewGatewayRuntimeLoadResult>;
+
+const unavailablePreviewGatewayRuntime = (): PreviewGatewayRuntimeLoadResult => ({
+  runtime: Option.none(),
+  unavailableReason: Option.none(),
+});
+
+/** Builds the same signed-authority plus host-installed gateway runtime layer used by the CLI. */
+export function previewGatewayRuntimeLayerForArguments(
+  arguments_: readonly string[],
+  input: { readonly checkout: string; readonly environment: NodeJS.ProcessEnv },
+  options: {
+    readonly trustedPublicKeyPem?: string;
+    readonly loadRuntime?: PreviewGatewayRuntimeLoader;
+  } = {},
+) {
+  const action = previewActionFromArguments(arguments_);
+  if (action === undefined || !workflowApiSessionActions.has(action))
+    return Layer.succeed(PreviewGatewayRuntime, unavailablePreviewGatewayRuntime());
+  const authorityLayer = previewWorkflowApiAuthorityLayerForArguments(
+    arguments_,
+    input,
+    options.trustedPublicKeyPem,
+  );
+  const loadRuntime = options.loadRuntime ?? loadPreviewGatewayAdapters;
+  return Layer.effect(
+    PreviewGatewayRuntime,
+    Effect.gen(function* () {
+      const authorityState = yield* PreviewWorkflowApiTrustedAuthority;
+      if (Option.isNone(authorityState)) return unavailablePreviewGatewayRuntime();
+      return yield* loadRuntime({
+        checkout: input.checkout,
+        environment: input.environment,
+        authority: authorityState.value,
+      });
+    }),
+  ).pipe(Layer.provideMerge(authorityLayer), Layer.provide(NodeFileSystem.layer));
+}
+const previewGatewayListenerSelection = previewGatewayListenerSelectionForArguments(args);
+const previewAction = previewGatewayListenerSelection.action;
+const previewSessionId = previewGatewayListenerSelection.sessionId;
+const previewGatewayRuntimeLayer = previewGatewayRuntimeLayerForArguments(args, {
+  checkout: process.cwd(),
+  environment: process.env,
+});
 const isPreviewSessionAction =
   previewAction !== undefined &&
   (sessionActions.has(previewAction) || previewAction === "baseline");
@@ -578,30 +889,26 @@ const previewAllocationLayer = (databasePath: string) =>
     : Layer.empty;
 // Cleanup remains available without live gateway/authentication adapters. It never opens routes.
 const previewSessionLayer = PreviewSessionControllerLive(Date.now);
-const previewSessionWithGatewayCleanup =
-  previewAction === "stop" || previewAction === "cleanup" || previewAction === "resolve"
-    ? Layer.effect(
-        PreviewGateway,
-        Effect.gen(function* () {
-          const controller = yield* PreviewSessionController;
-          return yield* makePreviewGateway({ domain: "", controller, now: Date.now });
-        }),
-      ).pipe(Layer.provideMerge(previewSessionLayer))
-    : previewSessionLayer;
+const previewSessionWithGatewayCleanup = sessionControllerNeeded
+  ? makePreviewGatewaySessionLayer({
+      runtimeLayer: previewGatewayRuntimeLayer,
+      sessionLayer: previewSessionLayer,
+      now: Date.now,
+      action: previewGatewayListenerSelection.action,
+      listenerLeaseManagement: sessionControllerNeeded,
+      ...(previewSessionId === undefined ? {} : { sessionId: previewSessionId }),
+    })
+  : previewSessionLayer;
 const previewDatabaseLayer =
   resolvedSessionDatabase === undefined || (!allocationControllerNeeded && !sessionControllerNeeded)
     ? Layer.empty
     : Layer.provide(
-        sessionControllerNeeded && allocationControllerNeeded // oxlint-disable-line no-nested-ternary -- inherited master site
-          ? Layer.merge(
-              previewSessionWithGatewayCleanup,
-              previewAllocationLayer(resolvedSessionDatabase),
-            )
-          : sessionControllerNeeded // oxlint-disable-line no-nested-ternary -- inherited master site
-            ? previewSessionWithGatewayCleanup
-            : allocationControllerNeeded
-              ? previewAllocationLayer(resolvedSessionDatabase)
-              : Layer.empty,
+        Layer.mergeAll(
+          sessionControllerNeeded ? previewSessionWithGatewayCleanup : Layer.empty,
+          allocationControllerNeeded
+            ? previewAllocationLayer(resolvedSessionDatabase)
+            : Layer.empty,
+        ),
         Layer.mergeAll(
           SqliteClient.layer({
             filename: resolvedSessionDatabase,
@@ -628,15 +935,14 @@ const workflowPreviewProviderLayer = workflowPreviewProviderLayerForArguments(ar
   checkout: process.cwd(),
   environment: process.env,
 });
-const cliLayer = Layer.mergeAll(
+const cliBaseLayer = Layer.mergeAll(
   NodeServices.layer,
   FetchHttpClient.layer,
-  previewDatabaseLayer,
-  workflowPreviewProviderLayer,
   PreviewRelayProviderLayer(previewRelayProvider),
 );
+const cliActionLayer = Layer.mergeAll(previewDatabaseLayer, workflowPreviewProviderLayer);
 
-export const main = Command.run(command, { version: "0.0.0" }).pipe(Effect.provide(cliLayer));
+export const main = Command.run(command, { version: "0.0.0" }).pipe(Effect.provide(cliBaseLayer));
 
 export const runMain = () => NodeRuntime.runMain(main);
 

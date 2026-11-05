@@ -1,6 +1,6 @@
 {
   "extends": "../../tsconfig.browser.json",
-  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts", "src/**/*.json"],
   "exclude": ["node_modules", "dist", ".output", ".ts-out"],
   "compilerOptions": {
     "outDir": "./.ts-out",

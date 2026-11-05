@@ -27,12 +27,12 @@ allocations do not admit traffic.
 The private `dispatchPreviewGatewayProtocol` accepts these versioned-shape
 messages with `version: 1`, validated with Effect Schema:
 
-| Message         | Required fields                                  | Result                              |
-| --------------- | ------------------------------------------------ | ----------------------------------- |
-| `RegisterProbe` | `target`, `ownerIdentity`                        | Recorded hostname and exact target  |
-| `RegisterApplication` | `target`, `ownerIdentity`                    | Application route after actual `/ready` check |
-| `Grant`         | `hostname`, `ownerIdentity`, `userId`, `allowed` | Grant added or removed              |
-| `Cleanup`       | `hostname`, `ownerIdentity`                      | Route tombstoned and grants removed |
+| Message               | Required fields                                  | Result                                        |
+| --------------------- | ------------------------------------------------ | --------------------------------------------- |
+| `RegisterProbe`       | `target`, `ownerIdentity`                        | Recorded hostname and exact target            |
+| `RegisterApplication` | `target`, `ownerIdentity`                        | Application route after actual `/ready` check |
+| `Grant`               | `hostname`, `ownerIdentity`, `userId`, `allowed` | Grant added or removed                        |
+| `Cleanup`             | `hostname`, `ownerIdentity`                      | Route tombstoned and grants removed           |
 
 Expose this dispatcher only through the controller's authenticated private
 administration boundary. It is not mounted on the public HTTPS listener. Owner
@@ -76,6 +76,18 @@ paths and queries cannot change the session, role, revision or destination. Unsa
 methods outside GET, HEAD, POST, PUT, PATCH, DELETE and OPTIONS are rejected.
 A WebSocket upgrade requires the exact HTTPS Origin. A top-level same-origin
 navigation may omit Origin. Unknown hosts have no default upstream.
+
+With a verified host module, each configured CLI session listener asks the OS
+for an available TCP port. The published HTTPS origin includes that actual port
+when it is not 443, and the common HTTP handler requires both `Host` and
+`Origin` to match the listener's exact host and port. The controller store keeps
+a lease binding the session, owner identity digest, generation, and port.
+Compatible resume reuses the leased port and fails closed if it cannot bind it.
+Exact cleanup releases the lease only after the session's active routes and
+channels are gone. Separate CLI processes can therefore serve distinct sessions
+on distinct listeners when they share the authorized controller store. This
+local code does not install DNS, ingress, firewall rules, or public port
+routing, and its loopback controls do not establish live reachability.
 
 Probe relays receive only allowlisted `Accept` and `Accept-Language` headers.
 Application HTTP receives `Accept`, `Accept-Language`, `Content-Type`,
@@ -177,21 +189,32 @@ lease expiry; failed cleanup retains the route record for retry.
 
 ## Operator deployment and setup
 
-No live adapter implementation, standalone deployment image, or public browser
-identity provider is supplied here. Do not deploy an unauthenticated proxy in
-its place. Implement and verify these adapters before advertising any public
-profile:
+No deployed adapter module, standalone deployment image, or public browser
+identity provider is supplied here. The CLI now includes a signed configuration
+loader, the common session-route adapter, and the HTTPS server layer. It loads
+the transport and identity adapters only from the host-installed module named by
+`TIARA_PREVIEW_GATEWAY_ADAPTER_MODULE`. That module must be a root-owned regular
+file directly under `/etc/tiara-stack/preview-development`, outside the
+checkout, and not writable by group or other users. Its
+`makePreviewGatewayRuntime` export receives the verified authority and only
+`TIARA_PREVIEW_GATEWAY_*` environment variables. The CLI takes the route domain
+from that authority, validates the adapter shape, and keeps the route unavailable
+when the module is absent or invalid. Do not deploy an unauthenticated proxy in
+its place. Install and verify a real adapter and complete these steps before
+advertising any public profile:
 
-1. Provide the existing controller/allocator store to `makePreviewGateway`, and
-   run one embedded authority with the gateway. All stop/resume commands must reach
-   that same authority. The current local CLI's separate-process controller is
-   **not** a verified remote revocation transport. Multiple replicas, multiple
-   independent controllers and remote fence delivery remain unsupported.
-2. Provision a dedicated development gateway workload, namespace and service
-   account. Mount only its private controller database and gateway TLS/identity
-   material. Selected host runtimes must not receive controller administration
-   credentials. Bind `PreviewGatewayHttpsLive` with an operator-managed certificate
-   and private key. Keep its private control protocol off the public listener.
+1. Provide the authorized controller/allocator store to each host process that
+   owns a session. Stop and resume operations for that session must use the same
+   store and owner identity. The local CLI supports distinct session listeners
+   across processes; this is **not** verified remote revocation transport.
+   Multiple replicas with independent controller stores and remote fence delivery
+   remain unsupported.
+2. Provision the operator-owned TLS identity and a deployed route path for the
+   session host and its allocated port. A shared ingress may be used only when
+   it preserves the exact session `Host` and port and has no shared default
+   backend. This code does not choose or verify that mapping. Selected host
+   runtimes must not receive controller administration credentials, and the
+   private control protocol must stay off the public listener.
 3. Install wildcard DNS for `*.<development domain>` pointing only to this gateway,
    and a certificate covering those single-label session/role names. Configure
    the ingress or load balancer for TLS and WebSocket upgrades without a shared
@@ -225,11 +248,11 @@ profile:
    record its environment and adapter versions, and only then advertise a profile.
 
 This is an operator handoff, not a record that setup has happened. The stock CLI
-provides the host Vite process supervisor but does not configure the public
-gateway or browser authenticator. Its `sheet-web` profile remains unavailable.
-Injected local adapters support
-contract tests but do not establish public DNS, TLS, operator grants or live
-identity.
+provides the host Vite process supervisor and the adapter-loading/composition
+code, but no host-installed transport or browser-authentication module is
+configured. Its `sheet-web` profile remains unavailable. Injected local adapters
+support contract tests but do not establish public DNS, TLS, operator grants or
+live identity.
 
 ## Acceptance evidence and remaining gates
 
@@ -247,8 +270,8 @@ contract tests, not public browser, Kubernetes or TLS integration results.
 | Scenario                                                                     | Local evidence                                 | Live status |
 | ---------------------------------------------------------------------------- | ---------------------------------------------- | ----------- |
 | Owner HTTPS probe and two explicit targets                                   | HTTP handler and forwarding assertions         | Not run     |
-| Application HTTP path, bounded body and filtered headers                     | `preview-gateway.test.ts` application route     | Not run     |
-| Vite HMR WSS path and bidirectional frames                                    | `preview-gateway.test.ts` application socket    | Not run     |
+| Application HTTP path, bounded body and filtered headers                     | `preview-gateway.test.ts` application route    | Not run     |
+| Vite HMR WSS path and bidirectional frames                                   | `preview-gateway.test.ts` application socket   | Not run     |
 | Owner grant, denied guest/cross-session proof, revocation                    | Durable grants and established admission tests | Not run     |
 | WebSocket upgrade and both frame directions                                  | Handler with scoped Socket adapters            | Not run     |
 | Same-session reconnect and stale-generation rejection                        | Reauthentication and explicit resume tests     | Not run     |

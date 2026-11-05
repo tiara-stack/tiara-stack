@@ -22,6 +22,7 @@ const deadController = (): PreviewSessionControllerApi => ({
   resume: () => Effect.die("unexpected controller call"),
   requestRevision: () => Effect.die("unexpected controller call"),
   activate: () => Effect.die("unexpected controller call"),
+  authorizeWorkEndpoint: () => Effect.die("unexpected controller call"),
   stop: () => Effect.die("unexpected controller call"),
   stopSupervised: () => Effect.die("unexpected controller call"),
   admit: () => Effect.die("unexpected controller call"),
@@ -36,6 +37,7 @@ const deadController = (): PreviewSessionControllerApi => ({
   removeCredentialIdentity: () => Effect.die("unexpected controller call"),
   isCredentialIdentityRegistered: () => Effect.die("unexpected controller call"),
   admitWorkload: () => Effect.die("unexpected controller call"),
+  findWorkloadAdmission: () => Effect.die("unexpected controller call"),
   settleWorkload: () => Effect.die("unexpected controller call"),
 });
 

@@ -33,8 +33,13 @@
     "@effect/platform-node": "catalog:",
     "@effect/sql-sqlite-node": "catalog:",
     "effect": "catalog:",
+    "effect-zero-workflow": "workspace:*",
+    "msgpackr": "2.0.2",
     "sheet-auth": "workspace:*",
-    "sheet-workflow-contracts": "workspace:*"
+    "sheet-db-schema": "workspace:*",
+    "sheet-workflow-contracts": "workspace:*",
+    "sheet-workflows": "workspace:*",
+    "yaml": "catalog:"
   },
   "devDependencies": {
     "@effect/vitest": "catalog:",

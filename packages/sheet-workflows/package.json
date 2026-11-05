@@ -19,6 +19,11 @@
       "development": "./src/runner/stagedSourceSupervisor.ts",
       "default": "./dist/runner-source.mjs"
     },
+    "./catalog-identity": {
+      "types": "./src/catalogIdentity.d.mts",
+      "development": "./src/catalogIdentity.ts",
+      "default": "./dist/catalog-identity.mjs"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -49,6 +54,7 @@
     "typhoon-zero": "workspace:*"
   },
   "devDependencies": {
+    "@effect/sql-sqlite-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "tooling-config": "workspace:*",

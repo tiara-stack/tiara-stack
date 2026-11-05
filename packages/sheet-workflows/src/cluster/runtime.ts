@@ -180,7 +180,7 @@ export const shardingConfigLayer = Layer.unwrap(
   }),
 ).pipe(Layer.withSpan("sheet-workflows.shardingConfig"));
 
-export const clusterStorageLayer = clusterWorkflowStorageLayer({
+const clusterStorageLayer = clusterWorkflowStorageLayer({
   prefix: "sheet_workflows",
 }).pipe(Layer.withSpan("sheet-workflows.clusterStorage"));
 

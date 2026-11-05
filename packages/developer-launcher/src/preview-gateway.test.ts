@@ -19,7 +19,11 @@ import { SqlClient } from "effect/unstable/sql";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { Socket } from "effect/unstable/socket";
 import * as Exit from "effect/Exit";
-import { makePreviewSessionController, previewSessionLeaseMs } from "./preview-sessions";
+import {
+  makePreviewSessionController,
+  previewSessionLeaseMs,
+  type PreviewSession,
+} from "./preview-sessions";
 import { relayNameFor } from "./preview-relay-provider";
 import {
   closePreviewGatewayFences,
@@ -37,6 +41,25 @@ import {
 } from "./preview-gateway";
 import { makeRetryableConnectionFence } from "./preview-gateway-close";
 import { dispatchPreviewGatewayProtocol, PreviewGatewayHttpRoutes } from "./preview-gateway-http";
+import { makePreviewWorkflowApiApplicationRoute } from "./preview-workflow-api-route";
+import {
+  makePreviewWorkflowApiWorkflowRequestRunner,
+  PreviewWorkflowApiHostError,
+} from "./preview-workflow-api-host";
+import {
+  makePreviewWorkflowApiSupervisor,
+  makePreviewWorkflowApiSupervisorError,
+  type PreviewWorkflowApiProcess,
+  type PreviewWorkflowApiReadiness,
+  type PreviewWorkflowApiSupervisorApi,
+} from "./preview-workflow-api-supervisor";
+import {
+  previewSharedWorkflowGroupTarget,
+  PreviewSharedWorkflowError,
+  type PreviewSharedWorkflowGroup,
+  type PreviewSharedWorkflowHttpRequestInput,
+  type PreviewSharedWorkflowHttpRequestRunner,
+} from "./preview-shared-workflow";
 
 const bad = () => new PreviewGatewayError({ reason: "unavailable" });
 const recoveryProof = (identity: PreviewGatewayChannelIdentity) =>
@@ -81,6 +104,7 @@ const fixture = Effect.gen(function* () {
     owner: string,
     kind: PreviewGatewayTarget["kind"] = "disposable-probe",
     role: PreviewGatewayTarget["role"] = "sheet-web",
+    activate = true,
   ) =>
     Effect.gen(function* () {
       const created = yield* controller.create({
@@ -125,7 +149,8 @@ const fixture = Effect.gen(function* () {
         });
         yield* sql`INSERT INTO preview_allocation_ledger VALUES (${target.sessionId}, ${`preview-relay-${kind}-${role}`}, ${token}, ${reference}, 'owned')`;
       }
-      yield* controller.activate(created.session.id, 1, created.supervisorIdentity, "rev-a");
+      if (activate)
+        yield* controller.activate(created.session.id, 1, created.supervisorIdentity, "rev-a");
       return { ...created, target };
     });
   const a = yield* makeSession("alice");
@@ -384,6 +409,11 @@ const fixture = Effect.gen(function* () {
     c,
     d,
     createSession: makeSession,
+    createPendingSession: (
+      owner: string,
+      kind: PreviewGatewayTarget["kind"],
+      role: PreviewGatewayTarget["role"],
+    ) => makeSession(owner, kind, role, false),
     gateway,
     controller,
     adapters,
@@ -3109,6 +3139,1710 @@ it.effect("forwards bounded application HTTP only to the selected session target
   ),
 );
 
+it.effect(
+  "probes producer API readiness through the published session route without admitting workflow work",
+  () =>
+    withFixture((f) =>
+      Effect.gen(function* () {
+        const created = yield* f.createSession(
+          "workflow-api-readiness-owner",
+          "application",
+          "sheet-workflows-api",
+        );
+        const digest = (character: string) => `sha256:${character.repeat(64)}`;
+        const group: PreviewSharedWorkflowGroup = {
+          sessionId: created.session.id,
+          generation: created.session.generation,
+          groupId: "workflow-execution",
+          endpoint: "https://workflows.dev.tiara-stack.moe",
+          databaseEndpointIdentity: digest("d"),
+          stateIdentity: "workflow-state-dev",
+          deployedManifestDigest: digest("a"),
+          schemaArtifactDigest: digest("b"),
+          apiArtifactDigest: digest("c"),
+          workflowContractCatalogDigest: digest("e"),
+        };
+        const session = {
+          ...created.session,
+          resources: {
+            "preview-relay-service-sheet-workflows-api": created.target.serviceResourceId,
+            "preview-relay-attachment-sheet-workflows-api": created.target.attachmentResourceId,
+          },
+        };
+        const target: PreviewGatewayTarget = {
+          ...created.target,
+          stateGroup: "workflow-execution",
+          artifactDigest: group.apiArtifactDigest,
+          catalogDigest: group.workflowContractCatalogDigest,
+        };
+        const applicationRoute = makePreviewWorkflowApiApplicationRoute(f.gateway);
+        const origin = yield* applicationRoute.applicationOrigin({
+          sessionId: session.id,
+          role: "sheet-workflows-api",
+        });
+        const admission = makePreviewWorkflowApiWorkflowRequestRunner({
+          controller: f.controller,
+          group,
+          oauthClientId: "workflow-api-client",
+          endpoint: () => origin,
+        });
+        yield* applicationRoute.publish({
+          session,
+          ownerIdentity: created.ownerIdentity,
+          revision: target.revision,
+          group,
+          listener: {
+            role: "sheet-workflows-api",
+            host: "127.0.0.1",
+            port: target.port,
+            processId: target.processId,
+          },
+          admitWorkflowRequest: admission,
+        });
+
+        const hostname = `p-${session.id}-sheet-workflows-api.dev.example.test`;
+        const authorization = f.token(
+          "workflow-api-readiness-token",
+          target,
+          "workflow-api-readiness-owner",
+        );
+        const handler = yield* HttpRouter.toHttpEffect(
+          PreviewGatewayHttpRoutes(f.gateway).pipe(Layer.provide(HttpRouter.layer)),
+        );
+        const before = yield* f.control;
+        const applicationObservationsBefore = f.applicationObservations.length;
+        const response = yield* handler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              new Request(`${origin}/ready`, {
+                method: "GET",
+                headers: {
+                  ...authorization,
+                  host: hostname,
+                  origin,
+                  "sec-fetch-site": "same-origin",
+                },
+              }),
+            ),
+          ),
+        );
+
+        expect(response.status).toBe(200);
+        expect(f.applicationObservations.at(-1)).toMatchObject({
+          sessionId: session.id,
+          method: "GET",
+          path: "/ready",
+        });
+        expect(f.applicationObservations).toHaveLength(applicationObservationsBefore + 1);
+        expect(yield* f.control).toEqual(before);
+
+        yield* applicationRoute.remove({
+          sessionId: session.id,
+          generation: session.generation,
+          ownerIdentity: created.ownerIdentity,
+          expectedRevision: session.activeRevision ?? session.requestedRevision,
+        });
+      }),
+    ),
+);
+
+it.effect(
+  "rejects producer route publication when authority expires during gateway readiness preflight",
+  () =>
+    withFixture((f) =>
+      Effect.gen(function* () {
+        const created = yield* f.createSession(
+          "workflow-api-expiring-publication-owner",
+          "application",
+          "sheet-workflows-api",
+        );
+        const digest = (character: string) => `sha256:${character.repeat(64)}`;
+        const group: PreviewSharedWorkflowGroup = {
+          sessionId: created.session.id,
+          generation: created.session.generation,
+          groupId: "workflow-execution",
+          endpoint: "https://workflows.dev.tiara-stack.moe",
+          databaseEndpointIdentity: digest("d"),
+          stateIdentity: "workflow-state-dev",
+          deployedManifestDigest: digest("a"),
+          schemaArtifactDigest: digest("b"),
+          apiArtifactDigest: digest("c"),
+          workflowContractCatalogDigest: digest("e"),
+        };
+        const session = {
+          ...created.session,
+          resources: {
+            "preview-relay-service-sheet-workflows-api": created.target.serviceResourceId,
+            "preview-relay-attachment-sheet-workflows-api": created.target.attachmentResourceId,
+          },
+        };
+        const target: PreviewGatewayTarget = {
+          ...created.target,
+          stateGroup: group.groupId,
+          artifactDigest: group.apiArtifactDigest,
+          catalogDigest: group.workflowContractCatalogDigest,
+        };
+        let authorityNow = f.now();
+        const expiresAt = authorityNow + 1;
+        const assertAuthorityCurrent = (): Effect.Effect<void, PreviewWorkflowApiHostError> =>
+          authorityNow < expiresAt
+            ? Effect.void
+            : Effect.fail(
+                new PreviewWorkflowApiHostError({ reason: "workflow-api-authority-expired" }),
+              );
+        const adapters: PreviewGatewayAdapters = {
+          ...f.adapters,
+          connect: (connectTarget) =>
+            f.adapters.connect(connectTarget).pipe(
+              Effect.map((connection) => {
+                const applicationRequest = connection.applicationRequest;
+                if (applicationRequest === undefined) return connection;
+                return {
+                  ...connection,
+                  applicationRequest: (
+                    request: Parameters<
+                      NonNullable<PreviewGatewayRelayConnection["applicationRequest"]>
+                    >[0],
+                  ) =>
+                    applicationRequest(request).pipe(
+                      Effect.tap(() =>
+                        Effect.sync(() => {
+                          if (request.path === "/ready") authorityNow = expiresAt;
+                        }),
+                      ),
+                    ),
+                };
+              }),
+            ),
+        };
+        const gateway = yield* makePreviewGateway({
+          domain: "dev.example.test",
+          controller: f.controller,
+          adapters,
+          now: f.now,
+        });
+        const route = makePreviewWorkflowApiApplicationRoute(gateway);
+        const origin = yield* route.applicationOrigin({
+          sessionId: session.id,
+          role: "sheet-workflows-api",
+        });
+        const admission = makePreviewWorkflowApiWorkflowRequestRunner({
+          controller: f.controller,
+          group,
+          oauthClientId: "workflow-api-expiring-publication-client",
+          endpoint: () => origin,
+          assertAuthorityCurrent,
+        });
+        const before = yield* f.control;
+        const observationsBefore = f.applicationObservations.length;
+
+        // The real host caller checks immediately before route publication. The common gateway
+        // then spends time connecting and probing /ready before persisting its route row.
+        yield* assertAuthorityCurrent();
+        const publication = yield* Effect.exit(
+          route.publish({
+            session,
+            ownerIdentity: created.ownerIdentity,
+            revision: target.revision,
+            group,
+            listener: {
+              role: "sheet-workflows-api",
+              host: "127.0.0.1",
+              port: target.port,
+              processId: target.processId,
+            },
+            admitWorkflowRequest: admission,
+            assertAuthorityCurrent,
+          }),
+        );
+
+        expect(authorityNow).toBe(expiresAt);
+        const hostname = `p-${session.id}-sheet-workflows-api.dev.example.test`;
+        const rows =
+          yield* f.sql`SELECT removed FROM preview_gateway_routes WHERE hostname=${hostname}`;
+        expect({
+          publicationRejected: Exit.isFailure(publication),
+          activeRouteCount: rows.filter((row) => row.removed === 0).length,
+        }).toEqual({ publicationRejected: true, activeRouteCount: 0 });
+        expect(f.applicationObservations).toHaveLength(observationsBefore + 1);
+        expect(yield* f.control).toEqual(before);
+      }),
+    ),
+);
+
+it.effect(
+  "keeps the supervisor from admitting a session when authority expires during route preflight",
+  () =>
+    withFixture((f) =>
+      Effect.gen(function* () {
+        const owner = "workflow-api-supervisor-expiring-publication-owner";
+        const created = yield* f.controller.create({
+          owner,
+          checkout: `/test/${owner}`,
+          requestedRevision: "rev-a",
+          manifests: { "sheet-workflows-api": "manifest" },
+          groups: ["workflow-execution"],
+          endpoints: ["https://workflows.dev.tiara-stack.moe"],
+        });
+        const digest = (character: string) => `sha256:${character.repeat(64)}`;
+        const group: PreviewSharedWorkflowGroup = {
+          sessionId: created.session.id,
+          generation: created.session.generation,
+          groupId: "workflow-execution",
+          endpoint: "https://workflows.dev.tiara-stack.moe",
+          databaseEndpointIdentity: digest("d"),
+          stateIdentity: "workflow-state-dev",
+          deployedManifestDigest: digest("a"),
+          schemaArtifactDigest: digest("b"),
+          apiArtifactDigest: digest("c"),
+          workflowContractCatalogDigest: digest("e"),
+        };
+        const target: PreviewGatewayTarget = {
+          sessionId: created.session.id,
+          generation: created.session.generation,
+          role: "sheet-workflows-api",
+          processId: "workflow-api-expiring-publication-process",
+          revision: "rev-a",
+          artifactDigest: group.apiArtifactDigest,
+          catalogDigest: group.workflowContractCatalogDigest,
+          stateGroup: group.groupId,
+          kind: "application",
+          serviceFqdn: `${relayNameFor(created.session.id, "sheet-workflows-api")}.preview-relays.svc.cluster.local`,
+          port: 43123,
+          serviceResourceId: `service-${owner}`,
+          attachmentResourceId: `attachment-${owner}`,
+        };
+        for (const kind of ["service", "attachment"] as const) {
+          const ownerToken = `${owner}-${kind}`;
+          const providerResourceId =
+            kind === "service" ? target.serviceResourceId : target.attachmentResourceId;
+          const reference = JSON.stringify({
+            version: 1,
+            kind,
+            sessionId: target.sessionId,
+            role: target.role,
+            processId: target.processId,
+            ownerTokenDigest: createHash("sha256").update(ownerToken).digest("hex").slice(0, 63),
+            providerResourceId,
+          });
+          yield* f.sql`INSERT INTO preview_allocation_ledger VALUES (
+            ${target.sessionId},
+            ${`preview-relay-${kind}-${target.role}`},
+            ${ownerToken},
+            ${reference},
+            'owned'
+          )`;
+        }
+
+        let authorityNow = f.now();
+        const expiresAt = authorityNow + 1;
+        const assertAuthorityCurrent = (): Effect.Effect<void, PreviewWorkflowApiHostError> =>
+          authorityNow < expiresAt
+            ? Effect.void
+            : Effect.fail(
+                new PreviewWorkflowApiHostError({ reason: "workflow-api-authority-expired" }),
+              );
+        const adapters: PreviewGatewayAdapters = {
+          ...f.adapters,
+          connect: (connectTarget) =>
+            f.adapters.connect(connectTarget).pipe(
+              Effect.map((connection) => {
+                const applicationRequest = connection.applicationRequest;
+                if (applicationRequest === undefined) return connection;
+                return {
+                  ...connection,
+                  applicationRequest: (
+                    request: Parameters<
+                      NonNullable<PreviewGatewayRelayConnection["applicationRequest"]>
+                    >[0],
+                  ) =>
+                    applicationRequest(request).pipe(
+                      Effect.tap(() =>
+                        Effect.sync(() => {
+                          if (request.path === "/ready") authorityNow = expiresAt;
+                        }),
+                      ),
+                    ),
+                };
+              }),
+            ),
+        };
+        const gateway = yield* makePreviewGateway({
+          domain: "dev.example.test",
+          controller: f.controller,
+          adapters,
+          now: f.now,
+        });
+        const route = makePreviewWorkflowApiApplicationRoute(gateway);
+        const endpoint = yield* route.applicationOrigin({
+          sessionId: created.session.id,
+          role: "sheet-workflows-api",
+        });
+        const sessionWithResources = (session: typeof created.session) => ({
+          ...session,
+          resources: {
+            "preview-relay-service-sheet-workflows-api": target.serviceResourceId,
+            "preview-relay-attachment-sheet-workflows-api": target.attachmentResourceId,
+          },
+        });
+        const processFor = (revision: string): PreviewWorkflowApiProcess => ({
+          id: `workflow-api-${revision}`,
+          endpoint,
+          opaque: revision,
+        });
+        const readiness = (
+          process: PreviewWorkflowApiProcess,
+          revision: string,
+        ): PreviewWorkflowApiReadiness => ({
+          sessionId: created.session.id,
+          generation: created.session.generation,
+          revision,
+          endpoint: process.endpoint,
+          workflowGroupTarget: previewSharedWorkflowGroupTarget(group),
+          apiArtifactDigest: group.apiArtifactDigest,
+          deployedManifestDigest: group.deployedManifestDigest,
+          schemaArtifactDigest: group.schemaArtifactDigest,
+          workflowContractCatalogDigest: group.workflowContractCatalogDigest,
+          role: "producer",
+          producerOnly: true,
+          workflowRunner: false,
+          reconciliationConsumer: false,
+          autonomousTriggers: [],
+          smokeEnqueue: false,
+        });
+        const config = {
+          schemaVersion: 1,
+          environment: "tiara-stack-dev",
+          profile: "connected-preview-dev-v1",
+          owner,
+          roles: ["sheet-workflows-api"],
+          hostListeners: [
+            {
+              role: "sheet-workflows-api",
+              host: "127.0.0.1",
+              port: target.port,
+              processId: target.processId,
+            },
+          ],
+          identities: {
+            sourceRevision: "rev-a",
+            artifactDigests: { "sheet-workflows-api": group.apiArtifactDigest },
+            deployedManifestDigest: group.deployedManifestDigest,
+            schemaArtifactDigest: group.schemaArtifactDigest,
+            workflowContractCatalogDigest: group.workflowContractCatalogDigest,
+            catalogVersion: 1,
+          },
+          environmentFileInputs: [],
+          groups: [
+            {
+              id: group.groupId,
+              ownership: "reused",
+              endpoint: group.endpoint,
+              stateIdentity: group.stateIdentity,
+              deployedManifestDigest: group.deployedManifestDigest,
+              databaseEndpointIdentity: group.databaseEndpointIdentity,
+              schemaArtifactDigest: group.schemaArtifactDigest,
+              workflowContractCatalogDigest: group.workflowContractCatalogDigest,
+            },
+          ],
+          changes: [],
+          credentialReferences: {},
+          sharedExecution: "producer-only",
+        } as const;
+        const successfulRoutePublications: string[] = [];
+        const publishedRouteProbes: string[] = [];
+        let workflowAdmissionCalls = 0;
+        let processStops = 0;
+        let readyCallbacks = 0;
+        const admitWorkflowRequest: PreviewSharedWorkflowHttpRequestRunner = <A, E, R>(
+          request: PreviewSharedWorkflowHttpRequestInput<A, E, R>,
+        ) =>
+          Effect.sync(() => {
+            workflowAdmissionCalls += 1;
+          }).pipe(
+            Effect.andThen(request.forward),
+            Effect.map((value) => ({ value, continuationId: "expiry-test", group })),
+          );
+        const authorityIsCurrent = (revision: string) =>
+          assertAuthorityCurrent().pipe(
+            Effect.mapError(() =>
+              makePreviewWorkflowApiSupervisorError(
+                "workflow-api-credentials-unavailable",
+                created.session,
+                revision,
+              ),
+            ),
+          );
+        const supervisor = makePreviewWorkflowApiSupervisor({
+          currentSourceRevision: () => Effect.succeed("rev-a"),
+          startProcess: ({ revision }) => Effect.succeed(processFor(revision)),
+          probe: ({ process, revision }) => Effect.succeed(readiness(process, revision)),
+          probePublishedRoute: ({ process, revision }) =>
+            Effect.sync(() => publishedRouteProbes.push(revision)).pipe(
+              Effect.andThen(authorityIsCurrent(revision)),
+              Effect.as(readiness(process, revision)),
+            ),
+          sourceRevisions: () => Stream.never,
+          publishRoute: (input) =>
+            Effect.gen(function* () {
+              yield* authorityIsCurrent(input.revision);
+              const published = yield* route
+                .publish({
+                  session: sessionWithResources(input.session),
+                  ownerIdentity: input.ownerIdentity,
+                  revision: input.revision,
+                  group: input.group,
+                  listener: {
+                    role: "sheet-workflows-api",
+                    host: "127.0.0.1",
+                    port: target.port,
+                    processId: target.processId,
+                  },
+                  admitWorkflowRequest,
+                  assertAuthorityCurrent,
+                })
+                .pipe(
+                  Effect.mapError(() =>
+                    makePreviewWorkflowApiSupervisorError(
+                      "route-failed",
+                      input.session,
+                      input.revision,
+                    ),
+                  ),
+                );
+              successfulRoutePublications.push(input.revision);
+              return published;
+            }),
+          removeRoute: ({ sessionId, generation, ownerIdentity, expectedRevision }) =>
+            route
+              .remove({ sessionId, generation, ownerIdentity, expectedRevision })
+              .pipe(
+                Effect.mapError(() =>
+                  makePreviewWorkflowApiSupervisorError(
+                    "workflow-api-route-removal-failed",
+                    created.session,
+                  ),
+                ),
+              ),
+          awaitExit: () => Effect.never,
+          stopProcess: () => Effect.sync(() => (processStops += 1)),
+        });
+        const before = yield* f.control;
+        const observationsBefore = f.applicationObservations.length;
+        const runCompletion = yield* Deferred.make<Exit.Exit<unknown, unknown>>();
+        const running = yield* Effect.forkChild(
+          supervisor
+            .run({
+              checkout: created.session.checkout,
+              session: created.session,
+              ownerIdentity: created.ownerIdentity,
+              supervisorIdentity: created.supervisorIdentity,
+              config,
+              group,
+              controller: f.controller,
+              onReady: () => Effect.sync(() => (readyCallbacks += 1)),
+            })
+            .pipe(
+              Effect.exit,
+              Effect.tap((exit) => Deferred.succeed(runCompletion, exit)),
+            ),
+        );
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          yield* TestClock.adjust(Duration.millis(250));
+          if (yield* Deferred.isDone(runCompletion)) break;
+        }
+        const runCompleted = yield* Deferred.isDone(runCompletion);
+        if (!runCompleted) yield* Fiber.interrupt(running);
+        expect(runCompleted).toBe(true);
+        const run = yield* Deferred.await(runCompletion);
+
+        expect(authorityNow).toBe(expiresAt);
+        expect(Exit.isFailure(run)).toBe(true);
+        expect(successfulRoutePublications).toEqual([]);
+        expect(publishedRouteProbes).toEqual([]);
+        expect(readyCallbacks).toBe(0);
+        expect(processStops).toBe(1);
+        expect(workflowAdmissionCalls).toBe(0);
+        const hostname = `p-${created.session.id}-sheet-workflows-api.dev.example.test`;
+        const rows =
+          yield* f.sql`SELECT removed FROM preview_gateway_routes WHERE hostname=${hostname}`;
+        expect(rows.filter((row) => row.removed === 0)).toHaveLength(0);
+        expect(f.applicationObservations).toHaveLength(observationsBefore + 1);
+        expect(yield* f.control).toEqual(before);
+      }),
+    ),
+);
+
+it.effect(
+  "publishes the producer API through common HTTPS admission and removes only its exact route",
+  () =>
+    withFixture((f) =>
+      Effect.gen(function* () {
+        const created = yield* f.createSession(
+          "workflow-api-owner",
+          "application",
+          "sheet-workflows-api",
+        );
+        const digest = (character: string) => `sha256:${character.repeat(64)}`;
+        const group: PreviewSharedWorkflowGroup = {
+          sessionId: created.session.id,
+          generation: created.session.generation,
+          groupId: "workflow-execution",
+          endpoint: "https://workflows.dev.tiara-stack.moe",
+          databaseEndpointIdentity: digest("d"),
+          stateIdentity: "workflow-state-dev",
+          deployedManifestDigest: digest("a"),
+          schemaArtifactDigest: digest("b"),
+          apiArtifactDigest: digest("c"),
+          workflowContractCatalogDigest: digest("e"),
+        };
+        const session = {
+          ...created.session,
+          resources: {
+            "preview-relay-service-sheet-workflows-api": created.target.serviceResourceId,
+            "preview-relay-attachment-sheet-workflows-api": created.target.attachmentResourceId,
+          },
+        };
+        const target: PreviewGatewayTarget = {
+          ...created.target,
+          stateGroup: "workflow-execution",
+          artifactDigest: group.apiArtifactDigest,
+          catalogDigest: group.workflowContractCatalogDigest,
+        };
+        const admittedRequests: { method: string; path: string; body?: string }[] = [];
+        const admitWorkflowRequest: PreviewSharedWorkflowHttpRequestRunner = <A, E, R>(
+          request: PreviewSharedWorkflowHttpRequestInput<A, E, R>,
+        ) => {
+          admittedRequests.push({
+            method: request.method,
+            path: request.path,
+            ...(request.body === undefined ? {} : { body: new TextDecoder().decode(request.body) }),
+          });
+          return request.forward.pipe(
+            Effect.map((value) => ({
+              value,
+              continuationId: "admission-local-test",
+              group,
+            })),
+          );
+        };
+        const applicationRoute = makePreviewWorkflowApiApplicationRoute(f.gateway);
+        const listener = {
+          role: "sheet-workflows-api" as const,
+          host: "127.0.0.1" as const,
+          port: target.port,
+          processId: target.processId,
+        };
+        const origin = yield* applicationRoute.publish({
+          session,
+          ownerIdentity: created.ownerIdentity,
+          revision: target.revision,
+          group,
+          listener,
+          admitWorkflowRequest,
+        });
+        const hostname = `p-${session.id}-sheet-workflows-api.dev.example.test`;
+        expect(origin).toBe(`https://${hostname}`);
+        const applicationObservationsBefore = f.applicationObservations.length;
+        const authorization = f.token("workflow-api-owner-token", target, "workflow-api-owner");
+        const handler = yield* HttpRouter.toHttpEffect(
+          PreviewGatewayHttpRoutes(f.gateway).pipe(Layer.provide(HttpRouter.layer)),
+        );
+        const before = yield* f.control;
+        const response = yield* handler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              new Request(`${origin}/_preview/app/workflows/test`, {
+                method: "POST",
+                headers: {
+                  ...authorization,
+                  host: hostname,
+                  origin,
+                  "content-type": "application/json",
+                },
+                body: '{"invocationId":"test"}',
+              }),
+            ),
+          ),
+        );
+        expect(response.status).toBe(201);
+        expect(admittedRequests).toEqual([
+          {
+            method: "POST",
+            path: "/workflows/test",
+            body: '{"invocationId":"test"}',
+          },
+        ]);
+        expect(f.applicationObservations.at(-1)).toMatchObject({
+          sessionId: session.id,
+          method: "POST",
+          path: "/workflows/test",
+          body: new TextEncoder().encode('{"invocationId":"test"}'),
+        });
+        expect(f.applicationObservations).toHaveLength(applicationObservationsBefore + 1);
+
+        yield* applicationRoute.remove({
+          sessionId: session.id,
+          generation: session.generation,
+          ownerIdentity: created.ownerIdentity,
+          expectedRevision: session.activeRevision ?? session.requestedRevision,
+        });
+        const afterRemoval = yield* Effect.exit(
+          f.gateway.open({
+            hostname,
+            headers: authorization,
+            path: "/_preview/app/workflows/test",
+          }),
+        );
+        expect(afterRemoval._tag).toBe("Failure");
+        expect(admittedRequests).toHaveLength(1);
+        expect(f.applicationObservations).toHaveLength(applicationObservationsBefore + 1);
+        expect(yield* f.control).toEqual(before);
+      }),
+    ),
+);
+
+it.effect("reopens an exact workflow API tombstone for its resumed session generation", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const created = yield* f.createSession(
+        "workflow-api-resume-owner",
+        "application",
+        "sheet-workflows-api",
+      );
+      const digest = (character: string) => `sha256:${character.repeat(64)}`;
+      const groupFor = (generation: number): PreviewSharedWorkflowGroup => ({
+        sessionId: created.session.id,
+        generation,
+        groupId: "workflow-execution",
+        endpoint: "https://workflows.dev.tiara-stack.moe",
+        databaseEndpointIdentity: digest("d"),
+        stateIdentity: "workflow-state-dev",
+        deployedManifestDigest: digest("a"),
+        schemaArtifactDigest: digest("b"),
+        apiArtifactDigest: digest("c"),
+        workflowContractCatalogDigest: digest("e"),
+      });
+      const sessionWithResources = (session: typeof created.session) => ({
+        ...session,
+        resources: {
+          "preview-relay-service-sheet-workflows-api": created.target.serviceResourceId,
+          "preview-relay-attachment-sheet-workflows-api": created.target.attachmentResourceId,
+        },
+      });
+      const route = makePreviewWorkflowApiApplicationRoute(f.gateway);
+      const publish = (session: typeof created.session, generation: number) => {
+        const group = groupFor(generation);
+        return route.publish({
+          session: sessionWithResources(session),
+          ownerIdentity: created.ownerIdentity,
+          revision: "rev-a",
+          group,
+          listener: {
+            role: "sheet-workflows-api",
+            host: "127.0.0.1",
+            port: created.target.port,
+            processId: created.target.processId,
+          },
+          admitWorkflowRequest: (request) =>
+            request.forward.pipe(
+              Effect.map((value) => ({ value, continuationId: "resume-test", group })),
+            ),
+        });
+      };
+
+      yield* publish(created.session, created.session.generation);
+      yield* route.remove({
+        sessionId: created.session.id,
+        generation: created.session.generation,
+        ownerIdentity: created.ownerIdentity,
+        expectedRevision: "rev-a",
+      });
+      yield* f.sql`UPDATE preview_sessions SET supervisor_lease_until=${f.now()}
+        WHERE id=${created.session.id} AND generation=${created.session.generation}`;
+      const resumed = yield* f.controller.resume(created.session.id, created.ownerIdentity);
+      expect(resumed.session.generation).toBe(created.session.generation + 1);
+
+      yield* publish(resumed.session, resumed.session.generation);
+      const hostname = `p-${created.session.id}-sheet-workflows-api.dev.example.test`;
+      const routeRows = yield* f.sql`SELECT target, removed FROM preview_gateway_routes
+        WHERE hostname=${hostname}`;
+      const target = yield* Schema.decodeUnknownEffect(
+        Schema.fromJsonString(PreviewGatewayTargetSchema),
+      )(String(routeRows[0]?.target));
+      expect({
+        count: routeRows.length,
+        removed: routeRows[0]?.removed,
+        targetGeneration: target.generation,
+        targetSession: target.sessionId,
+        targetRole: target.role,
+      }).toEqual({
+        count: 1,
+        removed: 0,
+        targetGeneration: resumed.session.generation,
+        targetSession: created.session.id,
+        targetRole: "sheet-workflows-api",
+      });
+      const sibling = yield* f.sql`SELECT removed FROM preview_gateway_routes
+        WHERE hostname=${f.routeB.hostname}`;
+      expect(sibling).toEqual([{ removed: 0 }]);
+      const stalePriorPublish = yield* Effect.exit(
+        publish(created.session, created.session.generation),
+      );
+      expect(Exit.isFailure(stalePriorPublish)).toBe(true);
+
+      yield* route.remove({
+        sessionId: created.session.id,
+        generation: resumed.session.generation,
+        ownerIdentity: created.ownerIdentity,
+        expectedRevision: "rev-a",
+      });
+      const mismatchedTombstone = { ...target, processId: "unowned-process" };
+      yield* f.sql`UPDATE preview_gateway_routes SET target=${JSON.stringify(mismatchedTombstone)}
+        WHERE hostname=${hostname} AND removed=1`;
+      yield* f.sql`UPDATE preview_sessions SET supervisor_lease_until=${f.now()}
+        WHERE id=${created.session.id} AND generation=${resumed.session.generation}`;
+      const resumedAgain = yield* f.controller.resume(created.session.id, created.ownerIdentity);
+      const refusedMismatchedTombstone = yield* Effect.exit(
+        publish(resumedAgain.session, resumedAgain.session.generation),
+      );
+      expect(Exit.isFailure(refusedMismatchedTombstone)).toBe(true);
+      const retainedTombstone = yield* f.sql`SELECT target, generation, removed
+        FROM preview_gateway_routes WHERE hostname=${hostname}`;
+      expect(retainedTombstone).toEqual([
+        {
+          target: JSON.stringify(mismatchedTombstone),
+          generation: resumed.session.generation,
+          removed: 1,
+        },
+      ]);
+    }),
+  ),
+);
+
+it.effect("gates producer API HTTPS requests through the exact session workflow admission", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const created = yield* f.createSession(
+        "workflow-api-owner",
+        "application",
+        "sheet-workflows-api",
+      );
+      const digest = (character: string) => `sha256:${character.repeat(64)}`;
+      const group: PreviewSharedWorkflowGroup = {
+        sessionId: created.session.id,
+        generation: created.session.generation,
+        groupId: "workflow-execution",
+        endpoint: "https://workflows.dev.tiara-stack.moe",
+        databaseEndpointIdentity: digest("d"),
+        stateIdentity: "workflow-state-dev",
+        deployedManifestDigest: digest("a"),
+        schemaArtifactDigest: digest("b"),
+        apiArtifactDigest: digest("c"),
+        workflowContractCatalogDigest: digest("e"),
+      };
+      const session = {
+        ...created.session,
+        resources: {
+          "preview-relay-service-sheet-workflows-api": created.target.serviceResourceId,
+          "preview-relay-attachment-sheet-workflows-api": created.target.attachmentResourceId,
+        },
+      };
+      const target: PreviewGatewayTarget = {
+        ...created.target,
+        stateGroup: "workflow-execution",
+        artifactDigest: group.apiArtifactDigest,
+        catalogDigest: group.workflowContractCatalogDigest,
+      };
+      const admittedRequests: { method: string; path: string; body?: string }[] = [];
+      const expectedBody = '{"invocationId":"test"}';
+      let authorityNow = 100;
+      const assertAuthorityCurrent = () =>
+        authorityNow < 200
+          ? Effect.void
+          : Effect.fail(new PreviewWorkflowApiHostError({ reason: "authority-expired" }));
+      const admitWorkflowRequest: PreviewSharedWorkflowHttpRequestRunner = (request) =>
+        Effect.gen(function* () {
+          if (
+            request.method !== "POST" ||
+            request.path !== "/workflows/test" ||
+            request.body === undefined ||
+            new TextDecoder().decode(request.body) !== expectedBody
+          )
+            return yield* Effect.fail(
+              new PreviewSharedWorkflowError({ reason: "invalid-request", outcome: "not-sent" }),
+            );
+          admittedRequests.push({
+            method: request.method,
+            path: request.path,
+            body: new TextDecoder().decode(request.body),
+          });
+          return {
+            value: yield* request.forward,
+            continuationId: "admission-local-test",
+            group,
+          };
+        });
+      const applicationRoute = makePreviewWorkflowApiApplicationRoute(f.gateway);
+      const listener = {
+        role: "sheet-workflows-api" as const,
+        host: "127.0.0.1" as const,
+        port: target.port,
+        processId: target.processId,
+      };
+      const origin = yield* applicationRoute.publish({
+        session,
+        ownerIdentity: created.ownerIdentity,
+        revision: target.revision,
+        group,
+        listener,
+        admitWorkflowRequest,
+        assertAuthorityCurrent,
+      });
+      const hostname = `p-${session.id}-sheet-workflows-api.dev.example.test`;
+      expect(origin).toBe(`https://${hostname}`);
+      const authorization = f.token("workflow-api-owner-token", target, "workflow-api-owner");
+      const handler = yield* HttpRouter.toHttpEffect(
+        PreviewGatewayHttpRoutes(f.gateway).pipe(Layer.provide(HttpRouter.layer)),
+      );
+      const before = yield* f.control;
+      const applicationObservationsBefore = f.applicationObservations.length;
+      const request = (body: string) =>
+        handler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              new Request(`${origin}/_preview/app/workflows/test`, {
+                method: "POST",
+                headers: {
+                  ...authorization,
+                  host: hostname,
+                  origin,
+                  "content-type": "application/json",
+                },
+                body,
+              }),
+            ),
+          ),
+        );
+      const response = yield* request(expectedBody);
+      expect(response.status).toBe(201);
+      expect(admittedRequests).toEqual([
+        { method: "POST", path: "/workflows/test", body: expectedBody },
+      ]);
+      expect(f.applicationObservations.at(-1)).toMatchObject({
+        sessionId: session.id,
+        method: "POST",
+        path: "/workflows/test",
+        body: new TextEncoder().encode(expectedBody),
+      });
+      expect(f.applicationObservations).toHaveLength(applicationObservationsBefore + 1);
+      yield* Effect.promise(() => HttpServerResponse.toWeb(response).text());
+
+      const applicationSocketObservationsBefore = f.applicationSocketObservations.length;
+      const admittedRequestsBeforeUpgrade = admittedRequests.length;
+      const applicationRequestsBeforeUpgrade = f.applicationObservations.length;
+      const browser = yield* testSocket;
+      const upgraded = yield* Deferred.make<void>();
+      const upgradeRequest = HttpServerRequest.fromWeb(
+        new Request(`${origin}/_preview/app/socket`, {
+          headers: {
+            ...authorization,
+            host: hostname,
+            origin,
+            upgrade: "websocket",
+            "sec-fetch-site": "same-origin",
+          },
+        }),
+      );
+      const wrappedUpgrade = new Proxy(upgradeRequest, {
+        get: (target, key, receiver) =>
+          key === "upgrade"
+            ? Deferred.succeed(upgraded, undefined).pipe(Effect.as(browser.socket))
+            : Reflect.get(target, key, receiver),
+      });
+      const websocketResponse = yield* handler.pipe(
+        Effect.provideService(HttpServerRequest.HttpServerRequest, wrappedUpgrade),
+      );
+      expect(websocketResponse.status).toBe(503);
+      expect(f.applicationSocketObservations).toHaveLength(applicationSocketObservationsBefore);
+      expect(admittedRequests).toHaveLength(admittedRequestsBeforeUpgrade);
+      expect(f.applicationObservations).toHaveLength(applicationRequestsBeforeUpgrade);
+      expect(yield* f.control).toEqual(before);
+
+      authorityNow = 200;
+      const readinessRequestsBeforeExpiry = f.applicationObservations.length;
+      const readinessAfterExpiry = yield* handler.pipe(
+        Effect.provideService(
+          HttpServerRequest.HttpServerRequest,
+          HttpServerRequest.fromWeb(
+            new Request(`${origin}/ready`, {
+              method: "GET",
+              headers: {
+                ...authorization,
+                host: hostname,
+                origin,
+                "sec-fetch-site": "same-origin",
+              },
+            }),
+          ),
+        ),
+      );
+      expect(readinessAfterExpiry.status).toBe(503);
+      const requestsBeforeExpiredAdmission = admittedRequests.length;
+      const applicationRequestsBeforeExpiredAdmission = f.applicationObservations.length;
+      const expiredAdmission = yield* request(expectedBody);
+      expect(expiredAdmission.status).toBe(503);
+      expect(admittedRequests).toHaveLength(requestsBeforeExpiredAdmission);
+      expect(f.applicationObservations).toHaveLength(applicationRequestsBeforeExpiredAdmission);
+      expect(f.applicationObservations).toHaveLength(readinessRequestsBeforeExpiry);
+      expect(yield* f.control).toEqual(before);
+
+      const rejected = yield* request('{"invocationId":"other"}');
+      expect(rejected.status).toBe(503);
+      expect(admittedRequests).toHaveLength(1);
+      expect(f.applicationObservations).toHaveLength(applicationObservationsBefore + 1);
+      yield* Effect.promise(() => HttpServerResponse.toWeb(rejected).text());
+
+      yield* applicationRoute.remove({
+        sessionId: session.id,
+        generation: session.generation,
+        ownerIdentity: created.ownerIdentity,
+        expectedRevision: session.activeRevision ?? session.requestedRevision,
+      });
+      const afterRemoval = yield* Effect.exit(
+        f.gateway.open({ hostname, headers: authorization, path: "/_preview/app/workflows/test" }),
+      );
+      expect(afterRemoval._tag).toBe("Failure");
+      expect(yield* f.control).toEqual(before);
+    }),
+  ),
+);
+
+it.effect("fences each admitted workflow response chunk after authority expires", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const created = yield* f.createSession(
+        "workflow-api-stream-expiry-owner",
+        "application",
+        "sheet-workflows-api",
+      );
+      const digest = (character: string) => `sha256:${character.repeat(64)}`;
+      const group: PreviewSharedWorkflowGroup = {
+        sessionId: created.session.id,
+        generation: created.session.generation,
+        groupId: "workflow-execution",
+        endpoint: "https://workflows.dev.tiara-stack.moe",
+        databaseEndpointIdentity: digest("d"),
+        stateIdentity: "workflow-state-dev",
+        deployedManifestDigest: digest("a"),
+        schemaArtifactDigest: digest("b"),
+        apiArtifactDigest: digest("c"),
+        workflowContractCatalogDigest: digest("e"),
+      };
+      const session = {
+        ...created.session,
+        resources: {
+          "preview-relay-service-sheet-workflows-api": created.target.serviceResourceId,
+          "preview-relay-attachment-sheet-workflows-api": created.target.attachmentResourceId,
+        },
+      };
+      const target: PreviewGatewayTarget = {
+        ...created.target,
+        stateGroup: group.groupId,
+        artifactDigest: group.apiArtifactDigest,
+        catalogDigest: group.workflowContractCatalogDigest,
+      };
+      const firstChunk = new TextEncoder().encode("data: first\n\n");
+      const secondChunk = new TextEncoder().encode("data: after-expiry\n\n");
+      let authorityNow = 100;
+      const assertAuthorityCurrent = () =>
+        authorityNow < 200
+          ? Effect.void
+          : Effect.fail(new PreviewWorkflowApiHostError({ reason: "authority-expired" }));
+      const admittedRequests: string[] = [];
+      const admitWorkflowRequest: PreviewSharedWorkflowHttpRequestRunner = (request) => {
+        admittedRequests.push(`${request.method} ${request.path}`);
+        return request.forward.pipe(
+          Effect.map((value) => ({
+            value,
+            continuationId: "stream-expiry-test",
+            group,
+          })),
+        );
+      };
+      f.setApplicationResponseBody(
+        Stream.concat(
+          Stream.make(firstChunk),
+          Stream.fromEffect(
+            Effect.sync(() => {
+              authorityNow = 200;
+              return secondChunk;
+            }),
+          ),
+        ),
+      );
+      const applicationRoute = makePreviewWorkflowApiApplicationRoute(f.gateway);
+      yield* applicationRoute.publish({
+        session,
+        ownerIdentity: created.ownerIdentity,
+        revision: target.revision,
+        group,
+        listener: {
+          role: "sheet-workflows-api",
+          host: "127.0.0.1",
+          port: target.port,
+          processId: target.processId,
+        },
+        admitWorkflowRequest,
+        assertAuthorityCurrent,
+      });
+
+      const hostname = `p-${session.id}-sheet-workflows-api.dev.example.test`;
+      const authorization = f.token(
+        "workflow-api-stream-expiry-token",
+        target,
+        "workflow-api-stream-expiry-owner",
+      );
+      const gatewayAdmission = yield* f.gateway.open({
+        hostname,
+        headers: authorization,
+        path: "/_preview/app/workflows/test",
+      });
+      const response = yield* gatewayAdmission.applicationRequest({
+        method: "GET",
+        path: "/runs/invocation-1/events",
+        headers: { accept: "text/event-stream" },
+      });
+
+      const received: Uint8Array[] = [];
+      const bodyExit = yield* Effect.exit(
+        response.body.pipe(Stream.runForEach((chunk) => Effect.sync(() => received.push(chunk)))),
+      );
+
+      expect(response.status).toBe(201);
+      expect(admittedRequests).toEqual(["GET /runs/invocation-1/events"]);
+      expect(received).toEqual([firstChunk]);
+      expect(Exit.isFailure(bodyExit)).toBe(true);
+      expect(authorityNow).toBe(200);
+    }),
+  ),
+);
+
+type PreviewGatewayTestFixture = Effect.Success<typeof fixture>;
+type PendingRevisionSession = Effect.Success<
+  ReturnType<PreviewGatewayTestFixture["createPendingSession"]>
+>;
+type RevisionRecoveryConfig = Parameters<PreviewWorkflowApiSupervisorApi["run"]>[0]["config"];
+type RevisionRecoverySetup = {
+  readonly created: PendingRevisionSession;
+  readonly group: PreviewSharedWorkflowGroup;
+  readonly target: PreviewGatewayTarget;
+  readonly route: ReturnType<typeof makePreviewWorkflowApiApplicationRoute>;
+  readonly routeOrigin: string;
+  readonly config: RevisionRecoveryConfig;
+};
+
+type RevisionRecoverySignals = {
+  readonly continueWithRecoveryRevision: Deferred.Deferred<void>;
+  readonly readyRevisionA: Deferred.Deferred<void>;
+  readonly readyRevisionAAfterRevert: Deferred.Deferred<void>;
+  readonly readyRevisionC: Deferred.Deferred<void>;
+  readonly revisionBFailure: Deferred.Deferred<void>;
+  readonly runCompletion: Deferred.Deferred<Exit.Exit<unknown, unknown>>;
+  readonly processExits: Map<string, Deferred.Deferred<void>>;
+  readonly started: string[];
+  readonly removedRevisions: string[];
+  readonly stoppedRevisions: string[];
+  readonly sourceReads: string[];
+  readonly candidateProbes: string[];
+  readonly publishedRouteProbes: string[];
+  readonly routePublishAttempts: string[];
+  readonly routePublishFailures: string[];
+  readonly supervisorFailures: string[];
+  readonly processStartFailures: string[];
+  readonly recoveryRevision: "rev-a" | "rev-c";
+  sourceRevision: string;
+  sourceWatchStarted: boolean;
+};
+
+const makeRevisionRecoveryGroup = (created: PendingRevisionSession): PreviewSharedWorkflowGroup => {
+  const digest = (character: string) => `sha256:${character.repeat(64)}`;
+  return {
+    sessionId: created.session.id,
+    generation: created.session.generation,
+    groupId: "workflow-execution",
+    endpoint: "https://workflows.dev.theerapakg.moe",
+    databaseEndpointIdentity: digest("d"),
+    stateIdentity: "workflow-state-dev",
+    deployedManifestDigest: digest("a"),
+    schemaArtifactDigest: digest("b"),
+    apiArtifactDigest: digest("c"),
+    workflowContractCatalogDigest: digest("e"),
+  };
+};
+
+const makeRevisionRecoveryTarget = (
+  created: PendingRevisionSession,
+  group: PreviewSharedWorkflowGroup,
+): PreviewGatewayTarget => ({
+  ...created.target,
+  stateGroup: group.groupId,
+  artifactDigest: group.apiArtifactDigest,
+  catalogDigest: group.workflowContractCatalogDigest,
+});
+
+const makeRevisionRecoveryConfig = (
+  owner: string,
+  target: PreviewGatewayTarget,
+  group: PreviewSharedWorkflowGroup,
+): RevisionRecoveryConfig => ({
+  schemaVersion: 1,
+  environment: "tiara-stack-dev",
+  profile: "connected-preview-dev-v1",
+  owner,
+  roles: ["sheet-workflows-api"],
+  hostListeners: [
+    {
+      role: "sheet-workflows-api",
+      host: "127.0.0.1",
+      port: target.port,
+      processId: target.processId,
+    },
+  ],
+  identities: {
+    sourceRevision: "rev-a",
+    artifactDigests: { "sheet-workflows-api": group.apiArtifactDigest },
+    deployedManifestDigest: group.deployedManifestDigest,
+    schemaArtifactDigest: group.schemaArtifactDigest,
+    workflowContractCatalogDigest: group.workflowContractCatalogDigest,
+    catalogVersion: 1,
+  },
+  environmentFileInputs: [],
+  groups: [
+    {
+      id: group.groupId,
+      ownership: "reused",
+      endpoint: group.endpoint,
+      stateIdentity: group.stateIdentity,
+      deployedManifestDigest: group.deployedManifestDigest,
+      databaseEndpointIdentity: group.databaseEndpointIdentity,
+      schemaArtifactDigest: group.schemaArtifactDigest,
+      workflowContractCatalogDigest: group.workflowContractCatalogDigest,
+    },
+  ],
+  changes: [],
+  credentialReferences: {},
+  sharedExecution: "producer-only",
+});
+
+const withWorkflowApiResources = (session: PreviewSession, target: PreviewGatewayTarget) => ({
+  ...session,
+  resources: {
+    "preview-relay-service-sheet-workflows-api": target.serviceResourceId,
+    "preview-relay-attachment-sheet-workflows-api": target.attachmentResourceId,
+  },
+});
+
+const makeRevisionRecoverySetup = (f: PreviewGatewayTestFixture, owner: string) =>
+  Effect.gen(function* () {
+    const created = yield* f.createPendingSession(owner, "application", "sheet-workflows-api");
+    const group = makeRevisionRecoveryGroup(created);
+    const target = makeRevisionRecoveryTarget(created, group);
+    const route = makePreviewWorkflowApiApplicationRoute(f.gateway);
+    const routeOrigin = yield* route.applicationOrigin({
+      sessionId: created.session.id,
+      role: "sheet-workflows-api",
+    });
+    const config = makeRevisionRecoveryConfig(owner, target, group);
+    return { created, group, target, route, routeOrigin, config } satisfies RevisionRecoverySetup;
+  });
+
+const makeRevisionRecoverySignals = (recoveryRevision: "rev-a" | "rev-c" = "rev-c") =>
+  Effect.gen(function* () {
+    return {
+      continueWithRecoveryRevision: yield* Deferred.make<void>(),
+      readyRevisionA: yield* Deferred.make<void>(),
+      readyRevisionAAfterRevert: yield* Deferred.make<void>(),
+      readyRevisionC: yield* Deferred.make<void>(),
+      revisionBFailure: yield* Deferred.make<void>(),
+      runCompletion: yield* Deferred.make<Exit.Exit<unknown, unknown>>(),
+      processExits: new Map<string, Deferred.Deferred<void>>(),
+      started: [],
+      removedRevisions: [],
+      stoppedRevisions: [],
+      sourceReads: [],
+      candidateProbes: [],
+      publishedRouteProbes: [],
+      routePublishAttempts: [],
+      routePublishFailures: [],
+      supervisorFailures: [],
+      processStartFailures: [],
+      recoveryRevision,
+      sourceRevision: "rev-a",
+      sourceWatchStarted: false,
+    } satisfies RevisionRecoverySignals;
+  });
+
+const makeRevisionRecoveryReadiness =
+  (group: PreviewSharedWorkflowGroup) =>
+  (
+    process: PreviewWorkflowApiProcess,
+    session: PreviewSession,
+    revision: string,
+  ): PreviewWorkflowApiReadiness => ({
+    sessionId: session.id,
+    generation: session.generation,
+    revision,
+    endpoint: process.endpoint,
+    workflowGroupTarget: previewSharedWorkflowGroupTarget(group),
+    apiArtifactDigest: group.apiArtifactDigest,
+    deployedManifestDigest: group.deployedManifestDigest,
+    schemaArtifactDigest: group.schemaArtifactDigest,
+    workflowContractCatalogDigest: group.workflowContractCatalogDigest,
+    role: "producer",
+    producerOnly: true,
+    workflowRunner: false,
+    reconciliationConsumer: false,
+    autonomousTriggers: [],
+    smokeEnqueue: false,
+  });
+
+const makeRevisionRecoveryProcessAdapters = (
+  setup: RevisionRecoverySetup,
+  signals: RevisionRecoverySignals,
+) => ({
+  currentSourceRevision: () =>
+    Effect.sync(() => {
+      signals.sourceReads.push(signals.sourceRevision);
+      return signals.sourceRevision;
+    }),
+  startProcess: ({ revision, session }: { revision: string; session: PreviewSession }) => {
+    signals.started.push(revision);
+    if (revision === "rev-b")
+      return Effect.fail(
+        makePreviewWorkflowApiSupervisorError("workflow-source-unavailable", session, revision),
+      ).pipe(
+        Effect.tapError((error) =>
+          Effect.gen(function* () {
+            signals.processStartFailures.push(
+              JSON.stringify({
+                reason: error.reason,
+                requestedRevision: error.requestedRevision,
+                sourceStage: error.sourceStage,
+                cleanup: error.cleanup,
+              }),
+            );
+            yield* Deferred.succeed(signals.revisionBFailure, undefined);
+          }),
+        ),
+      );
+    return Effect.gen(function* () {
+      const process: PreviewWorkflowApiProcess = {
+        id: `workflow-api-${revision}`,
+        endpoint: setup.routeOrigin,
+        opaque: revision,
+      };
+      signals.processExits.set(process.id, yield* Deferred.make<void>());
+      return process;
+    });
+  },
+  sourceRevisions: () => {
+    signals.sourceWatchStarted = true;
+    return Stream.concat(
+      Stream.fromEffect(
+        Effect.sync(() => {
+          signals.sourceRevision = "rev-b";
+          return signals.sourceRevision;
+        }),
+      ),
+      Stream.concat(
+        Stream.fromEffect(
+          Deferred.await(signals.continueWithRecoveryRevision).pipe(
+            Effect.andThen(
+              Effect.sync(() => {
+                signals.sourceRevision = signals.recoveryRevision;
+                return signals.sourceRevision;
+              }),
+            ),
+          ),
+        ),
+        Stream.never,
+      ),
+    );
+  },
+  awaitExit: (process: PreviewWorkflowApiProcess) => {
+    const exited = signals.processExits.get(process.id);
+    return exited === undefined ? Effect.void : Deferred.await(exited);
+  },
+  stopProcess: (process: PreviewWorkflowApiProcess) =>
+    Effect.sync(() => signals.stoppedRevisions.push(String(process.opaque))).pipe(
+      Effect.andThen(
+        Effect.suspend(() => {
+          const exited = signals.processExits.get(process.id);
+          return exited === undefined ? Effect.void : Deferred.succeed(exited, undefined);
+        }),
+      ),
+    ),
+});
+
+const makeRevisionRecoveryRouteAdapters = (
+  setup: RevisionRecoverySetup,
+  signals: RevisionRecoverySignals,
+) => {
+  const readiness = makeRevisionRecoveryReadiness(setup.group);
+  return {
+    probe: ({
+      process,
+      session,
+      revision,
+    }: {
+      process: PreviewWorkflowApiProcess;
+      session: PreviewSession;
+      revision: string;
+    }) =>
+      Effect.sync(() => {
+        signals.candidateProbes.push(revision);
+        return readiness(process, session, revision);
+      }),
+    probePublishedRoute: ({
+      process,
+      session,
+      revision,
+    }: {
+      process: PreviewWorkflowApiProcess;
+      session: PreviewSession;
+      revision: string;
+    }) =>
+      Effect.sync(() => {
+        signals.publishedRouteProbes.push(revision);
+        return readiness(process, session, revision);
+      }),
+    publishRoute: (input: {
+      readonly session: PreviewSession;
+      readonly ownerIdentity: string;
+      readonly revision: string;
+      readonly group: PreviewSharedWorkflowGroup;
+    }) => {
+      signals.routePublishAttempts.push(input.revision);
+      return setup.route
+        .publish({
+          session: withWorkflowApiResources(input.session, setup.target),
+          ownerIdentity: input.ownerIdentity,
+          revision: input.revision,
+          group: input.group,
+          listener: {
+            role: "sheet-workflows-api",
+            host: "127.0.0.1",
+            port: setup.target.port,
+            processId: setup.target.processId,
+          },
+          admitWorkflowRequest: (request) =>
+            request.forward.pipe(
+              Effect.map((value) => ({
+                value,
+                continuationId: "pre-spawn-recovery-test",
+                group: setup.group,
+              })),
+            ),
+        })
+        .pipe(
+          Effect.tapError((error) =>
+            Effect.sync(() => signals.routePublishFailures.push(String(error))),
+          ),
+          Effect.mapError(() =>
+            makePreviewWorkflowApiSupervisorError("route-failed", input.session, input.revision),
+          ),
+        );
+    },
+    removeRoute: (input: {
+      readonly expectedRevision: string;
+      readonly sessionId: string;
+      readonly generation: number;
+      readonly ownerIdentity: string;
+    }) =>
+      Effect.sync(() => signals.removedRevisions.push(input.expectedRevision)).pipe(
+        Effect.andThen(setup.route.remove(input)),
+        Effect.mapError(() =>
+          makePreviewWorkflowApiSupervisorError(
+            "workflow-api-route-removal-failed",
+            setup.created.session,
+            input.expectedRevision,
+          ),
+        ),
+      ),
+  };
+};
+
+const startRevisionRecoverySupervisor = (
+  f: PreviewGatewayTestFixture,
+  setup: RevisionRecoverySetup,
+  signals: RevisionRecoverySignals,
+) => {
+  const supervisor = makePreviewWorkflowApiSupervisor({
+    ...makeRevisionRecoveryProcessAdapters(setup, signals),
+    ...makeRevisionRecoveryRouteAdapters(setup, signals),
+  });
+  return Effect.forkChild(
+    supervisor
+      .run({
+        checkout: setup.created.session.checkout,
+        session: setup.created.session,
+        ownerIdentity: setup.created.ownerIdentity,
+        supervisorIdentity: setup.created.supervisorIdentity,
+        config: setup.config,
+        group: setup.group,
+        controller: f.controller,
+        onReady: (session) => {
+          if (session.activeRevision === "rev-a")
+            return Deferred.isDone(signals.revisionBFailure).pipe(
+              Effect.flatMap((revisionBFailed) => {
+                if (revisionBFailed)
+                  return Deferred.succeed(signals.readyRevisionAAfterRevert, undefined);
+                return Deferred.succeed(signals.readyRevisionA, undefined);
+              }),
+            );
+          if (session.activeRevision === "rev-c")
+            return Deferred.succeed(signals.readyRevisionC, undefined);
+          return Effect.void;
+        },
+      })
+      .pipe(
+        Effect.tapError((error) =>
+          Effect.sync(() =>
+            signals.supervisorFailures.push(
+              JSON.stringify({
+                reason: error.reason,
+                requestedRevision: error.requestedRevision,
+                sourceStage: error.sourceStage,
+                cleanup: error.cleanup,
+              }),
+            ),
+          ),
+        ),
+        Effect.exit,
+        Effect.tap((exit) => Deferred.succeed(signals.runCompletion, exit)),
+      ),
+  );
+};
+
+const waitForRevisionSignal = (
+  signal: Deferred.Deferred<void>,
+  runCompletion: Deferred.Deferred<Exit.Exit<unknown, unknown>>,
+) =>
+  Effect.gen(function* () {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      if (yield* Deferred.isDone(signal)) return true;
+      if (yield* Deferred.isDone(runCompletion)) return false;
+      yield* Effect.sleep(Duration.millis(10));
+    }
+    return yield* Deferred.isDone(signal);
+  });
+
+const assertRevisionATombstone = (
+  f: PreviewGatewayTestFixture,
+  setup: RevisionRecoverySetup,
+  signals: RevisionRecoverySignals,
+) =>
+  Effect.gen(function* () {
+    expect(yield* waitForRevisionSignal(signals.readyRevisionA, signals.runCompletion)).toBe(true);
+    expect(signals.sourceWatchStarted).toBe(true);
+    expect(
+      yield* waitForRevisionSignal(signals.revisionBFailure, signals.runCompletion),
+      JSON.stringify({
+        started: signals.started,
+        processStartFailures: signals.processStartFailures,
+        removedRevisions: signals.removedRevisions,
+        supervisorFailures: signals.supervisorFailures,
+      }),
+    ).toBe(true);
+    const hostname = new URL(setup.routeOrigin).hostname;
+    const tombstone =
+      yield* f.sql`SELECT target, removed FROM preview_gateway_routes WHERE hostname=${hostname}`;
+    expect(tombstone).toHaveLength(1);
+    const row = tombstone[0];
+    if (row === undefined) return hostname;
+    const target = yield* Schema.decodeUnknownEffect(
+      Schema.fromJsonString(PreviewGatewayTargetSchema),
+    )(String(row.target));
+    expect(row.removed).toBe(1);
+    expect(target.revision).toBe("rev-a");
+    expect((yield* f.controller.status(setup.created.session.id)).requestedRevision).toBe("rev-b");
+    expect(signals.started).toEqual(["rev-a", "rev-b"]);
+    expect(signals.removedRevisions).toEqual(["rev-a"]);
+    return hostname;
+  });
+
+const assertRevisionCActive = (
+  f: PreviewGatewayTestFixture,
+  setup: RevisionRecoverySetup,
+  signals: RevisionRecoverySignals,
+  hostname: string,
+) =>
+  Effect.gen(function* () {
+    expect(yield* waitForRevisionSignal(signals.readyRevisionC, signals.runCompletion)).toBe(true);
+    expect(signals.started).toEqual(["rev-a", "rev-b", "rev-c"]);
+    expect(signals.removedRevisions).toEqual(["rev-a"]);
+    const rows =
+      yield* f.sql`SELECT target, removed FROM preview_gateway_routes WHERE hostname=${hostname}`;
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    if (row === undefined) return;
+    const target = yield* Schema.decodeUnknownEffect(
+      Schema.fromJsonString(PreviewGatewayTargetSchema),
+    )(String(row.target));
+    expect(row.removed).toBe(0);
+    expect(target.revision).toBe("rev-c");
+    expect(target.sessionId).toBe(setup.created.session.id);
+    expect(target.generation).toBe(setup.created.session.generation);
+    expect(target.role).toBe("sheet-workflows-api");
+    const sibling =
+      yield* f.sql`SELECT removed FROM preview_gateway_routes WHERE hostname=${f.routeA.hostname}`;
+    expect(sibling).toEqual([{ removed: 0 }]);
+    expect((yield* f.controller.status(setup.created.session.id)).activeRevision).toBe("rev-c");
+  });
+
+const assertRevisionRecoveryCleanup = (
+  f: PreviewGatewayTestFixture,
+  setup: RevisionRecoverySetup,
+  signals: RevisionRecoverySignals,
+  running: Effect.Success<ReturnType<typeof startRevisionRecoverySupervisor>>,
+  recoveredRevision: "rev-a" | "rev-c",
+) =>
+  Effect.gen(function* () {
+    yield* Fiber.interrupt(running);
+    expect(signals.removedRevisions).toEqual(["rev-a", recoveredRevision]);
+    expect(signals.stoppedRevisions).toEqual(["rev-a", recoveredRevision]);
+    expect((yield* f.controller.status(setup.created.session.id)).phase).toBe("ended");
+  });
+
+it.live("reopens the prior route tombstone after a recoverable pre-spawn revision failure", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const setup = yield* makeRevisionRecoverySetup(f, "workflow-api-pre-spawn-recovery-owner");
+      const signals = yield* makeRevisionRecoverySignals();
+      const running = yield* startRevisionRecoverySupervisor(f, setup, signals);
+      const hostname = yield* assertRevisionATombstone(f, setup, signals);
+      yield* Deferred.succeed(signals.continueWithRecoveryRevision, undefined);
+      yield* assertRevisionCActive(f, setup, signals, hostname);
+      yield* assertRevisionRecoveryCleanup(f, setup, signals, running, "rev-c");
+    }),
+  ),
+);
+
+it.live(
+  "reopens the exact workflow API tombstone after a recoverable pre-spawn failure and same-revision revert",
+  () =>
+    withFixture((f) =>
+      Effect.gen(function* () {
+        const listenerPort = 45_443;
+        f.gateway = yield* makePreviewGateway({
+          domain: "dev.example.test",
+          controller: f.controller,
+          adapters: f.adapters,
+          now: f.now,
+          publicPort: () => listenerPort,
+          listenerLeaseManagement: true,
+        });
+        const setup = yield* makeRevisionRecoverySetup(
+          f,
+          "workflow-api-same-revision-revert-owner",
+        );
+        const signals = yield* makeRevisionRecoverySignals("rev-a");
+        const running = yield* startRevisionRecoverySupervisor(f, setup, signals);
+        const hostname = yield* assertRevisionATombstone(f, setup, signals);
+        const handler = yield* HttpRouter.toHttpEffect(
+          PreviewGatewayHttpRoutes(f.gateway).pipe(Layer.provide(HttpRouter.layer)),
+        );
+        const ownerProof = f.token(
+          "workflow-api-same-revision-revert-proof",
+          setup.target,
+          setup.created.session.owner,
+        );
+        const requestCurrentRoute = () =>
+          handler.pipe(
+            Effect.provideService(
+              HttpServerRequest.HttpServerRequest,
+              HttpServerRequest.fromWeb(
+                new Request(`${setup.routeOrigin}/ready`, {
+                  headers: {
+                    ...ownerProof,
+                    host: `${hostname}:${listenerPort}`,
+                    origin: `https://${hostname}:${listenerPort}`,
+                  },
+                }),
+              ),
+            ),
+          );
+        const observationsBeforeTombstoneRequest = f.applicationObservations.length;
+        const tombstoneResponse = yield* requestCurrentRoute();
+        expect(tombstoneResponse.status).toBe(503);
+        expect(f.applicationObservations).toHaveLength(observationsBeforeTombstoneRequest);
+
+        yield* Deferred.succeed(signals.continueWithRecoveryRevision, undefined);
+        const restored = yield* waitForRevisionSignal(
+          signals.readyRevisionAAfterRevert,
+          signals.runCompletion,
+        );
+        const sessionAfterRevert = yield* f.controller.status(setup.created.session.id);
+        expect(
+          restored,
+          JSON.stringify({
+            started: signals.started,
+            sourceRevision: signals.sourceRevision,
+            currentSession: {
+              phase: sessionAfterRevert.phase,
+              requestedRevision: sessionAfterRevert.requestedRevision,
+              activeRevision: sessionAfterRevert.activeRevision,
+            },
+            routePublishAttempts: signals.routePublishAttempts,
+            routePublishFailures: signals.routePublishFailures,
+            processStartFailures: signals.processStartFailures,
+            supervisorFailures: signals.supervisorFailures,
+          }),
+        ).toBe(true);
+        expect(signals.started).toEqual(["rev-a", "rev-b", "rev-a"]);
+        expect(signals.removedRevisions).toEqual(["rev-a"]);
+
+        const rows =
+          yield* f.sql`SELECT target, removed FROM preview_gateway_routes WHERE hostname=${hostname}`;
+        expect(rows).toHaveLength(1);
+        const row = rows[0];
+        if (row === undefined) return;
+        const target = yield* Schema.decodeUnknownEffect(
+          Schema.fromJsonString(PreviewGatewayTargetSchema),
+        )(String(row.target));
+        expect(row.removed).toBe(0);
+        expect(target).toMatchObject({
+          sessionId: setup.created.session.id,
+          generation: setup.created.session.generation,
+          role: "sheet-workflows-api",
+          revision: "rev-a",
+        });
+        expect(
+          yield* f.sql`SELECT removed FROM preview_gateway_routes WHERE hostname=${f.routeA.hostname}`,
+        ).toEqual([{ removed: 0 }]);
+        expect((yield* f.controller.status(setup.created.session.id)).activeRevision).toBe("rev-a");
+        const restoredResponse = yield* requestCurrentRoute();
+        expect(restoredResponse.status).toBe(200);
+        expect(f.applicationObservations.at(-1)?.sessionId).toBe(setup.created.session.id);
+        expect(
+          yield* f.sql`SELECT public_port, generation FROM preview_gateway_listener_leases
+            WHERE session_id=${setup.created.session.id}`,
+        ).toEqual([{ public_port: listenerPort, generation: setup.created.session.generation }]);
+
+        yield* assertRevisionRecoveryCleanup(f, setup, signals, running, "rev-a");
+        yield* f.gateway.cleanupSession(setup.created.session.id, setup.created.ownerIdentity);
+        expect(
+          yield* f.sql`SELECT session_id FROM preview_gateway_listener_leases
+            WHERE session_id=${setup.created.session.id}`,
+        ).toEqual([]);
+      }),
+    ),
+);
+
 it.effect("serves the emitted session hostname root through the selected application target", () =>
   withFixture((f) =>
     Effect.gen(function* () {
@@ -3231,6 +4965,414 @@ it.effect("serves the emitted session hostname root through the selected applica
       expect(sameOrigin.status).toBe(201);
     }),
   ),
+);
+
+it.effect(
+  "restarts a compatible workflow API source revision through the supervisor and published session route",
+  () =>
+    withFixture((f) =>
+      Effect.gen(function* () {
+        const created = yield* f.controller.create({
+          owner: "workflow-api-revision-owner",
+          checkout: "/test/workflow-api-revision-owner",
+          requestedRevision: "rev-a",
+          manifests: { "sheet-workflows-api": "manifest" },
+          groups: ["workflow-execution"],
+          endpoints: ["https://workflows.dev.tiara-stack.moe"],
+        });
+        const digest = (character: string) => `sha256:${character.repeat(64)}`;
+        const group: PreviewSharedWorkflowGroup = {
+          sessionId: created.session.id,
+          generation: created.session.generation,
+          groupId: "workflow-execution",
+          endpoint: "https://workflows.dev.tiara-stack.moe",
+          databaseEndpointIdentity: digest("d"),
+          stateIdentity: "workflow-state-dev",
+          deployedManifestDigest: digest("a"),
+          schemaArtifactDigest: digest("b"),
+          apiArtifactDigest: digest("c"),
+          workflowContractCatalogDigest: digest("e"),
+        };
+        const revisionGateway = yield* makePreviewGateway({
+          domain: "dev.tiara-stack.moe",
+          controller: f.controller,
+          now: f.now,
+          adapters: {
+            ...f.adapters,
+            checkSetup: f.adapters.checkSetup.pipe(
+              Effect.map((setup) => ({ ...setup, domain: "dev.tiara-stack.moe" })),
+            ),
+          },
+        });
+        const targetBase: PreviewGatewayTarget = {
+          sessionId: created.session.id,
+          generation: created.session.generation,
+          role: "sheet-workflows-api",
+          processId: "workflow-api-host",
+          revision: "rev-a",
+          artifactDigest: group.apiArtifactDigest,
+          catalogDigest: group.workflowContractCatalogDigest,
+          stateGroup: group.groupId,
+          kind: "application",
+          serviceFqdn: `${relayNameFor(created.session.id, "sheet-workflows-api")}.preview-relays.svc.cluster.local`,
+          port: 43123,
+          serviceResourceId: "service-workflow-api-revision-owner",
+          attachmentResourceId: "attachment-workflow-api-revision-owner",
+        };
+        for (const kind of ["service", "attachment"] as const) {
+          const ownerToken = `workflow-api-revision-${kind}-owner`;
+          const providerResourceId =
+            kind === "service" ? targetBase.serviceResourceId : targetBase.attachmentResourceId;
+          const reference = JSON.stringify({
+            version: 1,
+            kind,
+            sessionId: targetBase.sessionId,
+            role: targetBase.role,
+            processId: targetBase.processId,
+            ownerTokenDigest: createHash("sha256").update(ownerToken).digest("hex").slice(0, 63),
+            providerResourceId,
+          });
+          yield* f.sql`INSERT INTO preview_allocation_ledger VALUES (
+            ${targetBase.sessionId},
+            ${`preview-relay-${kind}-${targetBase.role}`},
+            ${ownerToken},
+            ${reference},
+            'owned'
+          )`;
+        }
+        const sessionWithResources = (session: typeof created.session) => ({
+          ...session,
+          resources: {
+            "preview-relay-service-sheet-workflows-api": targetBase.serviceResourceId,
+            "preview-relay-attachment-sheet-workflows-api": targetBase.attachmentResourceId,
+          },
+        });
+        const route = makePreviewWorkflowApiApplicationRoute(revisionGateway);
+        const routeOrigin = yield* route.applicationOrigin({
+          sessionId: created.session.id,
+          role: "sheet-workflows-api",
+        });
+        const routeTarget = (revision: string): PreviewGatewayTarget => ({
+          ...targetBase,
+          revision,
+          stateGroup: group.groupId,
+          artifactDigest: group.apiArtifactDigest,
+          catalogDigest: group.workflowContractCatalogDigest,
+        });
+        const processFor = (revision: string): PreviewWorkflowApiProcess => ({
+          id: `workflow-api-${revision}`,
+          endpoint: routeOrigin,
+          opaque: revision,
+        });
+        const config = {
+          schemaVersion: 1,
+          environment: "tiara-stack-dev",
+          profile: "connected-preview-dev-v1",
+          owner: "workflow-api-revision-owner",
+          roles: ["sheet-workflows-api"],
+          hostListeners: [
+            {
+              role: "sheet-workflows-api",
+              host: "127.0.0.1",
+              port: targetBase.port,
+              processId: targetBase.processId,
+            },
+          ],
+          identities: {
+            sourceRevision: "rev-a",
+            artifactDigests: { "sheet-workflows-api": group.apiArtifactDigest },
+            deployedManifestDigest: group.deployedManifestDigest,
+            schemaArtifactDigest: group.schemaArtifactDigest,
+            workflowContractCatalogDigest: group.workflowContractCatalogDigest,
+            catalogVersion: 1,
+          },
+          environmentFileInputs: [],
+          groups: [
+            {
+              id: "workflow-execution",
+              ownership: "reused",
+              endpoint: group.endpoint,
+              stateIdentity: group.stateIdentity,
+              deployedManifestDigest: group.deployedManifestDigest,
+              databaseEndpointIdentity: group.databaseEndpointIdentity,
+              schemaArtifactDigest: group.schemaArtifactDigest,
+              workflowContractCatalogDigest: group.workflowContractCatalogDigest,
+            },
+          ],
+          changes: [],
+          credentialReferences: {},
+          sharedExecution: "producer-only",
+        } as const;
+        const readiness = (
+          process: PreviewWorkflowApiProcess,
+          revision: string,
+        ): PreviewWorkflowApiReadiness => ({
+          sessionId: created.session.id,
+          generation: created.session.generation,
+          revision,
+          endpoint: process.endpoint,
+          workflowGroupTarget: previewSharedWorkflowGroupTarget(group),
+          apiArtifactDigest: group.apiArtifactDigest,
+          deployedManifestDigest: group.deployedManifestDigest,
+          schemaArtifactDigest: group.schemaArtifactDigest,
+          workflowContractCatalogDigest: group.workflowContractCatalogDigest,
+          role: "producer",
+          producerOnly: true,
+          workflowRunner: false,
+          reconciliationConsumer: false,
+          autonomousTriggers: [],
+          smokeEnqueue: false,
+        });
+        const publishedRouteProbeRevisions: string[] = [];
+        const publishAttempts: string[] = [];
+        const publishFailures: string[] = [];
+        const supervisorFailures: string[] = [];
+        const readyRevisions: string[] = [];
+        const removedRouteRevisions: string[] = [];
+        const acceptedSharedJobs = new Set<string>();
+        const revisionBReady = yield* Deferred.make<void>();
+        let sourceRevision = "rev-a";
+        const authorityExpiresAt = f.now() + 10_000;
+        const assertAuthorityCurrent = (): Effect.Effect<void, PreviewWorkflowApiHostError> =>
+          f.now() < authorityExpiresAt
+            ? Effect.void
+            : Effect.fail(
+                new PreviewWorkflowApiHostError({ reason: "workflow-api-authority-expired" }),
+              );
+        const supervisor = makePreviewWorkflowApiSupervisor({
+          authorityExpiresAt,
+          authorityNow: f.now,
+          assertAuthorityCurrent: () =>
+            assertAuthorityCurrent().pipe(
+              Effect.mapError(() =>
+                makePreviewWorkflowApiSupervisorError(
+                  "workflow-api-authority-expired",
+                  created.session,
+                ),
+              ),
+            ),
+          currentSourceRevision: () => Effect.succeed(sourceRevision),
+          startProcess: ({ revision }) => Effect.succeed(processFor(revision)),
+          probe: ({ process, revision }) => Effect.succeed(readiness(process, revision)),
+          probePublishedRoute: ({ process, revision }) =>
+            Effect.sync(() => {
+              publishedRouteProbeRevisions.push(revision);
+              return readiness(process, revision);
+            }),
+          sourceRevisions: () =>
+            Stream.fromEffect(
+              Effect.sync(() => {
+                sourceRevision = "rev-b";
+                return sourceRevision;
+              }),
+            ).pipe(Stream.concat(Stream.never)),
+          publishRoute: (input) => {
+            publishAttempts.push(input.revision);
+            return route
+              .publish({
+                session: sessionWithResources(input.session),
+                ownerIdentity: input.ownerIdentity,
+                revision: input.revision,
+                group: input.group,
+                listener: {
+                  role: "sheet-workflows-api",
+                  host: "127.0.0.1",
+                  port: targetBase.port,
+                  processId: targetBase.processId,
+                },
+                assertAuthorityCurrent,
+                admitWorkflowRequest: (request) =>
+                  request.forward.pipe(
+                    Effect.tap(() =>
+                      Effect.sync(() => {
+                        if (request.method === "POST")
+                          acceptedSharedJobs.add("accepted-rev-b-workflow");
+                      }),
+                    ),
+                    Effect.map((value) => ({
+                      value,
+                      continuationId: "revision-restart-test",
+                      group,
+                    })),
+                  ),
+              })
+              .pipe(
+                Effect.tapError((error) => Effect.sync(() => publishFailures.push(String(error)))),
+                Effect.mapError(() =>
+                  makePreviewWorkflowApiSupervisorError(
+                    "route-failed",
+                    input.session,
+                    input.revision,
+                  ),
+                ),
+              );
+          },
+          removeRoute: ({ sessionId, generation, ownerIdentity, expectedRevision }) =>
+            Effect.sync(() => removedRouteRevisions.push(expectedRevision))
+              .pipe(
+                Effect.andThen(
+                  route.remove({ sessionId, generation, ownerIdentity, expectedRevision }),
+                ),
+              )
+              .pipe(
+                Effect.mapError(() =>
+                  makePreviewWorkflowApiSupervisorError(
+                    "workflow-api-route-removal-failed",
+                    created.session,
+                  ),
+                ),
+              ),
+          awaitExit: () => Effect.never,
+          stopProcess: () => Effect.void,
+        });
+        const running = yield* Effect.forkChild(
+          supervisor
+            .run({
+              checkout: created.session.checkout,
+              session: created.session,
+              ownerIdentity: created.ownerIdentity,
+              supervisorIdentity: created.supervisorIdentity,
+              config,
+              group,
+              controller: f.controller,
+              onReady: (session) =>
+                Effect.sync(() => {
+                  readyRevisions.push(session.activeRevision ?? "");
+                }).pipe(
+                  Effect.andThen(
+                    session.activeRevision === "rev-b"
+                      ? Deferred.succeed(revisionBReady, undefined)
+                      : Effect.void,
+                  ),
+                ),
+            })
+            .pipe(
+              Effect.tapError((error) => Effect.sync(() => supervisorFailures.push(String(error)))),
+            ),
+        );
+
+        // The supervisor deliberately pauses between candidate and published-route probes.
+        // Advance the fixture clock while its real route path runs, without changing deadlines.
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          yield* TestClock.adjust(Duration.millis(250));
+          if (yield* Deferred.isDone(revisionBReady)) break;
+        }
+        const revisionBPublished = yield* Deferred.isDone(revisionBReady);
+        if (revisionBPublished) {
+          expect(readyRevisions).toEqual(["rev-a", "rev-b"]);
+          expect(publishedRouteProbeRevisions).toEqual(["rev-a", "rev-a", "rev-b", "rev-b"]);
+          const target = routeTarget("rev-a");
+          const wrongOwner = yield* Effect.exit(
+            route.publish({
+              session: sessionWithResources(created.session),
+              ownerIdentity: "wrong-owner",
+              revision: "rev-b",
+              group,
+              listener: {
+                role: "sheet-workflows-api",
+                host: "127.0.0.1",
+                port: targetBase.port,
+                processId: targetBase.processId,
+              },
+              admitWorkflowRequest: (request) =>
+                request.forward.pipe(
+                  Effect.map((value) => ({ value, continuationId: "wrong-owner", group })),
+                ),
+            }),
+          );
+          expect(wrongOwner._tag).toBe("Failure");
+          const staleRevision = yield* Effect.exit(
+            route.publish({
+              session: sessionWithResources(created.session),
+              ownerIdentity: created.ownerIdentity,
+              revision: "rev-a",
+              group,
+              listener: {
+                role: "sheet-workflows-api",
+                host: "127.0.0.1",
+                port: targetBase.port,
+                processId: targetBase.processId,
+              },
+              admitWorkflowRequest: (request) =>
+                request.forward.pipe(
+                  Effect.map((value) => ({ value, continuationId: "stale-revision", group })),
+                ),
+            }),
+          );
+          expect(staleRevision._tag).toBe("Failure");
+          expect(target.revision).toBe("rev-a");
+
+          const staleCleanupRequest = {
+            sessionId: created.session.id,
+            generation: created.session.generation,
+            ownerIdentity: created.ownerIdentity,
+            expectedRevision: "rev-a",
+          };
+          const staleCleanup = yield* Effect.exit(route.remove(staleCleanupRequest));
+          expect(staleCleanup._tag).toBe("Failure");
+          const currentRevisionProof = f.token(
+            "workflow-api-current-revision",
+            routeTarget("rev-b"),
+            created.session.owner,
+          );
+          const currentRoute = yield* revisionGateway.open({
+            hostname: new URL(routeOrigin).hostname,
+            headers: currentRevisionProof,
+          });
+          expect(currentRoute.route.target.revision).toBe("rev-b");
+          const accepted = yield* currentRoute.applicationRequest({
+            method: "POST",
+            path: "/workflows/test",
+            headers: {},
+          });
+          expect(accepted.status).toBe(201);
+          expect([...acceptedSharedJobs]).toEqual(["accepted-rev-b-workflow"]);
+
+          yield* TestClock.adjust(Duration.millis(authorityExpiresAt - f.now()));
+          const expiredRun = yield* Fiber.await(running);
+          expect(Exit.isFailure(expiredRun)).toBe(true);
+          expect(removedRouteRevisions).toEqual(["rev-a", "rev-b"]);
+          expect([...acceptedSharedJobs]).toEqual(["accepted-rev-b-workflow"]);
+          const afterExpiry = yield* Effect.exit(
+            revisionGateway.open({
+              hostname: new URL(routeOrigin).hostname,
+              headers: currentRevisionProof,
+            }),
+          );
+          expect(afterExpiry._tag).toBe("Failure");
+        }
+
+        const endedSession = yield* Effect.exit(
+          route.publish({
+            session: sessionWithResources(created.session),
+            ownerIdentity: created.ownerIdentity,
+            revision: "rev-b",
+            group,
+            listener: {
+              role: "sheet-workflows-api",
+              host: "127.0.0.1",
+              port: targetBase.port,
+              processId: targetBase.processId,
+            },
+            admitWorkflowRequest: (request) =>
+              request.forward.pipe(
+                Effect.map((value) => ({ value, continuationId: "ended-session", group })),
+              ),
+          }),
+        );
+        expect(endedSession._tag).toBe("Failure");
+        expect(
+          revisionBPublished,
+          JSON.stringify({
+            readyRevisions,
+            publishedRouteProbeRevisions,
+            publishAttempts,
+            publishFailures,
+            supervisorFailures,
+          }),
+        ).toBe(true);
+      }),
+    ),
 );
 
 it.effect(
@@ -4031,7 +6173,7 @@ it.effect(
   () =>
     withFixture((f) =>
       Effect.gen(function* () {
-        const created = yield* f.createSession("erin", "application", "sheet-workflows-api");
+        const created = yield* f.createSession("erin", "application", "sheet-auth");
         const route = yield* f.gateway.register(created.target, created.ownerIdentity);
         const guestProof = f.token("erin-guest", created.target, "guest");
         yield* f.gateway.grant(route.hostname, created.ownerIdentity, "guest", true);
@@ -4067,4 +6209,64 @@ it.effect(
         ).toBe("erin");
       }),
     ),
+);
+
+it.effect("binds a per-session public origin to its allocated listener port and route scope", () =>
+  withFixture((f) =>
+    Effect.gen(function* () {
+      const listenerPort = 45_331;
+      const gateway = yield* makePreviewGateway({
+        domain: "dev.example.test",
+        controller: f.controller,
+        adapters: f.adapters,
+        now: f.now,
+        publicPort: () => listenerPort,
+        listenerLeaseManagement: true,
+      });
+      const route = yield* gateway.register(f.c.target, f.c.ownerIdentity);
+      expect(route.publicPort).toBe(listenerPort);
+      expect(gateway.applicationOrigin(f.c.target.sessionId, f.c.target.role)).toBe(
+        `https://${route.hostname}:${listenerPort}`,
+      );
+      expect(gateway.applicationOrigin(f.d.target.sessionId, f.d.target.role)).toBeUndefined();
+
+      const handler = yield* HttpRouter.toHttpEffect(
+        PreviewGatewayHttpRoutes(gateway).pipe(Layer.provide(HttpRouter.layer)),
+      );
+      const publicRequest = (
+        hostname: string,
+        port: number,
+        proof: Readonly<Record<string, string>>,
+      ) =>
+        handler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              new Request(`https://${hostname}:${port}/`, {
+                method: "GET",
+                headers: {
+                  ...proof,
+                  host: `${hostname}:${port}`,
+                  origin: `https://${hostname}:${port}`,
+                },
+              }),
+            ),
+          ),
+        );
+      const observationCount = f.applicationObservations.length;
+      const ownResponse = yield* publicRequest(route.hostname, listenerPort, f.carol);
+      expect(ownResponse.status).toBe(201);
+      expect(f.applicationObservations.at(-1)?.sessionId).toBe(f.c.target.sessionId);
+
+      const afterOwnRequest = f.applicationObservations.length;
+      const wrongPort = yield* publicRequest(route.hostname, listenerPort + 1, f.carol);
+      expect(wrongPort.status).toBe(403);
+      expect(f.applicationObservations).toHaveLength(afterOwnRequest);
+
+      const sibling = yield* publicRequest(f.routeD.hostname, listenerPort, f.dave);
+      expect(sibling.status).toBe(503);
+      expect(f.applicationObservations).toHaveLength(afterOwnRequest);
+      expect(f.applicationObservations.length).toBeGreaterThan(observationCount);
+    }),
+  ),
 );

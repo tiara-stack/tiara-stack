@@ -23,6 +23,9 @@
       "path": "packages/effect-zero-workflow"
     },
     {
+      "path": "packages/preview-workflow-integration-tests"
+    },
+    {
       "path": "packages/sheet-auth"
     },
     {

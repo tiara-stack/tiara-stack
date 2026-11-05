@@ -408,12 +408,16 @@ SHEET_WORKFLOWS_ROLE=producer
 ```
 
 This role serves the existing workflow enqueue and observation HTTP routes
-through the remote workflow client. Its runtime policy forces autonomous
-trigger names to an empty list, disables smoke enqueue, assigns no shard
-groups, and does not compose the cluster runner, workflow dispatcher, run
-reconciliation loop, or scheduled task layers. Its `/ready` check only probes
-the API storage connection and does not require local runner registration or
-shard locks. `WORKFLOWS_AUTONOMOUS_TRIGGER_NAMES`
+through the explicit workflow invocation store. Its runtime policy forces
+autonomous trigger names to an empty list, disables smoke enqueue, assigns no
+shard groups, and does not compose cluster message/runner storage, the remote
+cluster client, sharding client, runner, workflow dispatcher, reconciliation,
+or scheduled task layers. Its `/ready` check probes the API database connection
+and reports the loaded runtime identity without requiring local runner
+registration or shard locks. Startup is rejected unless
+`WORKFLOWS_STATE_PLANE_POLICY=shared-admission` is selected. That admission
+checks shared migration history without applying migrations or initializing
+workflow stores. `WORKFLOWS_AUTONOMOUS_TRIGGER_NAMES`
 selects `autoCheckin` and/or `autoRoleCleanup` for scheduled enqueue on `api`
 and `combined` roles and workflow registration on `runner` and `combined`
 (defaulting to both to preserve current behavior).
@@ -425,15 +429,182 @@ restricted.
 runtime policy for a future fenced owner. This prefactor does not validate or
 claim that identity, allocate an external target, or enable a live preview.
 The connected preview implementation remains unavailable until its separate
-admission, ownership, and lifecycle gates are implemented and verified. This
-role does not establish that enqueueing against shared execution is safe.
+session admission, group-consistent routing, supervision, ownership, and
+lifecycle gates are implemented and verified. Producer mode is a runtime role
+boundary; it does not establish compatible workflow definitions, Action
+Versions, authorization, endpoints, or safe enqueueing against shared
+execution. A successful plan or local route test is not live acceptance.
+Producer-only plan input must also set
+`identities.workflowContractCatalogDigest` to the Workflow Contract catalog
+digest from the loaded development runtime. The reused `workflow-execution`
+group must carry its own `workflowContractCatalogDigest`; the non-secret trusted
+group resolver must independently return that value together with the selected
+state, deployed-manifest, schema, and database-endpoint identities before the
+host resolves credentials. The selected `workflow-execution` group field is
+named `databaseEndpointIdentity` and uses exactly `sha256:` followed by 64
+lowercase hexadecimal characters. For example, its shape is
+`databaseEndpointIdentity: "sha256:<64 lowercase hex characters>"`. The trusted
+resolver supplies this identity from the canonical endpoint authority for the
+selected group; it is not copied from caller input or inferred from a hostname.
+The host recomputes the identity from that resolver's canonical approved
+development endpoint and rejects a missing or mismatched value before reading
+credential references or creating a process or route. The endpoint and
+credentials remain private. The producer API recomputes the local
+identity from its loaded selected contract
+schemas, authorization policies, workflow definition versions, and runtime
+Action Versions before it serves readiness. It also requires a
+`schemaArtifactDigest` that binds the selected group and trusted database
+resolver to the loaded SQL migration source manifest. The checked-in migration
+source hashes and digest must change together when a migration source changes.
+Missing or mismatched schema identity rejects producer startup. A schema or
+Action Version edit changes the digest and leaves
+the session blocked until compatibility is declared against a refreshed
+manifest; implementation-only edits can restart while the compatibility
+identity stays the same.
 
-The stock CLI `sheet-web` profile also remains unavailable because its public
-gateway and mediated browser identity adapters are not configured. The CLI
-provides the host process supervisor; with an injected
-gateway and compatible dependency endpoints it starts the selected checkout's
-Vite watch process on a reserved listener, and
-the application gateway requires the actual route's `/ready` response before
+For a producer-only API session, the host process is pinned to
+`SHEET_WORKFLOWS_ROLE=producer` and
+`WORKFLOWS_STATE_PLANE_POLICY=shared-admission`. Readiness reports its
+session, generation, source revision, producer/consumer policy, workflow group
+target, and API/deployed/schema/catalog artifact identities. The supervisor
+stages the selected runtime source and dependency closure in a private
+candidate directory, redirects workspace package links into that snapshot,
+and verifies its framed revision and migration digest before launch. External
+package links must match the selected workspace manifests and pnpm lock
+resolutions, including the installed virtual-store lock; unknown or mismatched
+links are rejected. Store-indexed package files in the selected lock closure
+are checked against the pnpm store entry keyed by that lock resolution's
+integrity, including its per-file SHA-512 digest. Known install-generated
+native modules under `build/Release`, `build/Debug`, or `prebuilds` are included
+in the same closure digest and must match between the installed and staged
+runtime; other unindexed files fail closed. Package `bin` declarations bind
+the expected executable bits, which remain read-only in the staged copy. The framed digest includes the
+locked closure and actual runtime file hashes, so changed bytes change the
+source revision and cannot be staged under an older revision. These checks run
+before credentials or a process are created. The package-index database is
+mutable install state, so its file hashes are not sufficient evidence by
+themselves. Each selected runtime package must also match an independently
+verified runtime attestation supplied by the runtime owner for its exact
+package identity, lock integrity, and runtime file digest. The checked-in
+`preview-workflow-api-runtime-attestations.json` is an empty placeholder, not a
+trust anchor; any populated value from the checkout is rejected. The CLI now
+loads producer authority through a signed adapter. For `start`, `resume`, and
+`recreate`, set `TIARA_PREVIEW_WORKFLOW_API_AUTHORITY_FILE` to an absolute file
+outside the checkout. The file contains an Ed25519 envelope with the exact JSON
+payload bytes and base64 signature. The verifier reads its public key only from
+`/etc/tiara-stack/preview-development/workflow-api-authority.pub`, which must be
+a root-owned regular file without group or world write permission. The signed
+payload expires within 24 hours and binds the development gateway domain,
+workflow API origin, canonical PostgreSQL endpoint identity, selected group,
+state, manifest, schema and catalog digests, credential references, and runtime
+attestations. It fixes each credential reference and environment variable name
+to the launcher contract. The launcher checks the signed target against the
+selected config and loaded group before resolving the target, then checks the
+credential URL before reading credential values or starting the process. It
+does not read these values from an env file. The adapter code is present, but no
+trusted public key, signed production authority, or provenance provider is
+configured in this checkout. The production policy remains empty, so the
+producer API profile fails closed and remains unavailable. Generated native
+outputs are included in the runtime digest; an
+output change without matching independently supplied evidence fails before
+credentials or process creation. The child loads TypeScript through the verified staged `tsx`
+package directly; checkout-local `.bin` shims are not copied. The catalog
+identity package subpath also selects its current TypeScript source under the
+root development condition, so a stale generated `dist` copy cannot supply the
+host's preview identity. The child
+runs from the staged directory, which does not contain the checkout's
+undeclared `.env`; source edits to the user's checkout cannot change modules
+loaded by an already-started candidate. The supervisor checks the candidate
+process twice, publishes and authorizes the session route, then checks that same
+route twice before activation. The producer route set contains catalogued
+workflow enqueue/observation and readiness routes only; rollout-gate mutation
+routes are not mounted. The session API route must
+come from the common application gateway. The CLI route adapter requires its
+per-route workflow admission callback. A host-installed module selected by
+`TIARA_PREVIEW_GATEWAY_ADAPTER_MODULE` supplies the gateway transport, browser
+identity adapter, setup evidence, and HTTPS listener configuration. The module
+must be a root-owned regular file directly under
+`/etc/tiara-stack/preview-development`, outside the checkout and not writable by
+group or other users. Its `makePreviewGatewayRuntime` export receives the signed
+authority and only `TIARA_PREVIEW_GATEWAY_*` environment variables. The CLI
+overrides the module's domain with the signed domain and fails closed if the
+module or required adapters are absent or malformed. No such installed module
+or browser identity provider is configured here. The launcher admits only
+catalogued enqueue and invocation-observation routes through the common
+application route's required `admitWorkflowRequest` callback, binding each admission
+to the exact contract identity, wire version, shared group, session API origin,
+and caller-supplied invocation ID. A timeout or session fence reports an
+unknown outcome for that same invocation; it does not create a replacement or
+cancel the shared workflow. A later observation resolves its original durable
+admission, including after compatible session resume. Preview stop and cleanup
+remove only the exact session-generation route and producer process. Process
+ownership remains recorded until termination is confirmed; uncertain cleanup
+keeps the session blocked with its allocation ledger visible. Accepted work remains in
+the shared workflow store.
+
+If a retry reports `candidate-cleanup-staging-ambiguous`, stop retrying that
+session until its exact staging state is reconciled. Check
+`pnpm dev preview status --session <id> --json`, then inspect the local
+`<candidateCheckout>.owner.json` record without printing or copying its token.
+Match its checkout root and session ID to the affected session, and its
+generation and revision to the failed staging attempt. A record from an older
+generation is eligible only as that exact abandoned attempt for the same
+session; never treat it as ownership of the current generation. Accept only a
+`staging` or `owner-record-cleanup-pending` record. The candidate must be the
+recorded direct child under
+`<checkout parent>/.tiara-workflow-api-candidates/<checkout name>`, with the
+expected `tiara-workflow-api-candidate-` name; the owner-record path must be
+that exact candidate path plus `.owner.json`. The record does not contain a
+process ID. If a child may have started, identify it by the failed attempt's
+session, generation, revision, and staged path using the host's process and
+session ownership evidence. Stop only that exact owned child and verify it has
+exited before touching its candidate. Do not infer process absence from this
+record or from a missing directory alone.
+
+Only when the owner identity and canonical candidate path match and no owned
+process can still use it, remove that exact candidate directory. Do not use a
+wildcard, remove its parent, or delete or edit the owner record. The next
+supported action for the same session rechecks that the candidate is absent
+and clears only the matching retained record before continuing. If any identity,
+path, process, or cleanup state is uncertain or mismatched, leave both paths
+untouched, keep the session quarantined, and escalate for reconciliation rather
+than retrying around the fence.
+
+The credential resolver must also return the non-secret PostgreSQL endpoint,
+state identity, and schema artifact digest associated with the selected
+workflow group. Before process startup, the host compares those identities and
+the normalized endpoint with the resolved `POSTGRES_URL`. PostgreSQL URI
+options are rejected except for the single explicit `sslmode=verify-full`
+option; endpoint selectors such as `host`, `port`, and `database` are rejected
+as well. It will
+not infer group identity from a hostname or from the absence of a production
+marker.
+
+Local evidence lives in `packages/developer-launcher/src/preview-shared-workflow.test.ts`,
+`packages/developer-launcher/src/preview-workflow-api-supervisor.test.ts`,
+`packages/developer-launcher/src/preview-sessions.test.ts`, and
+`packages/sheet-workflows/src/handlers/workflowHttp.test.ts`. These tests cover
+contract-route admission, enqueue/get with the same invocation, session expiry,
+timeout/fence behavior, the published route callback around the public enqueue
+and terminal-observation handlers, compatible resume observation, producer
+source restart, readiness rejection, and preview-only process cleanup. The new
+authority and gateway tests also exercise signed-policy loading, normal CLI
+session-layer composition, route admission through the common HTTP handler, and
+exact route removal with controlled local adapters. They do not establish that
+the operator credential resolver, deployed HTTPS listener, shared development
+database, Workflow Contract/Action Version compatibility, or live terminal
+workflow observation is ready. Keep the producer preview
+profile unavailable until those exact live checks pass.
+
+The stock CLI `sheet-web` profile also remains unavailable because its installed
+public gateway and mediated browser identity adapters are not configured. The
+CLI now supplies their signed configuration loader, host-module adapter contract,
+HTTPS server layer, and common session route wiring. With a configured module
+and compatible dependency endpoints it starts the selected checkout's
+Vite watch process on its reserved application port and an HTTPS listener on an
+OS-assigned session port. The emitted session origin carries the actual HTTPS
+port, and compatible resume reuses its controller-store listener lease. The
+application gateway requires the actual route's `/ready` response before
 activating its revision. It maps the public WSS HMR path to Vite and filters
 application HTTP headers and bodies. Local adapter tests do not prove operator
 DNS/certificates, public identity, live endpoint reachability, resume after

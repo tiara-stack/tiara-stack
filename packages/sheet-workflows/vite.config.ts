@@ -40,5 +40,15 @@ export default app({
         alwaysBundle: alwaysBundleDependencies,
       },
     },
+    {
+      entry: {
+        "catalog-identity": fileURLToPath(new URL("./src/catalogIdentity.ts", import.meta.url)),
+      },
+      tsconfig: "tsconfig.build.json",
+      dts: false,
+      deps: {
+        alwaysBundle: alwaysBundleDependencies,
+      },
+    },
   ],
 });

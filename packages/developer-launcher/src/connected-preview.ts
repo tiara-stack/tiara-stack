@@ -35,6 +35,7 @@ import {
   previewSessionHeartbeatFailureLimit,
   SessionCredentialsSchema,
   supervisePreviewSessionLease,
+  type PreviewSessionPhase,
 } from "./preview-sessions";
 import {
   PreviewAllocationController,
@@ -54,6 +55,12 @@ import {
   type RuntimeContractDefinition,
 } from "./workflow-runtime-contract-catalog";
 export { workflowPreviewRuntimeContractCatalogIdentity } from "./workflow-runtime-contract-catalog";
+import {
+  PreviewSharedWorkflowGroupSchema,
+  previewSharedWorkflowContractTargets,
+} from "./preview-shared-workflow";
+import { PreviewWorkflowApiSupervisorError } from "./preview-workflow-api-supervisor";
+import { sheetWorkflowContractCatalogDigest } from "sheet-workflows/catalog-identity";
 import {
   buildPreviewRelayResourcePlan,
   PreviewRelayHostListenerSchema,
@@ -195,6 +202,9 @@ const groupSchema = Schema.Struct({
   endpoint: Schema.optionalKey(Schema.String),
   stateIdentity: Schema.optionalKey(Schema.String),
   deployedManifestDigest: Schema.optionalKey(Schema.String),
+  databaseEndpointIdentity: Schema.optionalKey(Schema.String),
+  schemaArtifactDigest: Schema.optionalKey(Schema.String),
+  workflowContractCatalogDigest: Schema.optionalKey(Schema.String),
 });
 const environmentFileInputSchema = Schema.Struct({
   role: roleSchema,
@@ -221,6 +231,8 @@ const identitiesSchema = Schema.Struct({
   sourceRevision: Schema.String,
   artifactDigests: Schema.Record(Schema.String, Schema.String),
   deployedManifestDigest: Schema.String,
+  workflowContractCatalogDigest: Schema.optionalKey(Schema.String),
+  schemaArtifactDigest: Schema.optionalKey(Schema.String),
   catalogVersion: Schema.Number,
 });
 export const connectedPreviewConfigSchema = Schema.Struct({
@@ -811,20 +823,186 @@ const endOldSessionAfterProviderCleanup = (
     ),
   );
 
-const allowedWorkForPreviewConfig = (config: ConnectedPreviewConfig) => ({
-  endpoints: config.groups.flatMap((group) =>
+type SharedWorkflowTargetIdentity = Parameters<typeof previewSharedWorkflowContractTargets>[0];
+
+const sharedWorkflowTargetIdentityForConfig = (
+  config: ConnectedPreviewConfig,
+): Option.Option<SharedWorkflowTargetIdentity> => {
+  if (config.sharedExecution !== "producer-only" || !config.roles.includes("sheet-workflows-api"))
+    return Option.none();
+  const workflowGroup = config.groups.find(({ id }) => id === "workflow-execution");
+  if (workflowGroup?.ownership !== "reused") return Option.none();
+  return Option.all({
+    endpoint: Option.fromNullishOr(workflowGroup.endpoint),
+    databaseEndpointIdentity: Option.fromNullishOr(workflowGroup.databaseEndpointIdentity),
+    stateIdentity: Option.fromNullishOr(workflowGroup.stateIdentity),
+    deployedManifestDigest: Option.fromNullishOr(workflowGroup.deployedManifestDigest),
+    groupSchemaArtifactDigest: Option.fromNullishOr(workflowGroup.schemaArtifactDigest),
+    groupWorkflowContractCatalogDigest: Option.fromNullishOr(
+      workflowGroup.workflowContractCatalogDigest,
+    ),
+    apiArtifactDigest: Option.fromNullishOr(
+      config.identities.artifactDigests["sheet-workflows-api"],
+    ),
+    workflowContractCatalogDigest: Option.fromNullishOr(
+      config.identities.workflowContractCatalogDigest,
+    ),
+    schemaArtifactDigest: Option.fromNullishOr(config.identities.schemaArtifactDigest),
+  }).pipe(
+    Option.filter(
+      ({
+        groupSchemaArtifactDigest,
+        schemaArtifactDigest,
+        groupWorkflowContractCatalogDigest,
+        workflowContractCatalogDigest,
+        databaseEndpointIdentity,
+        endpoint,
+      }) =>
+        groupSchemaArtifactDigest === schemaArtifactDigest &&
+        groupWorkflowContractCatalogDigest === workflowContractCatalogDigest &&
+        isSha256(databaseEndpointIdentity) &&
+        endpoint.length > 0,
+    ),
+    Option.map(
+      ({
+        endpoint,
+        databaseEndpointIdentity,
+        stateIdentity,
+        deployedManifestDigest,
+        groupWorkflowContractCatalogDigest,
+        apiArtifactDigest,
+        schemaArtifactDigest,
+      }) => ({
+        endpoint,
+        databaseEndpointIdentity,
+        stateIdentity,
+        deployedManifestDigest,
+        apiArtifactDigest,
+        workflowContractCatalogDigest: groupWorkflowContractCatalogDigest,
+        schemaArtifactDigest,
+      }),
+    ),
+  );
+};
+
+const sharedWorkflowTargetsForPreviewConfig = (config: ConnectedPreviewConfig) => {
+  const identity = sharedWorkflowTargetIdentityForConfig(config);
+  return Option.match(identity, {
+    onNone: () => [],
+    onSome: previewSharedWorkflowContractTargets,
+  });
+};
+
+const configuredPreviewTargets = (config: ConnectedPreviewConfig) => [
+  ...(config.externalTargets ?? []),
+  ...(config.triggers ?? []).flatMap(({ targets }) => targets),
+  ...(config.botHandoff === null || config.botHandoff === undefined
+    ? []
+    : [config.botHandoff.targetAllocation]),
+  ...sharedWorkflowTargetsForPreviewConfig(config),
+];
+
+const reusedPreviewEndpoints = (config: ConnectedPreviewConfig) =>
+  config.groups.flatMap((group) =>
     group.ownership === "reused" && group.endpoint ? [group.endpoint] : [],
-  ),
-  targets: [
-    ...new Set([
-      ...(config.externalTargets ?? []),
-      ...(config.triggers ?? []).flatMap(({ targets }) => targets),
-      ...(config.botHandoff === null || config.botHandoff === undefined
-        ? []
-        : [config.botHandoff.targetAllocation]),
-    ]),
-  ],
+  );
+
+const allowedWorkForPreviewConfig = (config: ConnectedPreviewConfig) => ({
+  endpoints: reusedPreviewEndpoints(config),
+  targets: [...new Set(configuredPreviewTargets(config))],
 });
+
+const isProducerOnlyWorkflowApiConfig = (config: ConnectedPreviewConfig | undefined) =>
+  config?.sharedExecution === "producer-only" &&
+  config.roles.length === 1 &&
+  config.roles[0] === "sheet-workflows-api";
+
+type CompatibleSharedWorkflowGroup = PreviewGroupConfig & {
+  readonly ownership: "reused";
+  readonly endpoint: string;
+  readonly databaseEndpointIdentity: string;
+  readonly stateIdentity: string;
+  readonly deployedManifestDigest: string;
+  readonly schemaArtifactDigest: string;
+  readonly workflowContractCatalogDigest: string;
+};
+
+const isCompatibleSharedWorkflowGroup = (
+  group: ConnectedPreviewConfig["groups"][number] | undefined,
+): group is CompatibleSharedWorkflowGroup =>
+  group?.ownership === "reused" &&
+  group.stateIdentity !== undefined &&
+  group.deployedManifestDigest !== undefined &&
+  group.schemaArtifactDigest !== undefined &&
+  group.workflowContractCatalogDigest !== undefined &&
+  group.databaseEndpointIdentity !== undefined &&
+  group.endpoint !== undefined;
+
+const sharedWorkflowSessionIdentityMatches = (
+  session: import("./preview-sessions").PreviewSession,
+  config: ConnectedPreviewConfig,
+  group: CompatibleSharedWorkflowGroup,
+  apiArtifactDigest: string,
+) =>
+  [
+    session.manifests["sheet-workflows-api"] === apiArtifactDigest,
+    session.manifests["shared-execution-mode"] === "producer-only",
+    session.manifests["deployed-manifest"] === config.identities.deployedManifestDigest,
+    session.manifests["schema-artifact"] === config.identities.schemaArtifactDigest,
+    session.manifests["workflow-database-endpoint"] === group.databaseEndpointIdentity,
+    group.schemaArtifactDigest === config.identities.schemaArtifactDigest,
+    session.manifests["workflow-catalog"] === config.identities.workflowContractCatalogDigest,
+    group.workflowContractCatalogDigest === config.identities.workflowContractCatalogDigest,
+  ].every((matches) => matches);
+
+const sharedWorkflowGroupMatchesSession = (
+  session: import("./preview-sessions").PreviewSession,
+  config: ConnectedPreviewConfig,
+  group: ConnectedPreviewConfig["groups"][number] | undefined,
+  apiArtifactDigest: string | undefined,
+): group is CompatibleSharedWorkflowGroup => {
+  if (!isProducerOnlyWorkflowApiConfig(config)) return false;
+  if (!isCompatibleSharedWorkflowGroup(group)) return false;
+  if (apiArtifactDigest === undefined) return false;
+  return sharedWorkflowSessionIdentityMatches(session, config, group, apiArtifactDigest);
+};
+
+const sharedWorkflowGroupFor = (
+  session: import("./preview-sessions").PreviewSession,
+  config: ConnectedPreviewConfig,
+) =>
+  Effect.gen(function* () {
+    const group = config.groups.find(({ id }) => id === "workflow-execution");
+    const apiArtifactDigest = config.identities.artifactDigests["sheet-workflows-api"];
+    if (
+      !sharedWorkflowGroupMatchesSession(session, config, group, apiArtifactDigest) ||
+      apiArtifactDigest === undefined
+    )
+      return yield* Effect.fail(
+        new ConnectedWorkflowPreviewRuntimeError({
+          reason: "shared-workflow-group-incomplete",
+        }),
+      );
+    return yield* Schema.decodeUnknownEffect(PreviewSharedWorkflowGroupSchema)({
+      sessionId: session.id,
+      generation: session.generation,
+      groupId: "workflow-execution",
+      endpoint: group.endpoint,
+      databaseEndpointIdentity: group.databaseEndpointIdentity,
+      stateIdentity: group.stateIdentity,
+      deployedManifestDigest: group.deployedManifestDigest,
+      schemaArtifactDigest: group.schemaArtifactDigest,
+      workflowContractCatalogDigest: group.workflowContractCatalogDigest,
+      apiArtifactDigest,
+    }).pipe(
+      Effect.mapError(
+        () =>
+          new ConnectedWorkflowPreviewRuntimeError({
+            reason: "shared-workflow-group-invalid",
+          }),
+      ),
+    );
+  });
 
 const failFreshSessionCredentialPersistence = (
   input: ConnectedWorkflowPreviewRuntimeInput,
@@ -1803,7 +1981,14 @@ const unexpectedConfigurationField = (value: unknown): string | undefined => {
   return (
     exactKeys(
       property("identities"),
-      ["sourceRevision", "artifactDigests", "deployedManifestDigest", "catalogVersion"],
+      [
+        "sourceRevision",
+        "artifactDigests",
+        "deployedManifestDigest",
+        "workflowContractCatalogDigest",
+        "schemaArtifactDigest",
+        "catalogVersion",
+      ],
       "config.identities",
     ) ??
     firstUnexpectedListField(
@@ -1825,6 +2010,9 @@ const unexpectedConfigurationField = (value: unknown): string | undefined => {
         "endpoint",
         "stateIdentity",
         "deployedManifestDigest",
+        "databaseEndpointIdentity",
+        "schemaArtifactDigest",
+        "workflowContractCatalogDigest",
       ],
       "config.groups",
     ) ??
@@ -2033,20 +2221,48 @@ const reportOwnedAllocationProfile = (
   return isSafeIdentifier(allocationProfile) ? { allocationProfile } : {};
 };
 
+const reportGroupEndpoint = (endpoint: string | undefined) => {
+  if (endpoint === undefined) return {};
+  const safeEndpoint = endpointForReuse(endpoint);
+  return safeEndpoint === null ? {} : { endpoint: safeEndpoint.normalized };
+};
+
+const reportGroupStateIdentity = (stateIdentity: string | undefined) =>
+  stateIdentity !== undefined && isSafeIdentifier(stateIdentity) ? { stateIdentity } : {};
+
+const reportGroupDatabaseEndpointIdentity = (identity: string | undefined) =>
+  identity === undefined
+    ? {}
+    : { databaseEndpointIdentity: isSha256(identity) ? identity : "<invalid>" };
+
+type ReportedGroupDigests = Pick<
+  ConnectedPreviewReport["groupPlans"][number],
+  "deployedManifestDigest" | "schemaArtifactDigest" | "workflowContractCatalogDigest"
+>;
+
+const reportGroupDigest = (
+  key: keyof ReportedGroupDigests,
+  value: string | undefined,
+): ReportedGroupDigests => {
+  if (value === undefined) return {};
+  const safeDigest = isSha256(value) ? value : "<invalid>";
+  if (key === "deployedManifestDigest") return { deployedManifestDigest: safeDigest };
+  if (key === "schemaArtifactDigest") return { schemaArtifactDigest: safeDigest };
+  return { workflowContractCatalogDigest: safeDigest };
+};
+
 const reportGroupPlan = (
   group: PreviewGroupConfig,
 ): ConnectedPreviewReport["groupPlans"][number] => {
-  const endpoint = group.endpoint === undefined ? null : endpointForReuse(group.endpoint);
   return {
     id: group.id,
     ownership: group.ownership,
-    ...(endpoint === null ? {} : { endpoint: endpoint.normalized }),
-    ...(group.stateIdentity === undefined || !isSafeIdentifier(group.stateIdentity)
-      ? {}
-      : { stateIdentity: group.stateIdentity }),
-    ...(group.deployedManifestDigest === undefined || !isSha256(group.deployedManifestDigest)
-      ? {}
-      : { deployedManifestDigest: group.deployedManifestDigest }),
+    ...reportGroupEndpoint(group.endpoint),
+    ...reportGroupStateIdentity(group.stateIdentity),
+    ...reportGroupDatabaseEndpointIdentity(group.databaseEndpointIdentity),
+    ...reportGroupDigest("deployedManifestDigest", group.deployedManifestDigest),
+    ...reportGroupDigest("schemaArtifactDigest", group.schemaArtifactDigest),
+    ...reportGroupDigest("workflowContractCatalogDigest", group.workflowContractCatalogDigest),
     ...reportOwnedAllocationProfile(group),
   };
 };
@@ -2231,6 +2447,20 @@ const buildConnectedPreviewReport = (
       deployedManifestDigest: isSha256(config.identities.deployedManifestDigest)
         ? config.identities.deployedManifestDigest
         : "<invalid>",
+      ...(config.identities.workflowContractCatalogDigest === undefined
+        ? {}
+        : {
+            workflowContractCatalogDigest: isSha256(config.identities.workflowContractCatalogDigest)
+              ? config.identities.workflowContractCatalogDigest
+              : "<invalid>",
+          }),
+      ...(config.identities.schemaArtifactDigest === undefined
+        ? {}
+        : {
+            schemaArtifactDigest: isSha256(config.identities.schemaArtifactDigest)
+              ? config.identities.schemaArtifactDigest
+              : "<invalid>",
+          }),
     },
     environmentFileInputs: config.environmentFileInputs.map(({ role, path: filePath }) => ({
       role,
@@ -2949,7 +3179,8 @@ const validateOwnedGroupAllocatedIdentityFields = (
   if (
     group.endpoint !== undefined ||
     group.stateIdentity !== undefined ||
-    group.deployedManifestDigest !== undefined
+    group.deployedManifestDigest !== undefined ||
+    group.schemaArtifactDigest !== undefined
   ) {
     context.add(
       "invalid-preview-intent",
@@ -3030,18 +3261,31 @@ const validateReusedGroupFields = (
       group.id,
     );
   }
-  if (
-    !isNonEmpty(group.endpoint) ||
-    !isSafeIdentifier(group.stateIdentity ?? "") ||
-    !isSha256(group.deployedManifestDigest ?? "")
-  ) {
+  if (!hasCompleteReusedGroupIdentity(context, group)) {
     context.add(
       "required-group-missing",
-      `Reused group ${group.id} needs an explicit endpoint, state identity, and deployed-manifest identity`,
+      `Reused group ${group.id} needs an explicit endpoint, state identity, and deployed-manifest identity; producer-only shared workflow execution also requires its trusted schema artifact identity`,
       "Declare the exact compatible development service being reused.",
       group.id,
     );
   }
+};
+
+const hasCompleteReusedGroupIdentity = (
+  context: PreviewValidationContext,
+  group: PreviewGroupConfig,
+) => {
+  const endpointAndManifestIdentity = [
+    isNonEmpty(group.endpoint),
+    isSafeIdentifier(group.stateIdentity ?? ""),
+    isSha256(group.deployedManifestDigest ?? ""),
+  ].every((matches) => matches);
+  const requiresSchemaArtifact =
+    context.config.sharedExecution === "producer-only" && group.id === "workflow-execution";
+  return (
+    endpointAndManifestIdentity &&
+    (!requiresSchemaArtifact || isSha256(group.schemaArtifactDigest ?? ""))
+  );
 };
 
 const recordReusedGroupEndpoint = (
@@ -3167,22 +3411,80 @@ const validateProducerOnlySelection = (context: PreviewValidationContext) => {
   const group = context.groupsById.get("workflow-execution");
   const webOnlyConsumer =
     context.selectedRoles.size === 1 && context.selectedRoles.has("sheet-web");
+  const apiOnlyProducer =
+    context.selectedRoles.size === 1 && context.selectedRoles.has("sheet-workflows-api");
   const valid =
     context.requiredGroups.has("workflow-execution") &&
     group?.ownership === "reused" &&
     !hasSelectedRunner(context) &&
-    (webOnlyConsumer || context.selectedRoles.has("sheet-workflows-api"));
+    (webOnlyConsumer || apiOnlyProducer);
   if (!valid) {
     context.add(
       "invalid-preview-intent",
-      "Shared execution requires a reused workflow-execution group and either a sole sheet-web selection or an explicitly compatible producer-only sheet-workflows-api selection",
-      "Reuse workflow-execution, omit preview runner roles, and either select only sheet-web or select sheet-workflows-api with compatible workflow contracts.",
+      "Shared execution requires a reused workflow-execution group and either a sole sheet-web selection or a sole compatible producer-only sheet-workflows-api selection",
+      "Reuse workflow-execution, omit preview runner roles, and select only sheet-web or only sheet-workflows-api with compatible workflow contracts.",
       "workflow-execution",
     );
   }
 };
 
-const validateProducerOnlyCompatibility = (context: PreviewValidationContext) => {
+const validateProducerWorkflowCatalogIdentity = (context: PreviewValidationContext) => {
+  const configuredDigest = context.config.identities.workflowContractCatalogDigest ?? "";
+  const selectedGroupDigest =
+    context.groupsById.get("workflow-execution")?.workflowContractCatalogDigest ?? "";
+  if (!isSha256(configuredDigest) || !isSha256(selectedGroupDigest)) {
+    context.add(
+      "unknown-compatibility",
+      "Shared execution requires a trusted Workflow Contract catalog identity for the selected group",
+      "Declare the selected workflow-execution group's catalog digest from its trusted development group identity; a local catalog declaration alone is insufficient.",
+      "workflow-execution",
+    );
+  } else if (
+    selectedGroupDigest !== configuredDigest ||
+    configuredDigest !== sheetWorkflowContractCatalogDigest
+  ) {
+    context.add(
+      "stale-compatibility",
+      "The selected workflow-execution group catalog does not match the loaded producer catalog",
+      "Use the exact catalog digest returned for the selected shared group; a missing or mismatched identity blocks producer startup.",
+      "workflow-execution",
+    );
+  }
+};
+
+const validateProducerSchemaArtifactIdentity = (context: PreviewValidationContext) => {
+  const schemaArtifactDigest = context.config.identities.schemaArtifactDigest;
+  const workflowGroup = context.groupsById.get("workflow-execution");
+  if (!isSha256(schemaArtifactDigest ?? "")) {
+    context.add(
+      "unknown-compatibility",
+      "Shared execution requires a trusted SQL migration artifact digest",
+      "Declare the schema artifact digest supplied by the trusted workflow group and credential resolver.",
+      "workflow-execution",
+    );
+  } else if (workflowGroup?.schemaArtifactDigest !== schemaArtifactDigest) {
+    context.add(
+      "stale-compatibility",
+      "The workflow-execution group schema artifact does not match the selected runtime identity",
+      "Use the exact schema artifact digest returned by the trusted shared-group resolver; an absent or stale identity blocks startup.",
+      "workflow-execution",
+    );
+  }
+};
+
+const validateProducerDatabaseEndpointIdentity = (context: PreviewValidationContext) => {
+  const endpointIdentity =
+    context.groupsById.get("workflow-execution")?.databaseEndpointIdentity ?? "";
+  if (!isSha256(endpointIdentity))
+    context.add(
+      "unknown-compatibility",
+      "Shared execution requires the exact trusted PostgreSQL endpoint identity for the selected group",
+      "Declare the canonical endpoint identity from the trusted workflow-group mapping; an absent identity blocks credentials and process startup.",
+      "workflow-execution",
+    );
+};
+
+const validateProducerWorkflowContractEvidence = (context: PreviewValidationContext) => {
   for (const contractId of ["workflow.enqueue", "workflow.execution"] as const) {
     const declaration = context.changesByKey.get(changeKey("sheet-workflows-api", contractId));
     if (declaration?.classification !== "compatible") {
@@ -3194,6 +3496,13 @@ const validateProducerOnlyCompatibility = (context: PreviewValidationContext) =>
       );
     }
   }
+};
+
+const validateProducerOnlyCompatibility = (context: PreviewValidationContext) => {
+  validateProducerWorkflowCatalogIdentity(context);
+  validateProducerSchemaArtifactIdentity(context);
+  validateProducerDatabaseEndpointIdentity(context);
+  validateProducerWorkflowContractEvidence(context);
 };
 
 const validateSharedExecutionIntent = (context: PreviewValidationContext) => {
@@ -3211,7 +3520,7 @@ const validateSharedExecutionIntent = (context: PreviewValidationContext) => {
     context.add(
       "invalid-preview-intent",
       "A reused workflow execution group requires explicit producer-only shared-execution intent",
-      "Set sharedExecution to producer-only only for a compatible API producer; select an owned group for changed execution.",
+      "Set sharedExecution to producer-only only for a sole compatible API producer; select an owned group for changed execution.",
       "workflow-execution",
     );
   }
@@ -3543,7 +3852,11 @@ const identityPath = (sessionId: string, environment: NodeJS.ProcessEnv) => {
   return candidate.startsWith(`${directory}${path.sep}`) ? candidate : undefined;
 };
 
-type LocalSessionCredentials = typeof SessionCredentialsSchema.Type;
+const localSessionCredentialsSchema = Schema.Struct({
+  ...SessionCredentialsSchema.fields,
+  connectedPreviewConfig: Schema.optionalKey(connectedPreviewConfigSchema),
+});
+type LocalSessionCredentials = typeof localSessionCredentialsSchema.Type;
 
 const persistSessionCredentials = (filePath: string, credentials: LocalSessionCredentials) =>
   Effect.gen(function* () {
@@ -3570,7 +3883,8 @@ const readSessionCredentials = (filePath: string) =>
     const fileSystem = yield* FileSystem.FileSystem;
     const raw = yield* fileSystem.readFileString(filePath);
     return yield* Effect.try({
-      try: () => Schema.decodeUnknownSync(SessionCredentialsSchema)(JSON.parse(raw) as unknown),
+      try: () =>
+        Schema.decodeUnknownSync(localSessionCredentialsSchema)(JSON.parse(raw) as unknown),
       catch: () => new Error("session-credentials-unavailable"),
     });
   }).pipe(Effect.mapError(() => new Error("session-credentials-unavailable")));
@@ -3591,6 +3905,15 @@ const workflowRecreationOutput = (
   return { workflowRecreation: { ...diagnostic, recovery: workflowRecreation.recovery } };
 };
 
+const sessionReadiness = {
+  pending: "planned",
+  starting: "planned",
+  active: "ready",
+  stopping: "planned",
+  ended: "stopped",
+  expired: "blocked",
+} satisfies Record<PreviewSessionPhase, LauncherOutput["readiness"]>;
+
 const sessionOutput = (
   command: ConnectedPreviewCommand,
   session: import("./preview-sessions").PreviewSession,
@@ -3610,14 +3933,7 @@ const sessionOutput = (
   checkoutState: null,
   plannedProcesses: [],
   urls: [],
-  readiness:
-    session.phase === "ended" // oxlint-disable-line no-nested-ternary -- inherited master site
-      ? "stopped"
-      : session.phase === "expired" // oxlint-disable-line no-nested-ternary -- inherited master site
-        ? "blocked"
-        : session.phase === "active"
-          ? "ready"
-          : "planned",
+  readiness: sessionReadiness[session.phase],
   warnings: [],
   errors: [],
   changedSurfaces: [],
@@ -3661,6 +3977,55 @@ const sessionOperationFailure = (
     ),
   ],
 });
+
+const blockedSessionOperation = (
+  command: ConnectedPreviewCommand,
+  session: import("./preview-sessions").PreviewSession,
+  message: string,
+): LauncherOutput => ({
+  ...sessionOutput(command, session),
+  ok: false,
+  readiness: "blocked",
+  errors: [
+    makeDiagnostic("dependency-unavailable", message, message, {
+      mode: "preview",
+      action: command.action,
+    }),
+  ],
+});
+
+const blockedWorkflowApiResume = (
+  command: ConnectedPreviewCommand,
+  session: import("./preview-sessions").PreviewSession,
+  message: string,
+  cleanup: Exclude<NonNullable<LauncherOutput["previewSession"]>["workflowApiCleanup"], undefined>,
+  allocationStatus?: import("./preview-allocations").PreviewAllocationStatus,
+): LauncherOutput => {
+  const output = sessionOutput(command, session, allocationStatus);
+  const diagnostic = makeDiagnostic("dependency-unavailable", message, message, {
+    mode: "preview",
+    action: command.action,
+  });
+  if (output.previewSession === undefined)
+    return { ...output, ok: false, readiness: "blocked", errors: [diagnostic] };
+  return {
+    ...output,
+    ok: false,
+    readiness: "blocked",
+    errors: [diagnostic],
+    previewSession: { ...output.previewSession, workflowApiCleanup: cleanup },
+  };
+};
+
+const inspectWorkflowApiResumeAllocations = (sessionId: string, options: LauncherOptions) =>
+  Effect.gen(function* () {
+    const allocations = options.previewAllocationController;
+    if (allocations === undefined) return { state: "unavailable" as const };
+    const inspected = yield* Effect.result(allocations.inspect(sessionId));
+    return Result.isSuccess(inspected)
+      ? { state: "inspected" as const, status: inspected.success }
+      : { state: "unavailable" as const };
+  });
 
 const cleanupLedgerUnavailable = (
   command: ConnectedPreviewCommand,
@@ -3739,6 +4104,9 @@ const createPendingPreviewSession = (
   controller: import("./preview-sessions").PreviewSessionControllerApi,
 ): Effect.Effect<CreatedPreviewSessionResult> =>
   Effect.gen(function* () {
+    const workflowDatabaseEndpointIdentity = config.groups.find(
+      ({ id }) => id === "workflow-execution",
+    )?.databaseEndpointIdentity;
     const result = yield* Effect.result(
       dispatchPreviewSessionProtocol(controller, {
         _tag: "Create",
@@ -3748,6 +4116,22 @@ const createPendingPreviewSession = (
           manifests: {
             ...config.identities.artifactDigests,
             "deployed-manifest": config.identities.deployedManifestDigest,
+            ...(config.sharedExecution !== "producer-only"
+              ? {}
+              : {
+                  "shared-execution-mode": "producer-only",
+                  ...(config.identities.schemaArtifactDigest === undefined
+                    ? {}
+                    : { "schema-artifact": config.identities.schemaArtifactDigest }),
+                  ...(config.identities.workflowContractCatalogDigest === undefined
+                    ? {}
+                    : { "workflow-catalog": config.identities.workflowContractCatalogDigest }),
+                  ...(workflowDatabaseEndpointIdentity === undefined
+                    ? {}
+                    : {
+                        "workflow-database-endpoint": workflowDatabaseEndpointIdentity,
+                      }),
+                }),
           },
           requestedRevision: config.identities.sourceRevision,
           groups: config.groups.map(({ id }) => id),
@@ -3782,6 +4166,7 @@ const stopSessionWithoutCredentials = (
         _tag: "Stop",
         id: created.session.id,
         ownerIdentity: created.ownerIdentity,
+        expectedGeneration: created.session.generation,
       }),
     );
     const session =
@@ -3799,6 +4184,7 @@ const persistPreviewSessionCredentials = (
   command: PreviewStartCommand,
   created: import("./preview-sessions").SessionCredentials,
   tokenPath: string,
+  config: ConnectedPreviewConfig,
   controller: import("./preview-sessions").PreviewSessionControllerApi,
 ) =>
   Effect.gen(function* () {
@@ -3806,6 +4192,7 @@ const persistPreviewSessionCredentials = (
       persistSessionCredentials(tokenPath, {
         ownerIdentity: created.ownerIdentity,
         supervisorIdentity: created.supervisorIdentity,
+        connectedPreviewConfig: config,
       }),
     );
     return Result.isFailure(persisted)
@@ -4038,6 +4425,92 @@ const preparePreviewStart = (
     };
   });
 
+const webPreviewProfileIsSupported = (config: ConnectedPreviewConfig, options: LauncherOptions) => {
+  const reusedServiceGroupsHaveEndpoints = config.groups
+    .filter(({ id }) => sheetWebDependencyGroupSet.has(id))
+    .every(({ ownership, endpoint }) => ownership === "reused" && endpoint !== undefined);
+  const supportedSharedExecution =
+    config.sharedExecution !== "producer-only" ||
+    (config.roles.length === 1 && config.roles[0] === "sheet-web");
+  return [
+    config.roles.length === 1,
+    supportedSharedExecution,
+    options.previewWebRuntime !== undefined,
+    options.previewGateway?.configured === true,
+    options.previewSupervisorScheduler !== undefined,
+    reusedServiceGroupsHaveEndpoints,
+  ].every((matches) => matches);
+};
+
+const producerWorkflowApiProfileIsSupported = (
+  config: ConnectedPreviewConfig,
+  options: LauncherOptions,
+) => {
+  const workflowApiGroup = config.groups.find(({ id }) => id === "workflow-execution");
+  return [
+    isProducerOnlyWorkflowApiConfig(config),
+    options.previewWorkflowApiSupervisor !== undefined,
+    workflowApiGroup?.ownership === "reused",
+    workflowApiGroup?.endpoint !== undefined,
+    workflowApiGroup?.stateIdentity !== undefined,
+    workflowApiGroup?.deployedManifestDigest !== undefined,
+    workflowApiGroup?.schemaArtifactDigest !== undefined,
+    config.identities.artifactDigests["sheet-workflows-api"] !== undefined,
+    config.identities.deployedManifestDigest === workflowApiGroup?.deployedManifestDigest,
+    config.identities.schemaArtifactDigest === workflowApiGroup?.schemaArtifactDigest,
+    isSha256(config.identities.schemaArtifactDigest ?? ""),
+    config.identities.workflowContractCatalogDigest !== undefined,
+  ].every((matches) => matches);
+};
+
+const unsupportedWebPreviewProfileOutput = (command: PreviewStartCommand): LauncherOutput => ({
+  ...outputForUnavailableExecution(command),
+  errors: [
+    makeDiagnostic(
+      "dependency-unavailable",
+      "The sheet-web preview runtime is unavailable; no session or resources were created.",
+      "A web start requires only the implemented sheet-web role, a host supervisor with a live controller scope, a configured session application gateway, and explicit HTTPS endpoints for all four compatible reused service groups. Keep the profile unavailable until those adapters and endpoint contracts are supplied.",
+      { mode: "preview", action: "start", dependency: "sheet-web" },
+    ),
+  ],
+});
+
+const safePreviewGatewayRuntimeFailureReasons: ReadonlySet<string> = new Set([
+  "gateway-adapter-module-not-configured",
+  "gateway-adapter-module-path-invalid",
+  "gateway-adapter-module-unavailable",
+  "gateway-adapter-module-factory-missing",
+  "gateway-adapter-module-failed",
+  "gateway-adapter-api-invalid",
+]);
+
+const safePreviewGatewayRuntimeFailureReason = (reason?: string) =>
+  reason !== undefined && safePreviewGatewayRuntimeFailureReasons.has(reason) ? reason : undefined;
+
+const unsupportedWorkflowApiProfileOutput = (
+  command: PreviewStartCommand,
+  supervisorUnavailableReason?: string,
+  runtimeUnavailableReason?: string,
+): LauncherOutput => {
+  const safeRuntimeReason = safePreviewGatewayRuntimeFailureReason(runtimeUnavailableReason);
+  const unavailableReason = safeRuntimeReason ?? supervisorUnavailableReason;
+  const remediation =
+    unavailableReason === undefined
+      ? "This host supports a single supervised sheet-web role or a single producer-only sheet-workflows-api role with a complete trusted workflow-execution endpoint, state, schema, manifest, and catalog identity."
+      : `The producer supervisor could not be initialized (${unavailableReason}); no producer route or session was admitted. Configure a valid trusted authority and host runtime before retrying.`;
+  return {
+    ...outputForUnavailableExecution(command),
+    errors: [
+      makeDiagnostic(
+        "dependency-unavailable",
+        "This connected preview profile cannot be started by the available host runtime; no session or resources were created.",
+        remediation,
+        { mode: "preview", action: "start" },
+      ),
+    ],
+  };
+};
+
 const preparePreviewProfile = (
   command: PreviewStartCommand,
   config: ConnectedPreviewConfig,
@@ -4045,31 +4518,19 @@ const preparePreviewProfile = (
 ):
   | { readonly ok: true; readonly relayPlan: PreviewRelayResourcePlan }
   | { readonly ok: false; readonly output: LauncherOutput } => {
-  const webUnavailable =
-    config.roles.includes("sheet-web") &&
-    (config.roles.length !== 1 ||
-      options.previewWebRuntime === undefined ||
-      options.previewGateway?.configured !== true ||
-      options.previewSupervisorScheduler === undefined ||
-      config.groups.some(
-        (group) =>
-          sheetWebDependencyGroupSet.has(group.id) &&
-          (group.ownership !== "reused" || group.endpoint === undefined),
-      ));
-  if (webUnavailable)
+  if (config.roles.includes("sheet-web") && !webPreviewProfileIsSupported(config, options))
+    return { ok: false, output: unsupportedWebPreviewProfileOutput(command) };
+  if (
+    config.roles.includes("sheet-workflows-api") &&
+    !producerWorkflowApiProfileIsSupported(config, options)
+  )
     return {
       ok: false,
-      output: {
-        ...outputForUnavailableExecution(command),
-        errors: [
-          makeDiagnostic(
-            "dependency-unavailable",
-            "The sheet-web preview runtime is unavailable; no session or resources were created.",
-            "A web start requires only the implemented sheet-web role, a host supervisor with a live controller scope, a configured session application gateway, and explicit HTTPS endpoints for all four compatible reused service groups. Keep the profile unavailable until those adapters and endpoint contracts are supplied.",
-            { mode: "preview", action: "start", dependency: "sheet-web" },
-          ),
-        ],
-      },
+      output: unsupportedWorkflowApiProfileOutput(
+        command,
+        options.previewWorkflowApiSupervisorUnavailableReason,
+        options.previewGatewayRuntimeUnavailableReason,
+      ),
     };
   const relay = preparePreviewRelayPlan(config);
   return "error" in relay
@@ -4169,7 +4630,38 @@ const validatePreviewStartDependencies = (
         );
   });
 
+type PreviewStartFailureOrigin = "session-lease" | "workflow-api-supervisor";
+type PreviewStartFailurePresentation = {
+  readonly messagePrefix: string;
+  readonly dependency: string | null;
+};
+
+const previewStartFailurePresentationByOrigin = {
+  "session-lease": {
+    messagePrefix: "Connected preview startup did not become ready for workflow API session lease",
+    dependency: "workflow-api-session-lease",
+  },
+  "workflow-api-supervisor": {
+    messagePrefix: "Connected preview startup did not become ready for workflow execution",
+    dependency: "workflow-execution",
+  },
+} satisfies Record<PreviewStartFailureOrigin, PreviewStartFailurePresentation>;
+
+const unspecifiedPreviewStartFailurePresentation: PreviewStartFailurePresentation = {
+  messagePrefix: "Connected preview startup did not become ready",
+  dependency: null,
+};
+
+const safePreviewStartFailureReason = (failure: unknown) =>
+  Match.value(failure).pipe(
+    Match.when(Schema.is(ConnectedWorkflowPreviewRuntimeError), ({ reason }) => reason),
+    Match.when(Schema.is(PreviewWorkflowApiSupervisorError), ({ reason }) => reason),
+    Match.orElse(() => undefined),
+  );
+
 const allocationFailureMessage = (failure: unknown) => {
+  const safeReason = safePreviewStartFailureReason(failure);
+  if (safeReason !== undefined) return safeReason;
   if (!(failure instanceof PreviewAllocationError))
     return failure instanceof Error
       ? failure.message
@@ -4178,130 +4670,303 @@ const allocationFailureMessage = (failure: unknown) => {
   return `Capacity exhausted for ${failure.dimension ?? "unknown dimension"}: requested ${failure.requested ?? "unknown"}, reserved ${failure.reserved ?? "unknown"}, available ${failure.available ?? "unknown"}.`;
 };
 
-const finishPreviewStart = (
+const previewStartFailurePresentation = (
+  failure: unknown,
+  origin: PreviewStartFailureOrigin | undefined,
+) =>
+  Match.value(failure).pipe(
+    Match.when(Schema.is(PreviewWorkflowApiSupervisorError), () =>
+      origin === undefined
+        ? unspecifiedPreviewStartFailurePresentation
+        : previewStartFailurePresentationByOrigin[origin],
+    ),
+    Match.orElse(() => unspecifiedPreviewStartFailurePresentation),
+  );
+
+type PreviewStartSetup =
+  | { readonly created: import("./preview-sessions").SessionCredentials }
+  | { readonly output: LauncherOutput };
+
+const preparePreviewStartSession = (
   command: PreviewStartCommand,
   prepared: PreparedPreviewStart,
   controller: import("./preview-sessions").PreviewSessionControllerApi,
+): Effect.Effect<PreviewStartSetup, never, FileSystem.FileSystem> =>
+  Effect.gen(function* () {
+    const creation = yield* createPendingPreviewSession(
+      command,
+      prepared.config,
+      prepared.cwd,
+      controller,
+    );
+    if (creation.output !== undefined) return { output: creation.output };
+    return { created: creation.created };
+  });
+
+const previewStartAllocationResources = (
+  prepared: PreparedPreviewStart,
+  created: import("./preview-sessions").SessionCredentials,
   allocations: import("./preview-allocations").PreviewAllocationApi,
+) => {
+  const resourceMetadata = {
+    ...prepared.relayPlan.metadata,
+    ...(prepared.config.seed === undefined
+      ? {}
+      : {
+          [ownedApplicationResource]: {
+            ...prepared.relayPlan.metadata[ownedApplicationResource],
+            seedId: prepared.config.seed,
+          },
+        }),
+  };
+  return allocations.reserveAndAllocate({
+    sessionId: created.session.id,
+    demands: prepared.plan.demands,
+    // Establish callbacks before an owned application group runs readiness checks.
+    resources: [...new Set([...prepared.relayPlan.resources, ...prepared.plan.resources])],
+    resourceMetadata,
+  });
+};
+
+const previewStartAllocationInterrupted = (
+  created: import("./preview-sessions").SessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+) =>
+  Effect.gen(function* () {
+    const stopped = yield* Effect.result(
+      controller.stop(created.session.id, created.ownerIdentity, created.session.generation),
+    );
+    yield* Console.error(
+      Result.isSuccess(stopped)
+        ? `Preview start was interrupted. Session ${created.session.id} was stopped; inspect it with preview status --session ${created.session.id}, then retry cleanup when eligible.`
+        : `Preview start was interrupted and stopping could not be confirmed. Inspect session ${created.session.id} in the durable controller store before retrying cleanup.`,
+    );
+  });
+
+const previewWebStartInterrupted = (
+  created: import("./preview-sessions").SessionCredentials,
   options: LauncherOptions,
-): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
-  Effect.uninterruptibleMask((restore) =>
-    Effect.gen(function* () {
-      const creation = yield* createPendingPreviewSession(
-        command,
-        prepared.config,
-        prepared.cwd,
-        controller,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+) =>
+  Effect.gen(function* () {
+    const stopped = yield* Effect.result(
+      withWorkflowRecreationTimeout(
+        controller.stop(created.session.id, created.ownerIdentity),
+        workflowRecreationTimeouts.providerOperation,
+        () => new PreviewSessionError({ reason: "preview-start-stop-unconfirmed" }),
+      ),
+    );
+    if (Result.isFailure(stopped)) {
+      yield* Console.error(
+        `Preview start was interrupted and stopping could not be confirmed. Inspect session ${safeIdentifier(created.session.id)} in the durable controller store before retrying cleanup.`,
       );
-      if (creation.output !== undefined) return creation.output;
-      const tokenPath = identityPath(creation.created.session.id, prepared.environment);
-      if (tokenPath === undefined)
-        return yield* stopSessionWithoutCredentials(command, creation.created, controller);
-      const persisted = yield* persistPreviewSessionCredentials(
-        command,
-        creation.created,
-        tokenPath,
-        controller,
+      return;
+    }
+    const cleanupConfirmed =
+      options.previewGateway === undefined || options.previewWebRuntime === undefined
+        ? false
+        : yield* cleanupConfirmedSheetWebResources({
+            sessionId: created.session.id,
+            ownerIdentity: created.ownerIdentity,
+            gateway: options.previewGateway,
+            runtime: options.previewWebRuntime,
+          });
+    if (!cleanupConfirmed)
+      yield* Console.error(
+        `Preview start was interrupted and route or process cleanup was not confirmed for session ${safeIdentifier(created.session.id)}. Keep it unavailable and retry cleanup after its authorities are reachable.`,
       );
-      if (!persisted.ok) return persisted;
-      const resourceMetadata = {
-        ...prepared.relayPlan.metadata,
-        ...(prepared.config.seed === undefined
+  });
+
+const startProducerOnlyWorkflowApiPreview = (
+  command: PreviewStartCommand,
+  prepared: PreparedPreviewStart,
+  options: LauncherOptions,
+  created: import("./preview-sessions").SessionCredentials,
+  allocationStatus: import("./preview-allocations").PreviewAllocationStatus,
+  session: import("./preview-sessions").PreviewSession,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  allocations: import("./preview-allocations").PreviewAllocationApi,
+) =>
+  Effect.gen(function* () {
+    if (
+      prepared.config.sharedExecution !== "producer-only" ||
+      !prepared.config.roles.includes("sheet-workflows-api")
+    )
+      return sessionOutput(command, session, allocationStatus);
+    const supervisor = options.previewWorkflowApiSupervisor;
+    if (supervisor === undefined)
+      return yield* failPreviewStartAfterAllocation(
+        command,
+        created,
+        new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" }),
+        controller,
+        allocations,
+        undefined,
+        undefined,
+        "workflow-api-supervisor",
+      );
+    const decodedGroup = yield* Effect.result(sharedWorkflowGroupFor(session, prepared.config));
+    if (Result.isFailure(decodedGroup))
+      return yield* failPreviewStartAfterAllocation(
+        command,
+        created,
+        decodedGroup.failure,
+        controller,
+        allocations,
+      );
+    return yield* supervisor
+      .run({
+        checkout: prepared.cwd,
+        session,
+        ownerIdentity: created.ownerIdentity,
+        supervisorIdentity: created.supervisorIdentity,
+        config: prepared.config,
+        group: decodedGroup.success,
+        controller,
+        ...(options.onPreviewSessionReady === undefined
           ? {}
           : {
-              [ownedApplicationResource]: {
-                ...prepared.relayPlan.metadata[ownedApplicationResource],
-                seedId: prepared.config.seed,
-              },
+              onReady: (readySession, applicationOrigin) =>
+                Effect.sync(() => options.onPreviewSessionReady?.(readySession, applicationOrigin)),
             }),
-      };
-      const allocation = allocations.reserveAndAllocate({
-        sessionId: creation.created.session.id,
-        demands: prepared.plan.demands,
-        // Establish callbacks before an owned application group runs readiness checks.
-        resources: [...new Set([...prepared.relayPlan.resources, ...prepared.plan.resources])],
-        resourceMetadata,
-      });
-      const reserved = yield* Effect.result(
-        restore(allocation).pipe(
-          Effect.onInterrupt(() =>
-            Effect.gen(function* () {
-              const stopped = yield* Effect.result(
-                controller.stop(creation.created.session.id, creation.created.ownerIdentity),
-              );
-              yield* Console.error(
-                Result.isSuccess(stopped)
-                  ? `Preview start was interrupted. Session ${creation.created.session.id} was stopped; inspect it with preview status --session ${creation.created.session.id}, then retry cleanup when eligible.`
-                  : `Preview start was interrupted and stopping could not be confirmed. Inspect session ${creation.created.session.id} in the durable controller store before retrying cleanup.`,
-              );
-            }),
+      })
+      .pipe(
+        Effect.map((active) => sessionOutput(command, active, allocationStatus)),
+        Effect.catchTag("PreviewWorkflowApiSupervisorError", (supervisorError) =>
+          failPreviewStartAfterAllocation(
+            command,
+            created,
+            supervisorError,
+            controller,
+            allocations,
+            undefined,
+            {
+              confirmed: supervisorError.cleanup === undefined,
+              detail:
+                supervisorError.cleanup === undefined
+                  ? "Producer supervision failed after the supervisor confirmed its owned route/process cleanup and session fence."
+                  : `Producer supervision cleanup evidence: route=${supervisorError.cleanup.route}, process=${supervisorError.cleanup.process}, session-fence=${supervisorError.cleanup.sessionFence}.`,
+            },
+            "workflow-api-supervisor",
           ),
         ),
       );
-      if (Result.isFailure(reserved))
-        return yield* failPreviewStartAfterAllocation(
+  });
+
+const finishPreviewStart = (
+  command: PreviewStartCommand,
+  prepared: PreparedPreviewStart,
+  options: LauncherOptions,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  allocations: import("./preview-allocations").PreviewAllocationApi,
+): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
+  Effect.uninterruptibleMask((restore) =>
+    Effect.gen(function* () {
+      const setup = yield* preparePreviewStartSession(command, prepared, controller);
+      if ("output" in setup) return setup.output;
+      const created = setup.created;
+      let interruptionCleanupStarted = false;
+      const cleanupAfterProducerStartInterruption = () =>
+        Effect.suspend(() => {
+          if (interruptionCleanupStarted) return Effect.void;
+          interruptionCleanupStarted = true;
+          return previewStartAllocationInterrupted(created, controller);
+        });
+      const continueStart = Effect.gen(function* () {
+        const tokenPath = identityPath(created.session.id, prepared.environment);
+        if (tokenPath === undefined)
+          return yield* stopSessionWithoutCredentials(command, created, controller);
+        const persisted = yield* persistPreviewSessionCredentials(
           command,
-          creation.created,
-          reserved.failure,
+          created,
+          tokenPath,
+          prepared.config,
           controller,
-          allocations,
         );
-      const allocationState = yield* Effect.result(
-        allocations.inspect(creation.created.session.id),
-      );
-      const sessionState = yield* Effect.result(controller.status(creation.created.session.id));
-      if (!Result.isSuccess(allocationState) || !Result.isSuccess(sessionState))
-        return yield* failPreviewStartAfterAllocation(
-          command,
-          creation.created,
-          new Error("Resources were allocated but durable status could not be read"),
-          controller,
-          allocations,
+        if (!persisted.ok) return persisted;
+
+        const allocation = previewStartAllocationResources(prepared, created, allocations);
+        const reserved = yield* Effect.result(
+          restore(allocation).pipe(Effect.onInterrupt(cleanupAfterProducerStartInterruption)),
         );
-      if (prepared.config.roles.includes("sheet-web"))
-        return yield* restore(
-          startSheetWebRuntime(
+        if (Result.isFailure(reserved))
+          return yield* failPreviewStartAfterAllocation(
             command,
-            prepared,
-            creation.created,
-            allocationState.success,
+            created,
+            reserved.failure,
             controller,
             allocations,
+          );
+        const allocationState = yield* Effect.result(allocations.inspect(created.session.id));
+        const sessionState = yield* Effect.result(controller.status(created.session.id));
+        if (!Result.isSuccess(allocationState) || !Result.isSuccess(sessionState))
+          return yield* failPreviewStartAfterAllocation(
+            command,
+            created,
+            new Error("Resources were allocated but durable status could not be read"),
+            controller,
+            allocations,
+          );
+        if (prepared.config.roles.includes("sheet-web"))
+          return yield* restore(
+            startSheetWebRuntime(
+              command,
+              prepared,
+              created,
+              allocationState.success,
+              controller,
+              allocations,
+              options,
+            ),
+          ).pipe(
+            Effect.onInterrupt(() => previewWebStartInterrupted(created, options, controller)),
+          );
+        return yield* restore(
+          startProducerOnlyWorkflowApiPreview(
+            command,
+            prepared,
             options,
-          ),
-        ).pipe(
-          Effect.onInterrupt(() =>
-            Effect.gen(function* () {
-              const stopped = yield* Effect.result(
-                withWorkflowRecreationTimeout(
-                  controller.stop(creation.created.session.id, creation.created.ownerIdentity),
-                  workflowRecreationTimeouts.providerOperation,
-                  () => new PreviewSessionError({ reason: "preview-start-stop-unconfirmed" }),
-                ),
-              );
-              if (Result.isFailure(stopped)) {
-                yield* Console.error(
-                  `Preview start was interrupted and stopping could not be confirmed. Inspect session ${safeIdentifier(creation.created.session.id)} in the durable controller store before retrying cleanup.`,
-                );
-                return;
-              }
-              const cleanupConfirmed =
-                options.previewGateway === undefined || options.previewWebRuntime === undefined
-                  ? false
-                  : yield* cleanupConfirmedSheetWebResources({
-                      sessionId: creation.created.session.id,
-                      ownerIdentity: creation.created.ownerIdentity,
-                      gateway: options.previewGateway,
-                      runtime: options.previewWebRuntime,
-                    });
-              if (!cleanupConfirmed)
-                yield* Console.error(
-                  `Preview start was interrupted and route or process cleanup was not confirmed for session ${safeIdentifier(creation.created.session.id)}. Keep it unavailable and retry cleanup after its authorities are reachable.`,
-                );
-            }),
+            created,
+            allocationState.success,
+            sessionState.success,
+            controller,
+            allocations,
           ),
         );
-      return sessionOutput(command, sessionState.success, allocationState.success);
+      });
+      if (
+        isProducerOnlyWorkflowApiConfig(prepared.config) &&
+        options.previewWorkflowApiSupervisor !== undefined
+      )
+        return yield* restore(
+          options.previewWorkflowApiSupervisor.withSessionLease(
+            {
+              session: created.session,
+              ownerIdentity: created.ownerIdentity,
+              supervisorIdentity: created.supervisorIdentity,
+              controller,
+            },
+            continueStart.pipe(Effect.onInterrupt(cleanupAfterProducerStartInterruption)),
+          ),
+        ).pipe(
+          Effect.onInterrupt(cleanupAfterProducerStartInterruption),
+          Effect.catchTag("PreviewWorkflowApiSupervisorError", (failure) =>
+            failPreviewStartAfterAllocation(
+              command,
+              created,
+              failure,
+              controller,
+              allocations,
+              undefined,
+              {
+                confirmed: false,
+                detail: `The producer lease was lost (${failure.reason}); exact route and process cleanup could not be confirmed. Keep the session unavailable and retry only after their retained identities and cleanup authorities are verified.`,
+              },
+              "session-lease",
+            ),
+          ),
+        );
+      return yield* restore(continueStart);
     }),
   );
 
@@ -4311,7 +4976,7 @@ const stopPreviewSessionForCleanup = (
 ) =>
   Effect.result(
     withWorkflowRecreationTimeout(
-      controller.stop(created.session.id, created.ownerIdentity),
+      controller.stop(created.session.id, created.ownerIdentity, created.session.generation),
       workflowRecreationTimeouts.providerOperation,
       () => new PreviewSessionError({ reason: "preview-start-stop-unconfirmed" }),
     ),
@@ -4414,6 +5079,31 @@ const cleanupConfirmedSheetWebResources = (input: {
     return Result.isSuccess(cleanup) && cleanup.success;
   });
 
+const sessionSnapshotAfterFailedStop = <Error>(
+  created: import("./preview-sessions").SessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  stopped: Result.Result<import("./preview-sessions").PreviewSession, Error>,
+) =>
+  Effect.gen(function* () {
+    if (Result.isSuccess(stopped))
+      return {
+        session: stopped.success,
+        evidence: "Session snapshot came from the owner stop response.",
+      };
+    const status = yield* Effect.result(controller.status(created.session.id));
+    if (Result.isSuccess(status))
+      return {
+        session: status.success,
+        evidence:
+          "Session snapshot came from a fresh durable status read after stop was unconfirmed.",
+      };
+    return {
+      session: created.session,
+      evidence:
+        "Session stop and fresh status read were unavailable; the displayed session snapshot is the original create response and may be stale.",
+    };
+  });
+
 const failPreviewStartAfterAllocation = (
   command: PreviewStartCommand,
   created: import("./preview-sessions").SessionCredentials,
@@ -4424,31 +5114,37 @@ const failPreviewStartAfterAllocation = (
     readonly runtime: NonNullable<LauncherOptions["previewWebRuntime"]>;
     readonly gateway: NonNullable<LauncherOptions["previewGateway"]>;
   },
+  cleanupEvidence?: { readonly confirmed: boolean; readonly detail: string },
+  failureOrigin?: PreviewStartFailureOrigin,
 ) =>
   Effect.gen(function* () {
-    const { stopped, cleanupConfirmed } = yield* stopAndCleanupFailedPreviewStart(
+    const failurePresentation = previewStartFailurePresentation(failure, failureOrigin);
+    const { stopped, cleanupConfirmed: cleanupObserved } = yield* stopAndCleanupFailedPreviewStart(
       created,
       controller,
       webCleanup,
     );
-    const session = Result.isSuccess(stopped) ? stopped.success : created.session;
+    const sessionSnapshot = yield* sessionSnapshotAfterFailedStop(created, controller, stopped);
     const allocationState = yield* Effect.result(allocations.inspect(created.session.id));
+    const allocationAvailable = Result.isSuccess(allocationState);
+    const allocationEvidence = allocationAvailable
+      ? "The durable allocation ledger was read and its current state is included."
+      : "The durable allocation ledger could not be read; allocation ownership and cleanup state remain unknown.";
+    const allocationsSnapshot = allocationAvailable ? allocationState.success : undefined;
+    const cleanupConfirmed = cleanupEvidence?.confirmed ?? cleanupObserved;
+    const cleanupDetail =
+      cleanupEvidence?.detail ??
+      "The session is fenced where the controller confirmed stop, but route or process cleanup could not be confirmed.";
     return {
-      ...sessionOutput(
-        command,
-        session,
-        Result.isSuccess(allocationState) ? allocationState.success : undefined,
-      ),
+      ...sessionOutput(command, sessionSnapshot.session, allocationsSnapshot),
       ok: false,
       readiness: "blocked" as const,
       errors: [
         makeDiagnostic(
           cleanupConfirmed ? "prerequisite-unavailable" : "cleanup-failed",
-          `Connected preview startup did not become ready: ${allocationFailureMessage(failure)}`,
-          cleanupConfirmed
-            ? "No connected application remains available. Inspect the durable allocation ledger and retry cleanup if partial resources were recorded."
-            : "The session is fenced where the controller confirmed stop, but route or process cleanup could not be confirmed. Keep it unavailable and retry exact session cleanup after its authorities are reachable.",
-          { mode: "preview", action: "start" },
+          `${failurePresentation.messagePrefix}: ${allocationFailureMessage(failure)}`,
+          `${cleanupDetail} ${sessionSnapshot.evidence} ${allocationEvidence} Keep the session unavailable and retry exact cleanup only after its authorities confirm ownership; do not release shared execution or allocations without proof.`,
+          { mode: "preview", action: "start", dependency: failurePresentation.dependency },
         ),
       ],
     };
@@ -5253,15 +5949,13 @@ const runSessionStart = (
   controller: import("./preview-sessions").PreviewSessionControllerApi,
   allocations: import("./preview-allocations").PreviewAllocationApi | undefined,
 ): Effect.Effect<LauncherOutput, never, FileSystem.FileSystem | HttpClient.HttpClient> =>
-  Effect.flatMap(preparePreviewStart(command, options, allocations), (prepared) =>
-    "output" in prepared // oxlint-disable-line no-nested-ternary -- inherited master site
-      ? Effect.succeed(prepared.output)
-      : allocations === undefined
-        ? Effect.succeed(
-            sessionOperationFailure(command, "The durable allocation authority is unavailable."),
-          )
-        : finishPreviewStart(command, prepared, controller, allocations, options),
-  );
+  Effect.gen(function* () {
+    const prepared = yield* preparePreviewStart(command, options, allocations);
+    if ("output" in prepared) return prepared.output;
+    if (allocations === undefined)
+      return sessionOperationFailure(command, "The durable allocation authority is unavailable.");
+    return yield* finishPreviewStart(command, prepared, options, controller, allocations);
+  });
 
 const withWebProcessMeasurements = (
   output: LauncherOutput,
@@ -5935,21 +6629,6 @@ const canResumeWebPreview = (id: string, options: LauncherOptions) =>
     );
   });
 
-const persistResumedSupervisor = (
-  tokenPath: string,
-  credentials: LocalSessionCredentials,
-  supervisorIdentity: string,
-) =>
-  Effect.gen(function* () {
-    const persisted = yield* Effect.result(
-      persistSessionCredentials(tokenPath, {
-        ownerIdentity: credentials.ownerIdentity,
-        supervisorIdentity,
-      }),
-    );
-    return Result.isSuccess(persisted);
-  });
-
 export const stopResumedWebSession = (
   id: string,
   supervisorIdentity: string,
@@ -6123,6 +6802,232 @@ const resumeWebApplication = (
     return sessionOutput(command, activated.success);
   });
 
+type ResumedPreviewSession = {
+  readonly session: import("./preview-sessions").PreviewSession;
+  readonly supervisorIdentity: string;
+};
+
+type SessionResumeSetup = ResumedPreviewSession | { readonly output: LauncherOutput };
+
+const requestSessionResume = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  credentials: LocalSessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+): Effect.Effect<SessionResumeSetup> =>
+  Effect.gen(function* () {
+    const result = yield* Effect.result(
+      dispatchPreviewSessionProtocol(controller, {
+        _tag: "Resume",
+        id,
+        ownerIdentity: credentials.ownerIdentity,
+        supervisorIdentity: credentials.supervisorIdentity,
+      }),
+    );
+    if (Result.isFailure(result))
+      return {
+        output: sessionOperationFailure(
+          command,
+          "Resume requires the original owner identity, an unexpired lease, and no active supervisor.",
+        ),
+      };
+    if (result.success._tag !== "Resumed")
+      return {
+        output: sessionOperationFailure(
+          command,
+          "The controller returned an invalid resume response.",
+        ),
+      };
+    return {
+      session: result.success.session,
+      supervisorIdentity: result.success.supervisorIdentity,
+    };
+  });
+
+const workflowApiResumeSessionFence = (
+  stopped: Result.Result<import("./preview-sessions").PreviewSession, unknown>,
+  current: Result.Result<import("./preview-sessions").PreviewSession, unknown>,
+  generation: number,
+): "confirmed" | "unconfirmed" => {
+  if (Result.isSuccess(stopped)) return "confirmed";
+  if (Result.isFailure(current)) return "unconfirmed";
+  return current.success.phase === "ended" ||
+    current.success.phase === "expired" ||
+    current.success.generation > generation
+    ? "confirmed"
+    : "unconfirmed";
+};
+
+const workflowApiResumeCleanupStatus = (cleanupMode: "not-started" | "unconfirmed") =>
+  cleanupMode === "not-started"
+    ? { route: "not-checked" as const, process: "not-checked" as const }
+    : { route: "unconfirmed" as const, process: "unconfirmed" as const };
+
+const workflowApiResumeFailureMessage = (
+  message: string,
+  cleanupMode: "not-started" | "unconfirmed",
+  sessionFence: "confirmed" | "unconfirmed",
+) => {
+  if (cleanupMode === "unconfirmed")
+    return `${message} The exact generation fence is ${sessionFence}; route and process cleanup are unconfirmed. Keep the session unavailable and retry only after the recorded route/process identities and cleanup authorities are verified. Existing shared jobs were left intact.`;
+  if (sessionFence === "confirmed")
+    return `${message} The exact resumed generation was fenced; no route or process was started.`;
+  return `${message} The exact resumed generation could not be confirmed fenced; no route or process was started, and the session remains unavailable pending status recovery.`;
+};
+
+const stopAfterWorkflowApiResumeFailure = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  resumed: ResumedPreviewSession,
+  credentials: LocalSessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  options: LauncherOptions,
+  message: string,
+  cleanupMode: "not-started" | "unconfirmed" = "not-started",
+) =>
+  Effect.gen(function* () {
+    const stopped = yield* Effect.result(
+      controller.stop(id, credentials.ownerIdentity, resumed.session.generation),
+    );
+    const current = Result.isSuccess(stopped)
+      ? Result.succeed(stopped.success)
+      : yield* Effect.result(controller.status(id));
+    const currentSession = Result.isSuccess(current) ? current.success : resumed.session;
+    const allocation = yield* inspectWorkflowApiResumeAllocations(id, options);
+    const sessionFence = workflowApiResumeSessionFence(
+      stopped,
+      current,
+      resumed.session.generation,
+    );
+    const cleanup = workflowApiResumeCleanupStatus(cleanupMode);
+    return blockedWorkflowApiResume(
+      command,
+      currentSession,
+      workflowApiResumeFailureMessage(message, cleanupMode, sessionFence),
+      {
+        allocation: allocation.state,
+        ...cleanup,
+        sessionFence,
+      },
+      allocation.status,
+    );
+  });
+
+const resumeWorkflowApiSession = (
+  command: ConnectedPreviewCommand,
+  resumed: ResumedPreviewSession,
+  credentials: LocalSessionCredentials,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  options: LauncherOptions,
+) =>
+  Effect.gen(function* () {
+    const config = credentials.connectedPreviewConfig;
+    if (
+      config?.sharedExecution !== "producer-only" ||
+      !config.roles.includes("sheet-workflows-api")
+    )
+      return resumed.session.manifests["sheet-workflows-api"] === undefined
+        ? sessionOutput(command, resumed.session)
+        : blockedSessionOperation(
+            command,
+            resumed.session,
+            "This API session belongs to its persisted workflow owner; the producer-only supervisor cannot resume it, and no matching owner adapter is available. The session remains blocked without claiming readiness.",
+          );
+    if (options.previewWorkflowApiSupervisor === undefined)
+      return sessionOperationFailure(
+        command,
+        "The producer-only API supervisor is unavailable; the resumed session remains blocked and no shared execution request was sent.",
+      );
+    const group = yield* Effect.result(sharedWorkflowGroupFor(resumed.session, config));
+    if (Result.isFailure(group))
+      return yield* stopAfterWorkflowApiResumeFailure(
+        command,
+        resumed.session.id,
+        resumed,
+        credentials,
+        controller,
+        options,
+        "The persisted shared workflow group changed during resume; no workflow request was sent.",
+      );
+    return yield* options.previewWorkflowApiSupervisor
+      .run({
+        checkout: resumed.session.checkout,
+        session: resumed.session,
+        ownerIdentity: credentials.ownerIdentity,
+        supervisorIdentity: resumed.supervisorIdentity,
+        config,
+        group: group.success,
+        controller,
+        ...(options.onPreviewSessionReady === undefined
+          ? {}
+          : {
+              onReady: (session, applicationOrigin) =>
+                Effect.sync(() => options.onPreviewSessionReady?.(session, applicationOrigin)),
+            }),
+      })
+      .pipe(
+        Effect.map((active) => sessionOutput(command, active)),
+        Effect.catchTag("PreviewWorkflowApiSupervisorError", (supervisorError) =>
+          Effect.gen(function* () {
+            const status = yield* Effect.result(controller.status(resumed.session.id));
+            const currentSession = Result.isSuccess(status) ? status.success : resumed.session;
+            const allocation = yield* inspectWorkflowApiResumeAllocations(
+              resumed.session.id,
+              options,
+            );
+            return blockedWorkflowApiResume(
+              command,
+              currentSession,
+              `Producer-only API supervision failed during explicit resume (${supervisorError.reason}); shared execution was left intact.`,
+              {
+                allocation: allocation.state,
+                route: supervisorError.cleanup?.route ?? "unconfirmed",
+                process: supervisorError.cleanup?.process ?? "unconfirmed",
+                sessionFence: supervisorError.cleanup?.sessionFence ?? "unconfirmed",
+              },
+              allocation.status,
+            );
+          }),
+        ),
+      );
+  });
+
+const stopAfterFailedSessionResumeCredentialPersistence = (
+  command: ConnectedPreviewCommand,
+  id: string,
+  resumed: ResumedPreviewSession,
+  credentials: LocalSessionCredentials,
+  webSession: boolean,
+  controller: import("./preview-sessions").PreviewSessionControllerApi,
+  options: LauncherOptions,
+) => {
+  if (
+    webSession ||
+    !isProducerOnlyWorkflowApiConfig(credentials.connectedPreviewConfig) ||
+    resumed.session.manifests["sheet-workflows-api"] === undefined
+  )
+    return stopAfterFailedWebResume(
+      command,
+      id,
+      resumed.supervisorIdentity,
+      resumed.session.generation,
+      credentials,
+      controller,
+      webSession ? options.previewGateway : undefined,
+      webSession ? options.previewWebRuntime : undefined,
+      "The resumed supervisor credential could not be stored; the session was stopped to avoid leaving it without usable owner credentials.",
+    );
+  return stopAfterWorkflowApiResumeFailure(
+    command,
+    id,
+    resumed,
+    credentials,
+    controller,
+    options,
+    "The resumed producer credential could not be stored.",
+  );
+};
+
 const completeSessionResume = (
   command: ConnectedPreviewCommand,
   id: string,
@@ -6133,55 +7038,121 @@ const completeSessionResume = (
   options: LauncherOptions,
 ) =>
   Effect.gen(function* () {
-    const result = yield* Effect.result(
-      dispatchPreviewSessionProtocol(controller, {
-        _tag: "Resume",
-        id,
-        ownerIdentity: credentials.ownerIdentity,
-        supervisorIdentity: credentials.supervisorIdentity,
-      }),
-    );
-    if (Result.isFailure(result)) {
-      return sessionOperationFailure(
-        command,
-        "Resume requires the original owner identity, an unexpired lease, and no active supervisor.",
+    const resumed = yield* requestSessionResume(command, id, credentials, controller);
+    if ("output" in resumed) return resumed.output;
+    let interruptionCleanupStarted = false;
+    const cleanupAfterLeaseInterruption = () =>
+      Effect.suspend(() => {
+        if (interruptionCleanupStarted) return Effect.void;
+        interruptionCleanupStarted = true;
+        return stopAfterWorkflowApiResumeFailure(
+          command,
+          id,
+          resumed,
+          credentials,
+          controller,
+          options,
+          "Producer resume was interrupted while its pending lease was active.",
+          "unconfirmed",
+        ).pipe(Effect.asVoid);
+      });
+    const continueResume = Effect.gen(function* () {
+      const persisted = yield* Effect.result(
+        persistSessionCredentials(tokenPath, {
+          ownerIdentity: credentials.ownerIdentity,
+          supervisorIdentity: resumed.supervisorIdentity,
+          ...(credentials.connectedPreviewConfig === undefined
+            ? {}
+            : { connectedPreviewConfig: credentials.connectedPreviewConfig }),
+        }),
       );
-    }
-    if (result.success._tag !== "Resumed") {
-      return sessionOperationFailure(
-        command,
-        "The controller returned an invalid resume response.",
-      );
-    }
-    const credentialPersisted = yield* persistResumedSupervisor(
-      tokenPath,
-      credentials,
-      result.success.supervisorIdentity,
-    );
-    if (!credentialPersisted)
-      return yield* stopAfterFailedWebResume(
-        command,
-        id,
-        result.success.supervisorIdentity,
-        result.success.session.generation,
-        credentials,
-        controller,
-        webSession ? options.previewGateway : undefined,
-        webSession ? options.previewWebRuntime : undefined,
-        "The resumed supervisor credential could not be stored; the session was stopped to avoid leaving it without usable owner credentials.",
-      );
-    if (webSession)
-      return yield* resumeWebApplication(
-        command,
-        id,
-        result.success.session,
-        result.success.supervisorIdentity,
-        credentials,
-        controller,
-        options,
-      );
-    return sessionOutput(command, result.success.session);
+      if (Result.isFailure(persisted))
+        return yield* stopAfterFailedSessionResumeCredentialPersistence(
+          command,
+          id,
+          resumed,
+          credentials,
+          webSession,
+          controller,
+          options,
+        );
+      return webSession
+        ? yield* resumeWebApplication(
+            command,
+            id,
+            resumed.session,
+            resumed.supervisorIdentity,
+            credentials,
+            controller,
+            options,
+          )
+        : yield* resumeWorkflowApiSession(command, resumed, credentials, controller, options);
+    });
+    if (
+      !webSession &&
+      isProducerOnlyWorkflowApiConfig(credentials.connectedPreviewConfig) &&
+      resumed.session.manifests["sheet-workflows-api"] !== undefined &&
+      options.previewWorkflowApiSupervisor !== undefined
+    )
+      return yield* options.previewWorkflowApiSupervisor
+        .withSessionLease(
+          {
+            session: resumed.session,
+            ownerIdentity: credentials.ownerIdentity,
+            supervisorIdentity: resumed.supervisorIdentity,
+            controller,
+          },
+          continueResume.pipe(Effect.onInterrupt(cleanupAfterLeaseInterruption)),
+        )
+        .pipe(
+          Effect.onInterrupt(cleanupAfterLeaseInterruption),
+          Effect.catchTag("PreviewWorkflowApiSupervisorError", (failure) =>
+            stopAfterWorkflowApiResumeFailure(
+              command,
+              id,
+              resumed,
+              credentials,
+              controller,
+              options,
+              `The resumed producer lease was lost (${failure.reason}).`,
+              "unconfirmed",
+            ),
+          ),
+        );
+    return yield* continueResume;
   });
+
+const producerSessionResumeFailure = (
+  command: ConnectedPreviewCommand,
+  session: import("./preview-sessions").PreviewSession,
+  credentials: LocalSessionCredentials,
+  options: LauncherOptions,
+): LauncherOutput | undefined => {
+  const apiSession = session.manifests["sheet-workflows-api"] !== undefined;
+  const producerOnlySession = isProducerOnlyWorkflowApiConfig(credentials.connectedPreviewConfig);
+  if (producerOnlySession && !apiSession)
+    return blockedSessionOperation(
+      command,
+      session,
+      "The persisted producer-only profile does not match this session's admitted API artifact; resume was not attempted.",
+    );
+  if (apiSession && !producerOnlySession)
+    return blockedSessionOperation(
+      command,
+      session,
+      "This owned or legacy API session must resume through its original workflow owner. No producer-only fallback was attempted because no matching owner supervisor is available.",
+    );
+  const runtimeUnavailableReason = safePreviewGatewayRuntimeFailureReason(
+    options.previewGatewayRuntimeUnavailableReason,
+  );
+  if (producerOnlySession && options.previewWorkflowApiSupervisor === undefined)
+    return blockedSessionOperation(
+      command,
+      session,
+      `The producer-only API supervisor is unavailable${runtimeUnavailableReason === undefined ? "" : ` (${runtimeUnavailableReason})`}; the durable session was not resumed and no shared execution request was sent.`,
+    );
+  return undefined;
+};
 
 const runSessionResume = (
   command: ConnectedPreviewCommand,
@@ -6195,6 +7166,36 @@ const runSessionResume = (
     const before = yield* Effect.result(controller.status(id));
     if (Result.isFailure(before))
       return sessionOperationFailure(command, "Resume requires fresh durable session state.");
+    const producerFailure = producerSessionResumeFailure(
+      command,
+      before.success,
+      credentials,
+      options,
+    );
+    if (producerFailure !== undefined) return producerFailure;
+    const resumeConfig = credentials.connectedPreviewConfig;
+    if (
+      resumeConfig !== undefined &&
+      isProducerOnlyWorkflowApiConfig(resumeConfig) &&
+      before.success.manifests["sheet-workflows-api"] !== undefined
+    ) {
+      const group = yield* Effect.result(sharedWorkflowGroupFor(before.success, resumeConfig));
+      if (Result.isFailure(group)) {
+        const allocation = yield* inspectWorkflowApiResumeAllocations(id, options);
+        return blockedWorkflowApiResume(
+          command,
+          before.success,
+          "The persisted shared workflow group is not compatible; resume was rejected before the durable session generation advanced.",
+          {
+            allocation: allocation.state,
+            route: "not-checked",
+            process: "not-checked",
+            sessionFence: "not-required",
+          },
+          allocation.status,
+        );
+      }
+    }
     const webSession = before.success.manifests["sheet-web"] !== undefined;
     if (webSession && !(yield* canResumeWebPreview(id, options)))
       return sessionOperationFailure(

@@ -7,6 +7,7 @@
     { "path": "packages/effect-sql-kit" },
     { "path": "packages/effect-sql-schema" },
     { "path": "packages/effect-zero" },
+    { "path": "packages/preview-workflow-integration-tests" },
     { "path": "packages/sheet-auth" },
     { "path": "packages/sheet-bot" },
     { "path": "packages/sheet-bot-api" },

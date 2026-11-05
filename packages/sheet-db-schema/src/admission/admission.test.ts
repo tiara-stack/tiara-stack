@@ -1,15 +1,53 @@
+import { NodeFileSystem } from "@effect/platform-node";
 import { it } from "@effect/vitest";
 import { Cause, Effect, Exit, Option } from "effect";
+import * as FileSystem from "effect/FileSystem";
 import { SqlClient } from "effect/unstable/sql";
+import { createHash } from "node:crypto";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, expect } from "vitest";
 import {
   admitSheetDbMigrationHistory,
   compareMigrationHistory,
   MigrationAdmissionError,
 } from "./index";
-import { sheetDbMigrationArtifacts } from "../migrations";
+import {
+  sheetDbMigrationArtifactDigestFromSources,
+  sheetDbMigrationArtifactDigest,
+  sheetDbMigrationArtifactSources,
+  sheetDbMigrationArtifacts,
+} from "../migrations";
 
 describe("State Plane migration admission", () => {
+  it.live("pins the exact migration source bytes represented by producer schema identity", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+      expect(sheetDbMigrationArtifactSources).toHaveLength(sheetDbMigrationArtifacts.length);
+
+      for (const [index, [source, expectedDigest]] of sheetDbMigrationArtifactSources.entries()) {
+        const registeredMigrationId = sheetDbMigrationArtifacts[index]?.[0];
+        expect(Number(path.basename(source).slice(0, 4))).toBe(registeredMigrationId);
+        const packageRelative = source.replace("packages/sheet-db-schema/", "");
+        const bytes = yield* fileSystem.readFile(path.join(packageRoot, packageRelative));
+        const actualDigest = `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
+        expect(actualDigest, source).toBe(expectedDigest);
+      }
+
+      expect(sheetDbMigrationArtifactDigest).toBe(
+        sheetDbMigrationArtifactDigestFromSources(sheetDbMigrationArtifactSources),
+      );
+      const changedManifest = sheetDbMigrationArtifactSources.map(([source, digest], index) => {
+        if (index === 0) return [source, `sha256:${"0".repeat(64)}`] as const;
+        return [source, digest] as const;
+      });
+      expect(sheetDbMigrationArtifactDigestFromSources(changedManifest)).not.toBe(
+        sheetDbMigrationArtifactDigest,
+      );
+    }).pipe(Effect.provide(NodeFileSystem.layer)),
+  );
+
   it.effect("accepts only the complete expected migration id and artifact-name history", () =>
     Effect.gen(function* () {
       const history = sheetDbMigrationArtifacts.map(([id, name]) => [id, name] as const);

@@ -12,10 +12,12 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
+      "development": "./src/index.mts",
       "default": "./dist/index.mjs"
     },
     "./snapshot": {
       "types": "./dist/snapshot.d.mts",
+      "development": "./src/snapshot.mts",
       "default": "./dist/snapshot.mjs"
     },
     "./package.json": "./package.json"

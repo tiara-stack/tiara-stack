@@ -10,10 +10,12 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
+      "development": "./src/index.ts",
       "default": "./dist/index.mjs"
     },
     "./compatibility": {
       "types": "./dist/compatibility.d.mts",
+      "development": "./src/compatibility.ts",
       "default": "./dist/compatibility.mjs"
     },
     "./package.json": "./package.json"

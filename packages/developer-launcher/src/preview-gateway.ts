@@ -27,6 +27,10 @@ import {
   makeRetryableConnectionFence,
   type RetryableConnectionFenceAttempt,
 } from "./preview-gateway-close";
+import type { PreviewSharedWorkflowHttpRequestRunner } from "./preview-shared-workflow";
+import { isApprovedDevelopmentGatewayDomain } from "./preview-gateway-domain";
+
+export { isApprovedDevelopmentGatewayDomain } from "./preview-gateway-domain";
 
 const identifier = Schema.NonEmptyString.check(Schema.isMaxLength(256));
 export const previewGatewayMaxApplicationResponseBytes = 16 * 1024 * 1024;
@@ -88,6 +92,7 @@ export type PreviewGatewayDependencyTarget = typeof PreviewGatewayDependencyTarg
 export const PreviewGatewayRouteSchema = Schema.Struct({
   hostname: identifier,
   target: PreviewGatewayTargetSchema,
+  publicPort: Schema.optional(Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 }))),
 });
 export type PreviewGatewayRoute = typeof PreviewGatewayRouteSchema.Type;
 const PreviewGatewayChannelIdSchema = Schema.String.check(Schema.isPattern(/^[a-f0-9-]{36}$/));
@@ -373,6 +378,13 @@ const sameTargetExceptRevision = (a: PreviewGatewayTarget, b: PreviewGatewayTarg
   Object.keys(PreviewGatewayTargetSchema.fields)
     .filter((key) => key !== "revision")
     .every((key) => Reflect.get(a, key) === Reflect.get(b, key));
+const sameWorkflowApiRouteIdentityAcrossGenerationAndRevision = (
+  previous: PreviewGatewayTarget,
+  target: PreviewGatewayTarget,
+) =>
+  Object.keys(PreviewGatewayTargetSchema.fields)
+    .filter((key) => key !== "generation" && key !== "revision")
+    .every((key) => Reflect.get(previous, key) === Reflect.get(target, key));
 const sameChannelIdentity = (
   left: PreviewGatewayChannelIdentity,
   right: PreviewGatewayChannelIdentity,
@@ -473,8 +485,242 @@ const canReplaceRoute = (previous: PreviewGatewayTarget, target: PreviewGatewayT
       previous.generation === target.generation &&
       sameTargetExceptRevision(previous, target)));
 
+type RouteAuthorityCheck = () => Effect.Effect<void, PreviewGatewayError>;
+const assertRouteAuthorityCurrent = (
+  assertCurrent: RouteAuthorityCheck | undefined,
+): Effect.Effect<void, PreviewGatewayError> =>
+  assertCurrent === undefined ? Effect.void : assertCurrent();
+
+const isWorkflowApiApplicationRouteForSameSession = (
+  previous: PreviewGatewayTarget,
+  target: PreviewGatewayTarget,
+) => {
+  return (
+    previous.kind === "application" &&
+    target.kind === "application" &&
+    previous.role === "sheet-workflows-api" &&
+    target.role === "sheet-workflows-api" &&
+    previous.sessionId === target.sessionId
+  );
+};
+
+const isSameGenerationWorkflowApiResume = (
+  previous: PreviewGatewayTarget,
+  target: PreviewGatewayTarget,
+) => previous.generation === target.generation && sameTargetExceptRevision(previous, target);
+
+const isNewerGenerationResume = (previous: PreviewGatewayTarget, target: PreviewGatewayTarget) =>
+  previous.generation < target.generation &&
+  sameWorkflowApiRouteIdentityAcrossGenerationAndRevision(previous, target);
+
+const canReopenRemovedWorkflowApiRevision = (
+  previous: PreviewGatewayTarget,
+  target: PreviewGatewayTarget,
+) =>
+  isWorkflowApiApplicationRouteForSameSession(previous, target) &&
+  (isSameGenerationWorkflowApiResume(previous, target) ||
+    isNewerGenerationResume(previous, target));
+
+const reopenRemovedWorkflowApiRevision = (
+  sql: SqlClient.SqlClient,
+  hostname: string,
+  previous: PreviewGatewayTarget,
+  capturedPreviousJson: string,
+  target: PreviewGatewayTarget,
+  assertCurrent?: RouteAuthorityCheck,
+) =>
+  Effect.gen(function* () {
+    if (!canReopenRemovedWorkflowApiRevision(previous, target))
+      return yield* Effect.fail(failure("route-conflict"));
+    const channels =
+      yield* sql`SELECT channel_id FROM preview_gateway_channels WHERE hostname=${hostname}`;
+    if (channels.length !== 0) return yield* Effect.fail(unavailable());
+    yield* assertRouteAuthorityCurrent(assertCurrent);
+    const serializedTarget = JSON.stringify(target);
+    const reopened = yield* sql`UPDATE preview_gateway_routes
+        SET target=${serializedTarget}, generation=${target.generation}, removed=0
+        WHERE hostname=${hostname} AND session_id=${target.sessionId}
+          AND generation=${previous.generation} AND target=${capturedPreviousJson} AND removed=1
+        RETURNING target, removed`;
+    if (reopened.length !== 1 || reopened[0]?.removed !== 0)
+      return yield* Effect.fail(failure("route-conflict"));
+    if (reopened[0]?.target !== serializedTarget)
+      return yield* Effect.fail(failure("identity-mismatch"));
+  });
+
+const replaceActivePreviewRoute = (
+  sql: SqlClient.SqlClient,
+  hostname: string,
+  previous: PreviewGatewayTarget,
+  target: PreviewGatewayTarget,
+  assertCurrent?: RouteAuthorityCheck,
+) =>
+  Effect.gen(function* () {
+    if (!canReplaceRoute(previous, target)) return yield* Effect.fail(failure("route-conflict"));
+    if (previous.generation < target.generation) {
+      yield* assertRouteAuthorityCurrent(assertCurrent);
+      yield* sql`UPDATE preview_gateway_routes SET target=${JSON.stringify(target)}, generation=${target.generation} WHERE hostname=${hostname}`;
+      yield* assertRouteAuthorityCurrent(assertCurrent);
+      yield* sql`DELETE FROM preview_gateway_grants WHERE hostname=${hostname}`;
+    } else if (previous.revision !== target.revision) {
+      yield* assertRouteAuthorityCurrent(assertCurrent);
+      yield* sql`UPDATE preview_gateway_routes SET target=${JSON.stringify(target)} WHERE hostname=${hostname}`;
+    }
+  });
+
+type WorkflowApiAdmission = {
+  readonly target: PreviewGatewayApplicationTarget;
+  readonly admission: PreviewSharedWorkflowHttpRequestRunner;
+  readonly assertCurrent?: () => Effect.Effect<void, PreviewGatewayError>;
+};
+
+type WorkflowApiApplicationRequestContext = {
+  readonly request: PreviewGatewayApplicationRequest;
+  readonly target: PreviewGatewayTarget;
+  readonly principal: PreviewGatewayPrincipal;
+  readonly applicationRequest: NonNullable<PreviewGatewayRelayConnection["applicationRequest"]>;
+  readonly admission: WorkflowApiAdmission;
+  readonly guard: PreviewGatewayAdmission["guard"];
+};
+
+const guardApplicationResponse = (
+  response: PreviewGatewayApplicationResponse,
+  guard: PreviewGatewayAdmission["guard"],
+  assertAuthorityCurrent?: () => Effect.Effect<void, PreviewGatewayError>,
+) => ({
+  ...response,
+  body: response.body.pipe(
+    Stream.mapEffect((chunk) =>
+      guard(
+        assertAuthorityCurrent === undefined
+          ? Effect.succeed(chunk)
+          : assertAuthorityCurrent().pipe(Effect.as(chunk)),
+      ),
+    ),
+  ),
+});
+
+const forwardWorkflowApiReadiness = (input: WorkflowApiApplicationRequestContext) =>
+  input
+    .guard(
+      input.applicationRequest({
+        ...input.request,
+        principal: input.principal,
+        maxResponseBytes: previewGatewayMaxApplicationResponseBytes,
+      }),
+    )
+    .pipe(
+      Effect.map((response) =>
+        guardApplicationResponse(response, input.guard, input.admission.assertCurrent),
+      ),
+    );
+
+const forwardAdmittedWorkflowApiRequest = (input: WorkflowApiApplicationRequestContext) =>
+  Effect.gen(function* () {
+    const chunks: Uint8Array[] = [];
+    let bodyBytes = 0;
+    if (input.request.body !== undefined)
+      yield* input.request.body.pipe(
+        Stream.runForEach((chunk) =>
+          input.guard(
+            bodyBytes + chunk.byteLength > previewGatewayMaxApplicationRequestBytes
+              ? Effect.fail(failure("payload-too-large"))
+              : Effect.sync(() => {
+                  bodyBytes += chunk.byteLength;
+                  chunks.push(chunk);
+                }),
+          ),
+        ),
+      );
+    const body = new Uint8Array(bodyBytes);
+    let offset = 0;
+    for (const chunk of chunks) {
+      body.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const forwarded = input.guard(
+      input.applicationRequest({
+        ...input.request,
+        principal: input.principal,
+        ...(input.request.body === undefined ? {} : { body: Stream.make(body) }),
+        maxResponseBytes: previewGatewayMaxApplicationResponseBytes,
+      }),
+    );
+    const admitted = yield* input.guard(
+      input.admission
+        .admission({
+          method: input.request.method,
+          path: input.request.path,
+          ...(input.request.body === undefined ? {} : { body }),
+          forward: forwarded,
+        })
+        .pipe(Effect.mapError(unavailable)),
+    );
+    if (
+      admitted.group.sessionId !== input.target.sessionId ||
+      admitted.group.generation !== input.target.generation ||
+      admitted.continuationId.trim().length === 0
+    )
+      return yield* Effect.fail(failure("identity-mismatch"));
+    return guardApplicationResponse(admitted.value, input.guard, input.admission.assertCurrent);
+  });
+
+const forwardWorkflowApiApplicationRequest = (input: WorkflowApiApplicationRequestContext) => {
+  const authorityCheck =
+    input.admission.assertCurrent === undefined
+      ? Effect.void
+      : input.guard(input.admission.assertCurrent());
+  const isReadinessProbe =
+    input.request.method === "GET" &&
+    input.request.path === "/ready" &&
+    input.request.body === undefined;
+  return authorityCheck.pipe(
+    Effect.andThen(
+      isReadinessProbe
+        ? forwardWorkflowApiReadiness(input)
+        : forwardAdmittedWorkflowApiRequest(input),
+    ),
+  );
+};
+
+const forwardOtherApplicationRequest = (input: {
+  readonly request: PreviewGatewayApplicationRequest;
+  readonly principal: PreviewGatewayPrincipal;
+  readonly applicationRequest: NonNullable<PreviewGatewayRelayConnection["applicationRequest"]>;
+  readonly guard: PreviewGatewayAdmission["guard"];
+}) => {
+  const body =
+    input.request.body === undefined
+      ? undefined
+      : input.request.body.pipe(Stream.mapEffect((chunk) => input.guard(Effect.succeed(chunk))));
+  return input
+    .guard(
+      input.applicationRequest({
+        ...input.request,
+        principal: input.principal,
+        ...(body === undefined ? {} : { body }),
+        maxResponseBytes: previewGatewayMaxApplicationResponseBytes,
+      }),
+    )
+    .pipe(Effect.map((response) => guardApplicationResponse(response, input.guard)));
+};
+
+const workflowApiAdmissionKey = (sessionId: string, role: PreviewGatewayTarget["role"]) =>
+  `${sessionId}:${role}`;
+
+const workflowApiRouteHasAdmission = (
+  admissions: ReadonlyMap<string, WorkflowApiAdmission>,
+  target: PreviewGatewayTarget,
+) => {
+  if (target.role !== "sheet-workflows-api" || target.kind !== "application") return true;
+  const registered = admissions.get(workflowApiAdmissionKey(target.sessionId, target.role));
+  return registered !== undefined && sameTarget(registered.target, target);
+};
+
 export interface PreviewGatewayApi {
   readonly configured: boolean;
+  /** TCP port owned by this process's public HTTPS listener, or 443 for a shared ingress. */
+  readonly publicPort?: () => number;
   readonly checkApplicationSetup: () => Effect.Effect<void, PreviewGatewayError>;
   readonly checkApplicationDependencies: (
     targets: readonly PreviewGatewayDependencyIdentity[],
@@ -493,10 +739,27 @@ export interface PreviewGatewayApi {
     role: (typeof previewRelayHostRoles)[number],
     group: PreviewGatewayDependencyGroup,
   ) => string | undefined;
+  /** Checks scoped authority after readiness and immediately before persisting a route. */
   readonly register: (
     target: PreviewGatewayTarget,
     ownerIdentity: string,
+    assertCurrent?: RouteAuthorityCheck,
   ) => Effect.Effect<PreviewGatewayRoute, PreviewGatewayError>;
+  /** Installs the live group-admission callback for an exact producer API route. */
+  readonly registerWorkflowApiRequestAdmission?: (
+    target: PreviewGatewayApplicationTarget,
+    ownerIdentity: string,
+    admission: PreviewSharedWorkflowHttpRequestRunner,
+    assertCurrent?: () => Effect.Effect<void, PreviewGatewayError>,
+  ) => Effect.Effect<void, PreviewGatewayError>;
+  /** Fences and removes only the captured session/role/generation/revision route. */
+  readonly removeApplicationRoute?: (input: {
+    readonly sessionId: string;
+    readonly role: "sheet-workflows-api";
+    readonly generation: number;
+    readonly ownerIdentity: string;
+    readonly expectedRevision: string;
+  }) => Effect.Effect<void, PreviewGatewayError>;
   readonly resumeApplication: (
     sessionId: string,
     role: (typeof previewRelayHostRoles)[number],
@@ -657,16 +920,19 @@ export const makePreviewGateway = (options: {
   readonly controller: PreviewSessionControllerApi;
   readonly adapters?: PreviewGatewayAdapters;
   readonly now: () => number;
+  /** When present, this gateway is scoped to one session on a per-session listener. */
+  readonly publicPort?: () => number;
+  /** Allows stop/cleanup commands without an HTTPS listener to release exact port leases. */
+  readonly listenerLeaseManagement?: boolean;
 }) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
-    const domainValid =
-      /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*dev\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(
-        options.domain,
-      ) &&
-      options.domain.length < 190 &&
-      !/(^|[.-])(prod|production|live)([.-]|$)/.test(options.domain);
+    const domainValid = isApprovedDevelopmentGatewayDomain(options.domain);
     const configured = domainValid && options.adapters !== undefined;
+    const publicListenerSession: { sessionId?: string; generation?: number } = {};
+    const currentPublicPort = () => options.publicPort?.() ?? 443;
+    const publicPortFields = () =>
+      options.publicPort === undefined ? {} : { publicPort: currentPublicPort() };
     const requireSetup = Effect.gen(function* () {
       if (!configured || options.adapters === undefined)
         return yield* Effect.fail(failure("unsupported"));
@@ -697,6 +963,12 @@ export const makePreviewGateway = (options: {
     target TEXT NOT NULL, removed INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY(session_id, role, group_id)
   )`;
+    yield* sql`CREATE TABLE IF NOT EXISTS preview_gateway_listener_leases (
+      session_id TEXT PRIMARY KEY,
+      owner_identity_digest TEXT NOT NULL,
+      generation INTEGER NOT NULL,
+      public_port INTEGER NOT NULL UNIQUE CHECK (public_port BETWEEN 1 AND 65535)
+    )`;
     const channels = new Map<
       string,
       Set<{
@@ -705,6 +977,7 @@ export const makePreviewGateway = (options: {
         readonly fence: Effect.Effect<void, PreviewGatewayError>;
       }>
     >();
+    const workflowApiAdmissions = new Map<string, WorkflowApiAdmission>();
     const loadDependency = (
       sessionId: string,
       role: PreviewGatewayDependencyTarget["role"],
@@ -736,7 +1009,7 @@ export const makePreviewGateway = (options: {
         const route = yield* decode(Schema.fromJsonString(PreviewGatewayTargetSchema), row.target);
         if (row.session_id !== route.sessionId || row.generation !== route.generation)
           return yield* Effect.fail(unavailable());
-        return { hostname, target: route };
+        return { hostname, target: route, ...publicPortFields() };
       });
     const owner = (sessionId: string, ownerIdentity: string) =>
       Effect.gen(function* () {
@@ -744,6 +1017,83 @@ export const makePreviewGateway = (options: {
         if (rows[0]?.identity_digest !== digest(ownerIdentity))
           return yield* Effect.fail(failure("owner-mismatch"));
         return yield* options.controller.status(sessionId);
+      });
+    const persistPublicListenerLease = (
+      target: PreviewGatewayTarget,
+      identityDigest: string,
+      publicPort: number,
+    ) =>
+      Effect.gen(function* () {
+        const rows = yield* sql`SELECT owner_identity_digest, generation, public_port
+          FROM preview_gateway_listener_leases WHERE session_id=${target.sessionId}`;
+        if (rows.length > 1) return yield* Effect.fail(unavailable());
+        const existing = rows[0];
+        if (existing === undefined) {
+          yield* sql`INSERT INTO preview_gateway_listener_leases
+            (session_id, owner_identity_digest, generation, public_port)
+            VALUES (${target.sessionId}, ${identityDigest}, ${target.generation}, ${publicPort})`;
+          return;
+        }
+        if (
+          existing.owner_identity_digest !== identityDigest ||
+          Number(existing.public_port) !== publicPort
+        )
+          return yield* Effect.fail(failure("route-conflict"));
+        if (Number(existing.generation) > target.generation)
+          return yield* Effect.fail(failure("identity-mismatch"));
+        yield* sql`UPDATE preview_gateway_listener_leases SET generation=${target.generation}
+          WHERE session_id=${target.sessionId} AND owner_identity_digest=${identityDigest}
+          AND public_port=${publicPort}`;
+      });
+    const reservePublicListenerLease = (target: PreviewGatewayTarget, ownerIdentity: string) =>
+      Effect.gen(function* () {
+        if (options.publicPort === undefined) return yield* Effect.fail(failure("unsupported"));
+        const publicPort = options.publicPort();
+        if (!Number.isSafeInteger(publicPort) || publicPort < 1 || publicPort > 65535)
+          return yield* Effect.fail(unavailable());
+        const identityDigest = digest(ownerIdentity);
+        yield* persistPublicListenerLease(target, identityDigest, publicPort);
+      });
+    const assertListenerLeaseUnused = (sessionId: string) =>
+      Effect.gen(function* () {
+        const activeRoutes = yield* sql`SELECT hostname FROM preview_gateway_routes
+            WHERE session_id=${sessionId} AND removed=0`;
+        const channels =
+          yield* sql`SELECT channel_id FROM preview_gateway_channels WHERE session_id=${sessionId}`;
+        if (activeRoutes.length > 0 || channels.length > 0)
+          return yield* Effect.fail(unavailable());
+      });
+    const deletePublicListenerLease = (
+      sessionId: string,
+      identityDigest: string,
+      publicPort: number,
+    ) =>
+      Effect.gen(function* () {
+        yield* sql`DELETE FROM preview_gateway_listener_leases
+          WHERE session_id=${sessionId} AND owner_identity_digest=${identityDigest}
+            AND public_port=${publicPort}`;
+        const remaining = yield* sql`SELECT session_id FROM preview_gateway_listener_leases
+            WHERE session_id=${sessionId}`;
+        if (remaining.length > 0) return yield* Effect.fail(unavailable());
+      });
+    const exactListenerLease = (sessionId: string, identityDigest: string) =>
+      Effect.gen(function* () {
+        const rows = yield* sql`SELECT owner_identity_digest, public_port
+          FROM preview_gateway_listener_leases WHERE session_id=${sessionId}`;
+        if (rows.length === 0) return undefined;
+        if (rows.length !== 1 || rows[0]?.owner_identity_digest !== identityDigest)
+          return yield* Effect.fail(failure("owner-mismatch"));
+        const row = rows[0];
+        return row === undefined ? undefined : { publicPort: Number(row.public_port) };
+      });
+    const releasePublicListenerLease = (sessionId: string, ownerIdentity: string) =>
+      Effect.gen(function* () {
+        if (options.listenerLeaseManagement !== true && options.publicPort === undefined) return;
+        const identityDigest = digest(ownerIdentity);
+        const lease = yield* exactListenerLease(sessionId, identityDigest);
+        if (lease === undefined) return;
+        yield* assertListenerLeaseUnused(sessionId);
+        yield* deletePublicListenerLease(sessionId, identityDigest, lease.publicPort);
       });
     const ownedRelay = (target: PreviewGatewayTarget) =>
       Effect.gen(function* () {
@@ -1078,6 +1428,216 @@ export const makePreviewGateway = (options: {
           return yield* Effect.fail(failure("identity-mismatch"));
         return { target, dependencies };
       });
+    type ApplicationRouteRemoval = NonNullable<PreviewGatewayApi["removeApplicationRoute"]>;
+    type ApplicationRouteRemovalInput = Parameters<ApplicationRouteRemoval>[0];
+    const matchesApplicationRouteRemoval = (
+      target: PreviewGatewayTarget,
+      input: ApplicationRouteRemovalInput,
+    ) =>
+      target.sessionId === input.sessionId &&
+      target.role === input.role &&
+      target.kind === "application" &&
+      target.generation === input.generation &&
+      target.revision === input.expectedRevision;
+    const assertRemovalSessionGeneration = (generation: number, current: PreviewSession) =>
+      current.generation === generation ? Effect.void : Effect.fail(failure("identity-mismatch"));
+    const assertRemovalRouteTarget = (
+      target: PreviewGatewayTarget,
+      input: ApplicationRouteRemovalInput,
+    ) =>
+      matchesApplicationRouteRemoval(target, input)
+        ? Effect.void
+        : Effect.fail(failure("identity-mismatch"));
+    const assertUnchangedRemovalRouteTarget = (
+      current: PreviewGatewayTarget,
+      expected: PreviewGatewayTarget,
+      input: ApplicationRouteRemovalInput,
+    ) =>
+      sameTarget(current, expected) && matchesApplicationRouteRemoval(current, input)
+        ? Effect.void
+        : Effect.fail(failure("identity-mismatch"));
+    const assertNoApplicationRouteChannels = (hostname: string) =>
+      sql`SELECT channel_id FROM preview_gateway_channels WHERE hostname=${hostname}`.pipe(
+        Effect.flatMap((remaining) =>
+          remaining.length === 0 ? Effect.void : Effect.fail(unavailable()),
+        ),
+      );
+    const assertApplicationRouteTombstone = (
+      hostname: string,
+      expected: PreviewGatewayTarget,
+      input: ApplicationRouteRemovalInput,
+    ) =>
+      Effect.gen(function* () {
+        const persisted =
+          yield* sql`SELECT target, removed FROM preview_gateway_routes WHERE hostname=${hostname}`;
+        if (persisted.length !== 1 || persisted[0]?.removed !== 1)
+          return yield* Effect.fail(unavailable());
+        const persistedTarget = yield* decode(
+          Schema.fromJsonString(PreviewGatewayTargetSchema),
+          persisted[0]?.target,
+        );
+        yield* assertUnchangedRemovalRouteTarget(persistedTarget, expected, input);
+      });
+    const removeExactApplicationRoute = (
+      input: ApplicationRouteRemovalInput,
+      hostname: string,
+      expected: PreviewGatewayTarget,
+    ) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          const latestSession = yield* owner(input.sessionId, input.ownerIdentity);
+          yield* assertRemovalSessionGeneration(input.generation, latestSession);
+          const latest = yield* load(hostname, true);
+          yield* assertUnchangedRemovalRouteTarget(latest.target, expected, input);
+          yield* assertNoApplicationRouteChannels(hostname);
+          yield* sql`UPDATE preview_gateway_routes SET removed=1
+            WHERE hostname=${hostname} AND session_id=${input.sessionId}
+            AND generation=${input.generation} AND removed=0
+            AND target=${JSON.stringify(expected)}`;
+          yield* sql`DELETE FROM preview_gateway_grants WHERE hostname=${hostname}`;
+          yield* sql`DELETE FROM preview_gateway_dependency_routes
+            WHERE session_id=${input.sessionId} AND role=${input.role}`;
+          yield* assertApplicationRouteTombstone(hostname, expected, input);
+        }),
+      );
+    const clearWorkflowApiAdmissionForRevision = (
+      sessionId: string,
+      role: "sheet-workflows-api",
+      generation: number,
+      revision: string,
+    ) => {
+      const key = workflowApiAdmissionKey(sessionId, role);
+      const admission = workflowApiAdmissions.get(key);
+      if (admission?.target.generation === generation && admission.target.revision === revision)
+        workflowApiAdmissions.delete(key);
+    };
+    const clearWorkflowApiAdmissionForTarget = (target: PreviewGatewayTarget) => {
+      const key = workflowApiAdmissionKey(target.sessionId, "sheet-workflows-api");
+      const admission = workflowApiAdmissions.get(key);
+      if (admission !== undefined && sameTarget(admission.target, target))
+        workflowApiAdmissions.delete(key);
+    };
+    const removeApplicationRoute: ApplicationRouteRemoval = (input) =>
+      protect(
+        Effect.gen(function* () {
+          const currentSession = yield* owner(input.sessionId, input.ownerIdentity);
+          yield* assertRemovalSessionGeneration(input.generation, currentSession);
+          const hostname = `p-${input.sessionId}-${input.role}.${options.domain}`;
+          const rows =
+            yield* sql`SELECT target, removed FROM preview_gateway_routes WHERE hostname=${hostname}`;
+          if (rows.length === 0) {
+            clearWorkflowApiAdmissionForRevision(
+              input.sessionId,
+              input.role,
+              input.generation,
+              input.expectedRevision,
+            );
+            return;
+          }
+          if (rows.length !== 1) return yield* Effect.fail(unavailable());
+          const route = yield* load(hostname, true);
+          yield* assertRemovalRouteTarget(route.target, input);
+          // Stop browser requests and confirm every channel before tombstoning this one route.
+          yield* closeChannels(hostname);
+          yield* removeExactApplicationRoute(input, hostname, route.target);
+          clearWorkflowApiAdmissionForTarget(route.target);
+        }),
+      );
+    const assertPublicListenerSessionScope = (target: PreviewGatewayTarget) => {
+      const registeredSessionId = publicListenerSession.sessionId;
+      return options.publicPort !== undefined &&
+        registeredSessionId !== undefined &&
+        registeredSessionId !== target.sessionId
+        ? Effect.fail(failure("identity-mismatch"))
+        : Effect.void;
+    };
+    const assertPublicListenerRouteIdentity = (route: PreviewGatewayRoute) => {
+      const matchesSession = publicListenerSession.sessionId === route.target.sessionId;
+      const matchesGeneration = publicListenerSession.generation === route.target.generation;
+      return options.publicPort === undefined || (matchesSession && matchesGeneration)
+        ? Effect.void
+        : Effect.fail(unavailable());
+    };
+    const isValidPublicGatewayRouteAddress = (target: PreviewGatewayTarget, hostname: string) =>
+      target.serviceFqdn ===
+        `${relayNameFor(target.sessionId, target.role)}.preview-relays.svc.cluster.local` &&
+      (hostname.split(".")[0]?.length ?? 64) <= 63;
+    const checkTargetReadiness = (target: PreviewGatewayTarget, adapters: PreviewGatewayAdapters) =>
+      Effect.scoped(
+        Effect.flatMap(
+          adapters.connect(target).pipe(Effect.timeout("5 seconds"), Effect.mapError(unavailable)),
+          (connection) =>
+            Effect.gen(function* () {
+              yield* verify(connection, target);
+              if (target.kind !== "application") return;
+              if (
+                connection.applicationRequest === undefined ||
+                connection.applicationSocket === undefined
+              )
+                return yield* Effect.fail(failure("unsupported"));
+              const readiness = yield* connection
+                .applicationRequest({
+                  method: "GET",
+                  path: "/ready",
+                  headers: {},
+                  maxResponseBytes: previewGatewayMaxApplicationResponseBytes,
+                })
+                .pipe(Effect.timeout("10 seconds"), Effect.mapError(unavailable));
+              if (readiness.status < 200 || readiness.status >= 300)
+                return yield* Effect.fail(unavailable());
+            }),
+        ),
+      );
+    const persistRouteRow = (
+      hostname: string,
+      target: PreviewGatewayTarget,
+      assertCurrent: RouteAuthorityCheck | undefined,
+    ) =>
+      Effect.gen(function* () {
+        const rows =
+          yield* sql`SELECT target, removed FROM preview_gateway_routes WHERE hostname=${hostname}`;
+        if (rows.length === 0) {
+          yield* assertRouteAuthorityCurrent(assertCurrent);
+          yield* sql`INSERT INTO preview_gateway_routes (hostname, session_id, generation, target)
+            VALUES (${hostname}, ${target.sessionId}, ${target.generation}, ${JSON.stringify(target)})`;
+          return;
+        }
+        const previous = yield* load(hostname, true);
+        if (rows[0]?.removed === 1) {
+          const capturedPreviousJson = rows[0]?.target;
+          if (
+            !Predicate.isString(capturedPreviousJson) ||
+            JSON.stringify(previous.target) !== capturedPreviousJson
+          )
+            return yield* Effect.fail(failure("route-conflict"));
+          return yield* reopenRemovedWorkflowApiRevision(
+            sql,
+            hostname,
+            previous.target,
+            capturedPreviousJson,
+            target,
+            assertCurrent,
+          );
+        }
+        if (rows[0]?.removed !== 0) return yield* Effect.fail(failure("route-conflict"));
+        yield* replaceActivePreviewRoute(sql, hostname, previous.target, target, assertCurrent);
+      });
+    const persistRegisteredRoute = (
+      hostname: string,
+      target: PreviewGatewayTarget,
+      ownerIdentity: string,
+      assertCurrent: RouteAuthorityCheck | undefined,
+    ) =>
+      sql.withTransaction(
+        Effect.gen(function* () {
+          yield* owner(target.sessionId, ownerIdentity);
+          yield* validSession(target, false);
+          if (options.publicPort !== undefined)
+            yield* reservePublicListenerLease(target, ownerIdentity);
+          yield* persistRouteRow(hostname, target, assertCurrent);
+          return { hostname, target };
+        }),
+      );
     const api: PreviewGatewayApi = {
       configured,
       checkApplicationSetup: () =>
@@ -1135,85 +1695,79 @@ export const makePreviewGateway = (options: {
             yield* checkApplicationDependencyTargets(registered.target, registered.dependencies);
           }),
         ),
-      applicationOrigin: (sessionId, role) =>
-        configured ? `https://p-${sessionId}-${role}.${options.domain}` : undefined,
+      publicPort: currentPublicPort,
+      applicationOrigin: (sessionId, role) => {
+        if (!configured || currentPublicPort() < 1 || currentPublicPort() > 65535) return undefined;
+        if (
+          options.publicPort !== undefined &&
+          publicListenerSession.sessionId !== undefined &&
+          publicListenerSession.sessionId !== sessionId
+        )
+          return undefined;
+        const authority = `p-${sessionId}-${role}.${options.domain}`;
+        const portSuffix = currentPublicPort() === 443 ? "" : `:${currentPublicPort()}`;
+        return `https://${authority}${portSuffix}`;
+      },
       applicationDependencyOrigin: (sessionId, role, group) => {
         const origin = api.applicationOrigin(sessionId, role);
         return origin === undefined ? undefined : `${origin}/_preview/dependencies/${group}/`;
       },
-      register: (rawTarget, ownerIdentity) =>
+      register: (rawTarget, ownerIdentity, assertCurrent) =>
         protect(
           Effect.gen(function* () {
             if (!configured || options.adapters === undefined)
               return yield* Effect.fail(failure("unsupported"));
             const setup = yield* requireSetup;
             const target = yield* decode(PreviewGatewayTargetSchema, rawTarget);
+            yield* assertPublicListenerSessionScope(target);
             if (
               !hasApplicationIdentityMediation(target, setup.applicationIdentityMediation === true)
             )
               return yield* Effect.fail(failure("unsupported"));
             const hostname = `p-${target.sessionId}-${target.role}.${options.domain}`;
-            if (
-              target.serviceFqdn !==
-                `${relayNameFor(target.sessionId, target.role)}.preview-relays.svc.cluster.local` ||
-              (hostname.split(".")[0]?.length ?? 64) > 63
-            )
+            if (!isValidPublicGatewayRouteAddress(target, hostname))
               return yield* Effect.fail(failure("identity-mismatch"));
             yield* owner(target.sessionId, ownerIdentity);
             yield* validSession(target, false);
+            yield* assertRouteAuthorityCurrent(assertCurrent);
             // Readiness proof uses a freshly authenticated connection to the recorded target.
-            yield* Effect.scoped(
-              Effect.flatMap(
-                options.adapters
-                  .connect(target)
-                  .pipe(Effect.timeout("5 seconds"), Effect.mapError(unavailable)),
-                (connection) =>
-                  Effect.gen(function* () {
-                    yield* verify(connection, target);
-                    if (target.kind === "application") {
-                      if (
-                        connection.applicationRequest === undefined ||
-                        connection.applicationSocket === undefined
-                      )
-                        return yield* Effect.fail(failure("unsupported"));
-                      const readiness = yield* connection
-                        .applicationRequest({
-                          method: "GET",
-                          path: "/ready",
-                          headers: {},
-                          maxResponseBytes: previewGatewayMaxApplicationResponseBytes,
-                        })
-                        .pipe(Effect.timeout("10 seconds"), Effect.mapError(unavailable));
-                      if (readiness.status < 200 || readiness.status >= 300)
-                        return yield* Effect.fail(unavailable());
-                    }
-                  }),
-              ),
+            yield* checkTargetReadiness(target, options.adapters);
+            // Relay connection and readiness are asynchronous. Recheck signed authority after
+            // preflight, and again at the durable route write below.
+            yield* assertRouteAuthorityCurrent(assertCurrent);
+            const route = yield* persistRegisteredRoute(
+              hostname,
+              target,
+              ownerIdentity,
+              assertCurrent,
             );
-            return yield* sql.withTransaction(
-              Effect.gen(function* () {
-                yield* owner(target.sessionId, ownerIdentity);
-                yield* validSession(target, false);
-                const rows =
-                  yield* sql`SELECT target, removed FROM preview_gateway_routes WHERE hostname=${hostname}`;
-                if (rows.length > 0) {
-                  const previous = yield* load(hostname, true);
-                  if (rows[0]?.removed !== 0 || !canReplaceRoute(previous.target, target))
-                    return yield* Effect.fail(failure("route-conflict"));
-                  if (previous.target.generation < target.generation) {
-                    yield* sql`UPDATE preview_gateway_routes SET target=${JSON.stringify(target)}, generation=${target.generation} WHERE hostname=${hostname}`;
-                    yield* sql`DELETE FROM preview_gateway_grants WHERE hostname=${hostname}`;
-                  } else if (previous.target.revision !== target.revision) {
-                    yield* sql`UPDATE preview_gateway_routes SET target=${JSON.stringify(target)} WHERE hostname=${hostname}`;
-                  }
-                } else {
-                  yield* sql`INSERT INTO preview_gateway_routes (hostname, session_id, generation, target) VALUES (${hostname}, ${target.sessionId}, ${target.generation}, ${JSON.stringify(target)})`;
-                }
-                return { hostname, target };
-              }),
-            );
+            if (options.publicPort !== undefined) {
+              publicListenerSession.sessionId = target.sessionId;
+              publicListenerSession.generation = target.generation;
+            }
+            return { ...route, ...publicPortFields() };
           }),
         ),
+      registerWorkflowApiRequestAdmission: (rawTarget, ownerIdentity, admission, assertCurrent) =>
+        protect(
+          Effect.gen(function* () {
+            const target = yield* decode(PreviewGatewayApplicationTargetSchema, rawTarget);
+            if (target.role !== "sheet-workflows-api")
+              return yield* Effect.fail(failure("unsupported"));
+            const session = yield* owner(target.sessionId, ownerIdentity);
+            if (session.generation !== target.generation)
+              return yield* Effect.fail(failure("identity-mismatch"));
+            const route = yield* load(`p-${target.sessionId}-${target.role}.${options.domain}`);
+            if (!sameTarget(route.target, target))
+              return yield* Effect.fail(failure("identity-mismatch"));
+            workflowApiAdmissions.set(workflowApiAdmissionKey(target.sessionId, target.role), {
+              target,
+              admission,
+              ...(assertCurrent === undefined ? {} : { assertCurrent }),
+            });
+          }),
+        ),
+      removeApplicationRoute,
       resumeApplication: (sessionId, role, ownerIdentity) =>
         protect(
           Effect.gen(function* () {
@@ -1302,20 +1856,23 @@ export const makePreviewGateway = (options: {
       cleanupSession: (sessionId, ownerIdentity) =>
         protect(
           Effect.gen(function* () {
-            if (options.adapters === undefined)
-              return yield* cleanupOfflineRouteMetadata(sessionId, ownerIdentity);
-            const session = yield* owner(sessionId, ownerIdentity);
-            if (session.endedAt === null) return yield* Effect.fail(failure("live-session"));
-            yield* ensurePreviewGatewayChannelRegistry(sql);
-            const rows =
-              yield* sql`SELECT hostname FROM preview_gateway_routes WHERE session_id=${sessionId}`;
-            for (const row of rows) {
-              const hostname = yield* decode(identifier, row.hostname);
-              yield* api.cleanup(hostname, ownerIdentity);
+            if (options.adapters === undefined) {
+              yield* cleanupOfflineRouteMetadata(sessionId, ownerIdentity);
+            } else {
+              const session = yield* owner(sessionId, ownerIdentity);
+              if (session.endedAt === null) return yield* Effect.fail(failure("live-session"));
+              yield* ensurePreviewGatewayChannelRegistry(sql);
+              const rows =
+                yield* sql`SELECT hostname FROM preview_gateway_routes WHERE session_id=${sessionId}`;
+              for (const row of rows) {
+                const hostname = yield* decode(identifier, row.hostname);
+                yield* api.cleanup(hostname, ownerIdentity);
+              }
+              const remaining =
+                yield* sql`SELECT channel_id FROM preview_gateway_channels WHERE session_id=${sessionId}`;
+              if (remaining.length > 0) return yield* Effect.fail(unavailable());
             }
-            const remaining =
-              yield* sql`SELECT channel_id FROM preview_gateway_channels WHERE session_id=${sessionId}`;
-            if (remaining.length > 0) return yield* Effect.fail(unavailable());
+            yield* releasePublicListenerLease(sessionId, ownerIdentity);
           }),
         ),
       cleanup: (hostname, ownerIdentity) =>
@@ -1350,6 +1907,9 @@ export const makePreviewGateway = (options: {
               return yield* Effect.fail(failure("unsupported"));
             const setup = yield* requireSetup;
             const route = yield* load(request.hostname);
+            yield* assertPublicListenerRouteIdentity(route);
+            if (!workflowApiRouteHasAdmission(workflowApiAdmissions, route.target))
+              return yield* Effect.fail(unavailable());
             const principal = yield* decode(
               PreviewGatewayPrincipalSchema,
               yield* adapters
@@ -1737,25 +2297,26 @@ export const makePreviewGateway = (options: {
                 const applicationRequest = connection.applicationRequest;
                 if (applicationRequest === undefined || route.target.kind !== "application")
                   return Effect.fail(failure("unsupported"));
-                return Effect.gen(function* () {
-                  const body =
-                    input.body === undefined
-                      ? undefined
-                      : input.body.pipe(Stream.mapEffect((chunk) => guard(Effect.succeed(chunk))));
-                  const response = yield* guard(
-                    applicationRequest({
-                      ...input,
-                      principal,
-                      ...(body === undefined ? {} : { body }),
-                      maxResponseBytes: previewGatewayMaxApplicationResponseBytes,
-                    }),
+                if (route.target.role === "sheet-workflows-api") {
+                  const registered = workflowApiAdmissions.get(
+                    workflowApiAdmissionKey(route.target.sessionId, route.target.role),
                   );
-                  return {
-                    ...response,
-                    body: response.body.pipe(
-                      Stream.mapEffect((chunk) => guard(Effect.succeed(chunk))),
-                    ),
-                  };
+                  if (registered === undefined || !sameTarget(registered.target, route.target))
+                    return Effect.fail(unavailable());
+                  return forwardWorkflowApiApplicationRequest({
+                    request: input,
+                    target: route.target,
+                    principal,
+                    applicationRequest,
+                    admission: registered,
+                    guard,
+                  });
+                }
+                return forwardOtherApplicationRequest({
+                  request: input,
+                  principal,
+                  applicationRequest,
+                  guard,
                 });
               },
               applicationDependencyRequest: (group, input) => {
@@ -1837,6 +2398,7 @@ export const makePreviewGateway = (options: {
               applicationSocket: (input) => {
                 const applicationSocket = connection.applicationSocket;
                 if (
+                  route.target.role === "sheet-workflows-api" ||
                   applicationSocket === undefined ||
                   route.target.kind !== "application" ||
                   principal.effectivePrincipal === undefined

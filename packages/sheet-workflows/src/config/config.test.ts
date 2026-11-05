@@ -1,12 +1,19 @@
 import { describe, expect, it } from "@effect/vitest";
-import { ConfigProvider, Effect, Exit, Option } from "effect";
+import { Cause, Config, ConfigProvider, Effect, Exit, Option } from "effect";
 import { config } from "./config";
 import { sheetWorkflowsRuntimePolicy } from "./runtimePolicy";
+import { sheetWorkflowContractCatalogDigest } from "../workflows/catalogIdentity";
+import { getSheetDbMigrationArtifactDigest } from "sheet-zero-server/state-plane-admission";
+
+const sheetDbMigrationArtifactDigest = getSheetDbMigrationArtifactDigest();
 
 const readWorkflowRole = (env: Record<string, unknown>) =>
   config.sheetWorkflowsRole.pipe(
     Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
   );
+
+const readHost = (env: Record<string, unknown>) =>
+  config.host.pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))));
 
 const readRunnerHealthLabelSelector = (env: Record<string, unknown>) =>
   config.workflowsRunnerHealthLabelSelector.pipe(
@@ -33,7 +40,25 @@ const readTrustedSheetPersistenceStatementTimeoutMillis = (env: Record<string, u
     Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
   );
 
+const sourceConfigErrorMessage = (exit: Exit.Exit<unknown, unknown>) =>
+  Exit.isFailure(exit)
+    ? Cause.findErrorOption(exit.cause).pipe(
+        Option.flatMap((error) => {
+          if (!(error instanceof Config.ConfigError)) return Option.none();
+          if (!(error.cause instanceof ConfigProvider.SourceError)) return Option.none();
+          return Option.some(error.cause.message);
+        }),
+      )
+    : Option.none();
+
 describe("sheet-workflows config", () => {
+  it.effect("leaves HOST unset unless the operator configures it", () =>
+    Effect.gen(function* () {
+      expect(yield* readHost({})).toEqual(Option.none());
+      expect(yield* readHost({ HOST: "0.0.0.0" })).toEqual(Option.some("0.0.0.0"));
+    }),
+  );
+
   it.effect("defaults SHEET_WORKFLOWS_ROLE to combined", () =>
     Effect.gen(function* () {
       expect(yield* readWorkflowRole({})).toBe("combined");
@@ -59,6 +84,9 @@ describe("sheet-workflows config", () => {
           ConfigProvider.layer(
             ConfigProvider.fromUnknown({
               SHEET_WORKFLOWS_ROLE: "producer",
+              WORKFLOWS_STATE_PLANE_POLICY: "shared-admission",
+              WORKFLOWS_PREVIEW_CATALOG_DIGEST: sheetWorkflowContractCatalogDigest,
+              WORKFLOWS_PREVIEW_SCHEMA_ARTIFACT_DIGEST: sheetDbMigrationArtifactDigest,
               WORKFLOWS_AUTONOMOUS_TRIGGER_NAMES: "not-a-trigger",
               WORKFLOWS_SMOKE_WORKFLOW_ENABLED: "not-a-boolean",
             }),
@@ -76,6 +104,146 @@ describe("sheet-workflows config", () => {
         smokeEnqueue: false,
         triggerTargetOwner: { _tag: "None" },
       });
+    }),
+  );
+
+  it.effect("rejects producer startup unless shared State Plane admission is selected", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        sheetWorkflowsRuntimePolicy.pipe(
+          Effect.provide(
+            ConfigProvider.layer(ConfigProvider.fromUnknown({ SHEET_WORKFLOWS_ROLE: "producer" })),
+          ),
+        ),
+      );
+
+      expect(exit._tag).toBe("Failure");
+    }),
+  );
+
+  it.effect("rejects a session-bound producer without complete profile identities", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        sheetWorkflowsRuntimePolicy.pipe(
+          Effect.provide(
+            ConfigProvider.layer(
+              ConfigProvider.fromUnknown({
+                SHEET_WORKFLOWS_ROLE: "producer",
+                WORKFLOWS_STATE_PLANE_POLICY: "shared-admission",
+                WORKFLOWS_PREVIEW_SESSION_ID: "123e4567-e89b-42d3-a456-426614174000",
+                WORKFLOWS_PREVIEW_API_ENDPOINT: "https://session-api.dev.tiara-stack.moe",
+                WORKFLOWS_SOURCE_REVISION: `sha256:${"d".repeat(64)}`,
+                WORKFLOWS_PREVIEW_GROUP_TARGET: "workflow-execution:state:manifest:api:catalog",
+                WORKFLOWS_PREVIEW_MANIFEST_DIGEST: `sha256:${"b".repeat(64)}`,
+                WORKFLOWS_PREVIEW_CATALOG_DIGEST: sheetWorkflowContractCatalogDigest,
+                WORKFLOWS_PREVIEW_SCHEMA_ARTIFACT_DIGEST: sheetDbMigrationArtifactDigest,
+              }),
+            ),
+          ),
+        ),
+      );
+
+      expect(exit._tag).toBe("Failure");
+      const failureMessage = sourceConfigErrorMessage(exit);
+      expect(Option.isSome(failureMessage)).toBe(true);
+      if (Option.isSome(failureMessage))
+        expect(failureMessage.value).toContain("A session-bound producer requires");
+    }),
+  );
+
+  it.effect(
+    "admits readiness identity only with the producer profile's exact revision and group",
+    () =>
+      Effect.gen(function* () {
+        const policy = yield* sheetWorkflowsRuntimePolicy.pipe(
+          Effect.provide(
+            ConfigProvider.layer(
+              ConfigProvider.fromUnknown({
+                SHEET_WORKFLOWS_ROLE: "producer",
+                WORKFLOWS_STATE_PLANE_POLICY: "shared-admission",
+                WORKFLOWS_PREVIEW_SESSION_ID: "123e4567-e89b-42d3-a456-426614174000",
+                WORKFLOWS_PREVIEW_API_ENDPOINT: "https://session-api.dev.tiara-stack.moe",
+                WORKFLOWS_SOURCE_REVISION: `sha256:${"d".repeat(64)}`,
+                WORKFLOWS_PREVIEW_GROUP_TARGET: "workflow-execution:state:manifest:api:catalog",
+                WORKFLOWS_PREVIEW_API_ARTIFACT_DIGEST: `sha256:${"a".repeat(64)}`,
+                WORKFLOWS_PREVIEW_MANIFEST_DIGEST: `sha256:${"b".repeat(64)}`,
+                WORKFLOWS_PREVIEW_CATALOG_DIGEST: sheetWorkflowContractCatalogDigest,
+                WORKFLOWS_PREVIEW_SCHEMA_ARTIFACT_DIGEST: sheetDbMigrationArtifactDigest,
+              }),
+            ),
+          ),
+        );
+
+        expect(policy).toMatchObject({
+          role: "producer",
+          producer: true,
+          workflowRunner: false,
+          reconciliationConsumer: false,
+          autonomousTriggerNames: [],
+          smokeEnqueue: false,
+          workflowContractCatalogDigest: sheetWorkflowContractCatalogDigest,
+          schemaArtifactDigest: sheetDbMigrationArtifactDigest,
+        });
+      }),
+  );
+
+  it.effect("rejects a stale contract or Action Version catalog digest", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(
+        sheetWorkflowsRuntimePolicy.pipe(
+          Effect.provide(
+            ConfigProvider.layer(
+              ConfigProvider.fromUnknown({
+                SHEET_WORKFLOWS_ROLE: "producer",
+                WORKFLOWS_STATE_PLANE_POLICY: "shared-admission",
+                WORKFLOWS_PREVIEW_CATALOG_DIGEST: `sha256:${"e".repeat(64)}`,
+              }),
+            ),
+          ),
+        ),
+      );
+
+      expect(exit._tag).toBe("Failure");
+      const failureMessage = sourceConfigErrorMessage(exit);
+      expect(Option.isSome(failureMessage)).toBe(true);
+      if (Option.isSome(failureMessage))
+        expect(failureMessage.value).toContain(
+          "Producer Workflow Contract catalog digest does not match",
+        );
+    }),
+  );
+
+  it.effect("rejects a missing or stale producer migration artifact identity", () =>
+    Effect.gen(function* () {
+      const base = {
+        SHEET_WORKFLOWS_ROLE: "producer",
+        WORKFLOWS_STATE_PLANE_POLICY: "shared-admission",
+        WORKFLOWS_PREVIEW_CATALOG_DIGEST: sheetWorkflowContractCatalogDigest,
+      };
+      for (const env of [
+        base,
+        {
+          ...base,
+          WORKFLOWS_PREVIEW_SCHEMA_ARTIFACT_DIGEST: `sha256:${"0".repeat(64)}`,
+        },
+        {
+          ...base,
+          WORKFLOWS_PREVIEW_SCHEMA_ARTIFACT_DIGEST: `sha256:${"e".repeat(64)}`,
+        },
+      ]) {
+        const exit = yield* Effect.exit(
+          sheetWorkflowsRuntimePolicy.pipe(
+            Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
+          ),
+        );
+        expect(exit._tag).toBe("Failure");
+        const failureMessage = sourceConfigErrorMessage(exit);
+        expect(Option.isSome(failureMessage)).toBe(true);
+        if (Option.isSome(failureMessage))
+          expect(failureMessage.value).toContain(
+            "Producer schema artifact identity does not match",
+          );
+      }
     }),
   );
 

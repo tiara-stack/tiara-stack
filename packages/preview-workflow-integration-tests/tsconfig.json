@@ -1,0 +1,34 @@
+{
+  "extends": "../../tsconfig.browser.json",
+  "include": ["**/*.ts", "**/*.tsx", "**/*.mts"],
+  "exclude": ["node_modules", "dist", ".output", ".ts-out"],
+  "compilerOptions": {
+    "outDir": "./.ts-out",
+    "rootDir": ".",
+    "tsBuildInfoFile": "./.ts-out/.tsbuildinfo",
+    "verbatimModuleSyntax": true,
+    "paths": {
+      "*": ["./*"],
+      "@/*": ["../sheet-workflows/src/*"],
+      "effect-zero-workflow/contract": ["../effect-zero-workflow/src/contract.ts"],
+      "effect-zero-workflow/contract/http/server": [
+        "../effect-zero-workflow/src/contract-http-server.ts"
+      ],
+      "effect-zero-workflow/contract/transport": [
+        "../effect-zero-workflow/src/contract-transport.ts"
+      ],
+      "sheet-db-schema/*": ["../sheet-db-schema/src/*"],
+      "sheet-workflow-contracts": ["../sheet-workflow-contracts/src/index.ts"],
+      "sheet-zero-server": ["../sheet-zero-server/src/index.ts"]
+    }
+  },
+  "references": [
+    { "path": "../developer-launcher" },
+    { "path": "../effect-zero-workflow" },
+    { "path": "../sheet-db-schema" },
+    { "path": "../sheet-workflow-contracts" },
+    { "path": "../sheet-workflows" },
+    { "path": "../sheet-zero-server" },
+    { "path": "../tooling-config" }
+  ]
+}

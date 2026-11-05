@@ -7,17 +7,18 @@ import { config } from "./config/config";
 import {
   browserClusterHttpLayer,
   clusterHttpLayer,
-  clusterStorageLayer,
   clusterWorkflowEngineClientLayer,
   shardingConfigLayer,
 } from "./cluster";
 import { sheetWorkflowsRuntimePolicy } from "./config/runtimePolicy";
-import { httpLayer, runnerHealthLayer } from "./http";
+import { httpLayer, producerHttpLayer, runnerHealthLayer } from "./http";
 import { MetricsLive } from "./metrics";
 import { postgresSqlLayer } from "./services";
 import { autoCheckinTaskLayer } from "./tasks";
 import { smokeWorkflowTaskLayer } from "./tasks/smokeWorkflow";
 import { TracesLive } from "./traces";
+
+export { sheetWorkflowContractCatalogDigest } from "./catalogIdentity";
 
 const configProviderLayer = dotEnvConfigProviderLayer().pipe(Layer.provide(NodeFileSystem.layer));
 
@@ -29,10 +30,10 @@ const clientWorkflowLayers = Layer.mergeAll(
 
 // Producer-only API runtimes serve enqueue and observation routes while leaving
 // scheduled producers and smoke work to an explicitly owned runtime.
-const producerWorkflowLayers = httpLayer.pipe(
-  Layer.provide(clusterWorkflowEngineClientLayer),
-  Layer.provide(shardingConfigLayer),
-);
+// The producer API writes only explicit workflow invocations through its HTTP
+// routes. It does not acquire the cluster mailbox/runner storage or sharding
+// client used by runtime roles that execute workflows.
+const producerWorkflowLayers = producerHttpLayer;
 
 const clusterServerLayer = clusterHttpLayer.pipe(Layer.provide(shardingConfigLayer));
 const browserClusterServerLayer = browserClusterHttpLayer.pipe(Layer.provide(shardingConfigLayer));
@@ -73,10 +74,8 @@ const mainLayer = appLayer.pipe(
   Layer.provide(TracesLive),
   Layer.provide(Logger.layer([Logger.consoleLogFmt])),
   Layer.provide(NodeHttpClient.layerFetch),
-  Layer.provide(clusterStorageLayer),
   Layer.provide(workflowStoreLayer({ tablePrefix: "sheet_db" })),
   Layer.provide(statePlaneAdmissionLayer),
-  Layer.provide(shardingConfigLayer),
   Layer.provide(configProviderLayer),
   Layer.provide(NodeFileSystem.layer),
 );

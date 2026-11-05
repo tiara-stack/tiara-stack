@@ -9,6 +9,9 @@
   },
   "references": [
     {
+      "path": "../sheet-db-schema"
+    },
+    {
       "path": "../tooling-config"
     },
     {

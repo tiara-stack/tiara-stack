@@ -19,6 +19,7 @@ import {
   Path,
   Schema,
   Scope,
+  Stream,
 } from "effect";
 import * as Cause from "effect/Cause";
 import * as Exit from "effect/Exit";
@@ -31,7 +32,14 @@ import {
   workflowPreviewProviderLayerForArguments,
   type PreviewSupervisorEffect,
 } from "./cli";
-import { parseCommand, parsePositionals, runLauncher, type ProcessExecutor } from "./index";
+import {
+  parseCommand,
+  parsePositionals,
+  renderLauncherOutput,
+  renderLifecycleTerminal,
+  runLauncher,
+  type ProcessExecutor,
+} from "./index";
 import { makePreviewGateway, PreviewGatewayError } from "./preview-gateway";
 import {
   makeConnectedWorkflowPreviewRuntime,
@@ -86,6 +94,13 @@ import {
 } from "./preview-allocations";
 import type { ConnectedPreviewAction, LauncherOptions, LauncherOutput } from "./types";
 
+import {
+  PreviewWorkflowApiSupervisorError,
+  makePreviewWorkflowApiSupervisor,
+  type PreviewWorkflowApiSupervisorApi,
+} from "./preview-workflow-api-supervisor";
+import { previewWorkflowApiDatabaseEndpointIdentity } from "./preview-workflow-api-supervisor";
+import { sheetWorkflowContractCatalogDigest } from "sheet-workflows/catalog-identity";
 import {
   previewRelayDoctorCheckIds,
   PreviewRelayProviderUnavailable,
@@ -658,6 +673,11 @@ const allPreviewRoles = Object.keys(previewRoleContracts);
 const previewSourceRevision = "a".repeat(40);
 const previewArtifactDigest = `sha256:${"b".repeat(64)}`;
 const previewManifestDigest = `sha256:${"c".repeat(64)}`;
+const previewWorkflowContractCatalogDigest = sheetWorkflowContractCatalogDigest;
+const previewWorkflowDatabaseEndpointIdentity =
+  previewWorkflowApiDatabaseEndpointIdentity("postgres://workflows.dev.tiara-stack.moe/tiara") ??
+  `sha256:${"0".repeat(64)}`;
+const previewSchemaArtifactDigest = `sha256:${"e".repeat(64)}`;
 const previewEnvironmentKeys = ["NODE_ENV", "LOG_LEVEL"] as const;
 
 const liveTest = <E, R extends NodeServices.NodeServices | Scope.Scope | HttpClient.HttpClient>(
@@ -769,6 +789,13 @@ const connectedPreviewGroupsFor = (roles: readonly string[], overrides: PreviewF
             endpoint: `https://${id}.dev.theerapakg.moe`,
             stateIdentity: `${id}-dev-state-v1`,
             deployedManifestDigest: previewManifestDigest,
+            schemaArtifactDigest: previewSchemaArtifactDigest,
+            ...(id === "workflow-execution"
+              ? {
+                  workflowContractCatalogDigest: previewWorkflowContractCatalogDigest,
+                  databaseEndpointIdentity: previewWorkflowDatabaseEndpointIdentity,
+                }
+              : {}),
           };
     return { ...group, ...overrides.groupOverrides?.[id] };
   });
@@ -833,6 +860,8 @@ const createConnectedPreviewConfig = (overrides: PreviewFixtureOptions = {}) => 
       sourceRevision: previewSourceRevision,
       artifactDigests: Object.fromEntries(roles.map((role) => [role, previewArtifactDigest])),
       deployedManifestDigest: previewManifestDigest,
+      workflowContractCatalogDigest: previewWorkflowContractCatalogDigest,
+      schemaArtifactDigest: previewSchemaArtifactDigest,
       catalogVersion: 1,
     },
     environmentFileInputs: roles.map((role) => ({
@@ -1644,12 +1673,12 @@ liveTest("describes web-only producer-only validation remediation", () =>
 
     expect(diagnostic?.message).toContain("either a sole sheet-web selection");
     expect(diagnostic?.remediation).toContain(
-      "either select only sheet-web or select sheet-workflows-api with compatible workflow contracts",
+      "select only sheet-web or only sheet-workflows-api with compatible workflow contracts",
     );
   }),
 );
 
-liveTest("requires workflow compatibility for a mixed web and API selection", () =>
+liveTest("rejects mixed web and API supervisors and checks producer compatibility", () =>
   Effect.gen(function* () {
     const result = yield* runConnectedPreviewConfig(
       "plan",
@@ -1669,6 +1698,15 @@ liveTest("requires workflow compatibility for a mixed web and API selection", ()
     );
 
     expect(result.exitCode).toBe(2);
+    expect(result.output.errors).toContainEqual(
+      expect.objectContaining({
+        code: "invalid-preview-intent",
+        dependency: "workflow-execution",
+        message: expect.stringContaining(
+          "a sole compatible producer-only sheet-workflows-api selection",
+        ),
+      }),
+    );
     expect(result.output.errors).toContainEqual(
       expect.objectContaining({
         code: "unknown-compatibility",
@@ -1708,6 +1746,186 @@ liveTest("keeps planning JSON Lines on lifecycle version 1", () =>
       }),
     );
   }),
+);
+
+liveTestWithTestClock(
+  "renews the public producer session while allocation and readiness are pending",
+  () =>
+    withConnectedPreviewConfig(
+      createConnectedPreviewConfig({
+        roles: ["sheet-workflows-api"],
+        groupOwnership: {
+          "application-zero": "owned",
+          auth: "reused",
+          "workflow-execution": "reused",
+        },
+        configOverrides: { sharedExecution: "producer-only" },
+      }),
+      (configPath, cwd) =>
+        Effect.gen(function* () {
+          const clock = yield* Clock.Clock;
+          const now = () => clock.currentTimeMillisUnsafe();
+          const sessions = yield* makePreviewSessionController(now);
+          const local = makeLocalFilesystemPreviewResourceAdapter(path.join(cwd, "resources"));
+          const dimensions = previewCapacityDimensionsByGroup["application-zero"];
+          const baseAllocations = yield* makePreviewAllocationController(
+            {
+              ...local,
+              planProfile: (input) =>
+                Effect.succeed({
+                  demands: input.ownedGroups.flatMap((group) =>
+                    group === "application-zero"
+                      ? dimensions.map((dimension) => ({
+                          dimension,
+                          amount: 1,
+                          provider: "local-test",
+                          identity: "disposable",
+                        }))
+                      : [],
+                  ),
+                  resources: input.ownedGroups,
+                }),
+              validateProfileAllocation: () => Effect.void,
+            },
+            now,
+          );
+          yield* Effect.forEach(dimensions, (dimension) =>
+            baseAllocations.observeCapacity({
+              provider: "local-test",
+              identity: "disposable",
+              dimension,
+              observedAt: now(),
+              total: 4,
+              inUse: 0,
+              grantsVerified: true,
+            }),
+          );
+          const allocationStarted = yield* Deferred.make<void>();
+          const finishAllocation = yield* Deferred.make<void>();
+          let allocatedSessionId: string | undefined;
+          const allocations: PreviewAllocationApi = {
+            ...baseAllocations,
+            reserveAndAllocate: (input) =>
+              Effect.gen(function* () {
+                allocatedSessionId = input.sessionId;
+                yield* Deferred.succeed(allocationStarted, undefined);
+                yield* Deferred.await(finishAllocation);
+                return yield* baseAllocations.reserveAndAllocate(input);
+              }),
+          };
+          const leaseSupervisor = makePreviewWorkflowApiSupervisor({
+            assertAuthorityCurrent: () => Effect.void,
+            currentSourceRevision: () => Effect.succeed(previewSourceRevision),
+            startProcess: () =>
+              Effect.fail(new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" })),
+            probe: () =>
+              Effect.fail(new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" })),
+            probePublishedRoute: () =>
+              Effect.fail(new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" })),
+            sourceRevisions: () => Stream.never,
+            publishRoute: () =>
+              Effect.fail(new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" })),
+            removeRoute: () => Effect.void,
+            awaitExit: () => Effect.never,
+            stopProcess: () => Effect.void,
+          });
+          const readinessStarted = yield* Deferred.make<void>();
+          const finishReadiness = yield* Deferred.make<void>();
+          let endpointAuthorized = false;
+          const supervisor: PreviewWorkflowApiSupervisorApi = {
+            withSessionLease: leaseSupervisor.withSessionLease,
+            run: ({ session, supervisorIdentity, controller }) =>
+              Effect.gen(function* () {
+                const starting = yield* controller
+                  .requestRevision(
+                    session.id,
+                    session.generation,
+                    supervisorIdentity,
+                    session.requestedRevision,
+                  )
+                  .pipe(
+                    Effect.mapError(
+                      () => new PreviewWorkflowApiSupervisorError({ reason: "session-fenced" }),
+                    ),
+                  );
+                yield* Deferred.succeed(readinessStarted, undefined);
+                yield* Deferred.await(finishReadiness);
+                yield* controller
+                  .authorizeWorkEndpoint(
+                    session.id,
+                    session.generation,
+                    supervisorIdentity,
+                    "https://session-api.dev.tiara-stack.moe",
+                  )
+                  .pipe(
+                    Effect.mapError(
+                      () => new PreviewWorkflowApiSupervisorError({ reason: "route-failed" }),
+                    ),
+                  );
+                endpointAuthorized = true;
+                return yield* controller
+                  .activate(
+                    session.id,
+                    session.generation,
+                    supervisorIdentity,
+                    starting.requestedRevision,
+                  )
+                  .pipe(
+                    Effect.mapError(
+                      () => new PreviewWorkflowApiSupervisorError({ reason: "session-fenced" }),
+                    ),
+                  );
+              }),
+          };
+          const outputFiber = yield* Effect.forkChild(
+            connectedPreviewOutput(
+              parsePreviewAction(["preview", "start", "--config", configPath, "--json"], "start"),
+              {
+                cwd,
+                env: { TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite") },
+                previewSessionController: sessions,
+                previewAllocationController: allocations,
+                previewRelayProvider: makeRelayProviderWithAttachmentStatus("ready"),
+                previewWorkflowApiSupervisor: supervisor,
+              },
+            ),
+          );
+
+          yield* Deferred.await(allocationStarted);
+          if (allocatedSessionId === undefined)
+            return yield* Effect.die(
+              "The public start did not allocate against its created session.",
+            );
+          yield* TestClock.adjust(Duration.seconds(135));
+          yield* Effect.yieldNow;
+          const whileAllocating = yield* sessions.status(allocatedSessionId);
+          expect(whileAllocating.phase).toBe("pending");
+          expect(whileAllocating.activeRevision).toBeNull();
+          expect(whileAllocating.lastRenewedAt).toBeGreaterThan(0);
+          expect(whileAllocating.leaseDeadline).toBeGreaterThan(now());
+          expect(endpointAuthorized).toBe(false);
+
+          yield* Deferred.succeed(finishAllocation, undefined);
+          yield* Deferred.await(readinessStarted);
+          yield* TestClock.adjust(Duration.seconds(25));
+          yield* Effect.yieldNow;
+          const whileReady = yield* sessions.status(allocatedSessionId);
+          expect(whileReady.phase).toBe("starting");
+          expect(whileReady.activeRevision).toBeNull();
+          expect(whileReady.leaseDeadline).toBeGreaterThan(now());
+          expect(endpointAuthorized).toBe(false);
+
+          yield* Deferred.succeed(finishReadiness, undefined);
+          const output = yield* Fiber.join(outputFiber);
+          expect(output.ok, JSON.stringify(output.errors)).toBe(true);
+          expect(output.readiness).toBe("ready");
+          expect(output.previewSession?.phase).toBe("active");
+          expect(endpointAuthorized).toBe(true);
+          expect((yield* sessions.status(allocatedSessionId)).activeRevision).toBe(
+            previewSourceRevision,
+          );
+        }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
+    ),
 );
 
 liveTest(
@@ -2064,6 +2282,138 @@ liveTest("validates production, private, and conflicting reused-service endpoint
       expect.arrayContaining([expect.objectContaining({ code: "unsafe-preview-endpoint" })]),
     );
     expect(production.stdout).not.toContain("auth.production.theerapakg.moe");
+  }),
+);
+
+liveTest("reports the schema identity used by producer-only plan admission", () =>
+  Effect.gen(function* () {
+    const result = yield* runConnectedPreviewConfig(
+      "plan",
+      createConnectedPreviewConfig({
+        roles: ["sheet-workflows-api"],
+        groupOwnership: {
+          "application-zero": "owned",
+          auth: "reused",
+          "workflow-execution": "reused",
+        },
+        configOverrides: { sharedExecution: "producer-only" },
+      }),
+    );
+
+    expect(result.exitCode, result.stdout).toBe(0);
+    const report = JSON.parse(result.stdout).connectedPreview;
+    expect(report.identities.schemaArtifactDigest).toBe(previewSchemaArtifactDigest);
+    expect(report.identities.workflowContractCatalogDigest).toBe(
+      previewWorkflowContractCatalogDigest,
+    );
+    expect(previewWorkflowContractCatalogDigest).not.toBe(
+      workflowPreviewRuntimeContractCatalogIdentity.digest,
+    );
+    expect(report.groupPlans).toContainEqual(
+      expect.objectContaining({
+        id: "workflow-execution",
+        databaseEndpointIdentity: previewWorkflowDatabaseEndpointIdentity,
+        schemaArtifactDigest: previewSchemaArtifactDigest,
+        workflowContractCatalogDigest: previewWorkflowContractCatalogDigest,
+      }),
+    );
+  }),
+);
+
+liveTest(
+  "reports invalid producer schema identities consistently without exposing their value",
+  () =>
+    Effect.gen(function* () {
+      const config = createConnectedPreviewConfig({
+        roles: ["sheet-workflows-api"],
+        groupOwnership: {
+          "application-zero": "owned",
+          auth: "reused",
+          "workflow-execution": "reused",
+        },
+        configOverrides: { sharedExecution: "producer-only" },
+      });
+      const invalidSchemaIdentity = "not-a-schema-digest-secret";
+      const result = yield* runConnectedPreviewConfig("plan", {
+        ...config,
+        identities: { ...config.identities, schemaArtifactDigest: invalidSchemaIdentity },
+        groups: config.groups.map((group) =>
+          group.id === "workflow-execution"
+            ? { ...group, schemaArtifactDigest: invalidSchemaIdentity }
+            : group,
+        ),
+      });
+      const report = JSON.parse(result.stdout).connectedPreview;
+
+      expect(report.identities.schemaArtifactDigest).toBe("<invalid>");
+      expect(report.groupPlans).toContainEqual(
+        expect.objectContaining({
+          id: "workflow-execution",
+          schemaArtifactDigest: "<invalid>",
+        }),
+      );
+      expect(result.stdout).not.toContain(invalidSchemaIdentity);
+    }),
+);
+
+liveTest("requires a trusted PostgreSQL endpoint identity before producer planning", () =>
+  Effect.gen(function* () {
+    const config = createConnectedPreviewConfig({
+      roles: ["sheet-workflows-api"],
+      groupOwnership: {
+        "application-zero": "owned",
+        auth: "reused",
+        "workflow-execution": "reused",
+      },
+      configOverrides: { sharedExecution: "producer-only" },
+    });
+    const groups = config.groups.map((group) => {
+      if (group.id !== "workflow-execution") return group;
+      return { ...group, databaseEndpointIdentity: undefined };
+    });
+    const result = yield* runConnectedPreviewConfig("plan", { ...config, groups });
+    const output = JSON.parse(result.stdout);
+
+    expect(result.exitCode).toBe(2);
+    expect(
+      output.errors.some(({ code }: { readonly code: string }) => code === "unknown-compatibility"),
+    ).toBe(true);
+  }),
+);
+
+liveTest("blocks a workflow catalog that differs from the selected shared group", () =>
+  Effect.gen(function* () {
+    const config = createConnectedPreviewConfig({
+      roles: ["sheet-workflows-api"],
+      groupOwnership: {
+        "application-zero": "owned",
+        auth: "reused",
+        "workflow-execution": "reused",
+      },
+      configOverrides: { sharedExecution: "producer-only" },
+    });
+    const groupCatalogDigest = `sha256:${"e".repeat(64)}`;
+    const result = yield* runConnectedPreviewConfig("plan", {
+      ...config,
+      groups: config.groups.map((group) =>
+        group.id === "workflow-execution"
+          ? { ...group, workflowContractCatalogDigest: groupCatalogDigest }
+          : group,
+      ),
+    });
+    const output = JSON.parse(result.stdout);
+    const report = output.connectedPreview;
+
+    expect(result.exitCode).toBe(2);
+    expect(
+      output.errors.some(({ code }: { readonly code: string }) => code === "stale-compatibility"),
+    ).toBe(true);
+    expect(report.groupPlans).toContainEqual(
+      expect.objectContaining({
+        id: "workflow-execution",
+        workflowContractCatalogDigest: groupCatalogDigest,
+      }),
+    );
   }),
 );
 
@@ -2542,6 +2892,201 @@ const createInterruptedPreviewFixture = (configPath: string, cwd: string) =>
     };
     return { allocationStarted, sessions, allocations, options };
   });
+
+liveTest(
+  "starts and activates the selected producer API only after its supervisor registers the session route",
+  () =>
+    withConnectedPreviewConfig(
+      createConnectedPreviewConfig({
+        roles: ["sheet-workflows-api"],
+        groupOwnership: {
+          "application-zero": "owned",
+          auth: "reused",
+          "workflow-execution": "reused",
+        },
+        configOverrides: { sharedExecution: "producer-only" },
+      }),
+      (configPath, cwd) =>
+        Effect.gen(function* () {
+          const now = Date.now();
+          const sessions = yield* makePreviewSessionController(() => now);
+          const local = makeLocalFilesystemPreviewResourceAdapter(path.join(cwd, "resources"));
+          const dimensions = previewCapacityDimensionsByGroup["application-zero"];
+          const allocations = yield* makePreviewAllocationController({
+            ...local,
+            planProfile: (input) =>
+              Effect.succeed({
+                demands: input.ownedGroups.flatMap((group) =>
+                  group === "application-zero"
+                    ? dimensions.map((dimension) => ({
+                        dimension,
+                        amount: 1,
+                        provider: "local-test",
+                        identity: "disposable",
+                      }))
+                    : [],
+                ),
+                resources: input.ownedGroups,
+              }),
+            validateProfileAllocation: () => Effect.void,
+          });
+          yield* Effect.forEach(dimensions, (dimension) =>
+            allocations.observeCapacity({
+              provider: "local-test",
+              identity: "disposable",
+              dimension,
+              observedAt: now,
+              total: 4,
+              inUse: 0,
+              grantsVerified: true,
+            }),
+          );
+          const supervised: PreviewWorkflowApiSupervisorApi = {
+            withSessionLease: (_input, use) => use,
+            run: ({ session, ownerIdentity, supervisorIdentity, controller, group }) =>
+              Effect.gen(function* () {
+                expect(group.endpoint).toBe("https://workflow-execution.dev.theerapakg.moe");
+                expect(group.stateIdentity).toBe("workflow-execution-dev-state-v1");
+                yield* controller
+                  .authorizeWorkEndpoint(
+                    session.id,
+                    session.generation,
+                    supervisorIdentity,
+                    "https://session-api.dev.tiara-stack.moe",
+                  )
+                  .pipe(
+                    Effect.mapError(
+                      () => new PreviewWorkflowApiSupervisorError({ reason: "route-failed" }),
+                    ),
+                  );
+                const active = yield* controller
+                  .activate(
+                    session.id,
+                    session.generation,
+                    supervisorIdentity,
+                    session.requestedRevision,
+                  )
+                  .pipe(
+                    Effect.mapError(
+                      () => new PreviewWorkflowApiSupervisorError({ reason: "session-fenced" }),
+                    ),
+                  );
+                expect(active.phase).toBe("active");
+                expect(ownerIdentity.length).toBeGreaterThan(0);
+                return active;
+              }),
+          };
+          const output = yield* connectedPreviewOutput(
+            parsePreviewAction(["preview", "start", "--config", configPath, "--json"], "start"),
+            {
+              cwd,
+              env: { TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite") },
+              previewSessionController: sessions,
+              previewAllocationController: allocations,
+              previewRelayProvider: makeRelayProviderWithAttachmentStatus("ready"),
+              previewWorkflowApiSupervisor: supervised,
+            },
+          );
+
+          expect(output.ok, JSON.stringify(output.errors)).toBe(true);
+          expect(output.readiness).toBe("ready");
+          expect(output.previewSession?.phase).toBe("active");
+          if (output.previewSession === undefined)
+            return yield* Effect.die("Expected active session");
+          expect((yield* sessions.status(output.previewSession.id)).activeRevision).toBe(
+            previewSourceRevision,
+          );
+        }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
+    ),
+);
+
+liveTest(
+  "rejects an API profile before session creation when its producer supervisor is absent",
+  () =>
+    withConnectedPreviewConfig(
+      createConnectedPreviewConfig({
+        roles: ["sheet-workflows-api"],
+        groupOwnership: { "workflow-execution": "reused" },
+        configOverrides: { sharedExecution: "producer-only" },
+      }),
+      (configPath, cwd) =>
+        Effect.gen(function* () {
+          const sessions = yield* makePreviewSessionController(Date.now);
+          let creates = 0;
+          const trackedSessions: PreviewSessionControllerApi = {
+            ...sessions,
+            create: (input) => {
+              creates += 1;
+              return sessions.create(input);
+            },
+          };
+          const result = yield* runLauncherEffect(
+            ["preview", "start", "--config", configPath, "--json"],
+            {
+              cwd,
+              env: { TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite") },
+              previewSessionController: trackedSessions,
+            },
+          );
+
+          expect(result.exitCode).toBe(2);
+          expect(result.output.ok).toBe(false);
+          expect(result.output.errors[0]?.code).toBe("dependency-unavailable");
+          expect(result.output.errors[0]?.message).toContain("cannot be started");
+          expect(creates).toBe(0);
+          const sql = yield* SqlClient.SqlClient;
+          expect(yield* sql`SELECT id FROM preview_sessions`).toHaveLength(0);
+        }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
+    ),
+);
+
+liveTest(
+  "renders only the fixed adapter rejection reason for an unavailable producer profile",
+  () =>
+    withConnectedPreviewConfig(
+      createConnectedPreviewConfig({
+        roles: ["sheet-workflows-api"],
+        groupOwnership: { "workflow-execution": "reused" },
+        configOverrides: { sharedExecution: "producer-only" },
+      }),
+      (configPath, cwd) =>
+        Effect.gen(function* () {
+          const reason = "gateway-adapter-module-not-configured";
+          const sessions = yield* makePreviewSessionController(Date.now);
+          for (const flag of [undefined, "--json", "--json-stream"] as const) {
+            const result = yield* runLauncherEffect(
+              ["preview", "start", "--config", configPath, ...(flag === undefined ? [] : [flag])],
+              {
+                cwd,
+                env: { TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite") },
+                previewSessionController: sessions,
+                previewGatewayRuntimeUnavailableReason: reason,
+              },
+            );
+            expect(result.exitCode).toBe(2);
+            expect(result.stdout).toContain(reason);
+            expect(result.output.previewSession).toBeUndefined();
+          }
+
+          const arbitrary = "credential=untrusted-loader-cause stack=private-path";
+          const options: LauncherOptions = {
+            cwd,
+            env: { TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite") },
+            previewSessionController: sessions,
+            previewGatewayRuntimeUnavailableReason: reason,
+          };
+          Reflect.set(options, "previewGatewayRuntimeUnavailableReason", arbitrary);
+          const redacted = yield* runLauncherEffect(
+            ["preview", "start", "--config", configPath, "--json"],
+            options,
+          );
+          expect(redacted.exitCode).toBe(2);
+          expect(redacted.stdout).not.toContain(arbitrary);
+          expect(redacted.stdout).not.toContain("untrusted-loader-cause");
+          expect(redacted.stdout).not.toContain("private-path");
+        }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
+    ),
+);
 
 const parsePreviewAction = (args: readonly string[], action: ConnectedPreviewAction) => {
   const command = parseCommand(args);
@@ -6117,6 +6662,614 @@ liveTest("plans a web-only compatible shared workflow profile without adding API
   ),
 );
 
+liveTestWithTestClock(
+  "fences a public producer start when its pending lease renewal fails during allocation",
+  () =>
+    withConnectedPreviewConfig(
+      createConnectedPreviewConfig({
+        roles: ["sheet-workflows-api"],
+        groupOwnership: {
+          "application-zero": "owned",
+          auth: "reused",
+          "workflow-execution": "reused",
+        },
+        configOverrides: { sharedExecution: "producer-only" },
+      }),
+      (configPath, cwd) =>
+        Effect.gen(function* () {
+          const clock = yield* Clock.Clock;
+          const now = () => clock.currentTimeMillisUnsafe();
+          const baseSessions = yield* makePreviewSessionController(now);
+          const renewalFailure = new PreviewSessionError({ reason: "lease-expired-or-fenced" });
+          Object.defineProperty(renewalFailure, "message", {
+            value: "credential=producer-lease-message-sentinel",
+          });
+          Object.defineProperty(renewalFailure, "cause", {
+            value: "token=producer-lease-cause-sentinel",
+          });
+          Object.defineProperty(renewalFailure, "stack", {
+            value: "stack=producer-lease-stack-sentinel",
+          });
+          let heartbeatCalls = 0;
+          const sessions: PreviewSessionControllerApi = {
+            ...baseSessions,
+            heartbeat: (id, supervisorIdentity, generation) => {
+              heartbeatCalls += 1;
+              return heartbeatCalls === 1
+                ? baseSessions.heartbeat(id, supervisorIdentity, generation)
+                : Effect.fail(renewalFailure);
+            },
+          };
+          const local = makeLocalFilesystemPreviewResourceAdapter(path.join(cwd, "resources"));
+          const dimensions = previewCapacityDimensionsByGroup["application-zero"];
+          const baseAllocations = yield* makePreviewAllocationController(
+            {
+              ...local,
+              planProfile: (input) =>
+                Effect.succeed({
+                  demands: input.ownedGroups.flatMap((group) =>
+                    group === "application-zero"
+                      ? dimensions.map((dimension) => ({
+                          dimension,
+                          amount: 1,
+                          provider: "local-test",
+                          identity: "disposable",
+                        }))
+                      : [],
+                  ),
+                  resources: input.ownedGroups,
+                }),
+              validateProfileAllocation: () => Effect.void,
+            },
+            now,
+          );
+          yield* Effect.forEach(dimensions, (dimension) =>
+            baseAllocations.observeCapacity({
+              provider: "local-test",
+              identity: "disposable",
+              dimension,
+              observedAt: now(),
+              total: 4,
+              inUse: 0,
+              grantsVerified: true,
+            }),
+          );
+          const allocationStarted = yield* Deferred.make<void>();
+          let allocatedSessionId: string | undefined;
+          const allocations: PreviewAllocationApi = {
+            ...baseAllocations,
+            reserveAndAllocate: (input) =>
+              Effect.gen(function* () {
+                allocatedSessionId = input.sessionId;
+                yield* Deferred.succeed(allocationStarted, undefined);
+                return yield* Effect.never;
+              }),
+          };
+          const leaseSupervisor = makePreviewWorkflowApiSupervisor({
+            assertAuthorityCurrent: () => Effect.void,
+            currentSourceRevision: () => Effect.succeed(previewSourceRevision),
+            startProcess: () =>
+              Effect.fail(new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" })),
+            probe: () =>
+              Effect.fail(new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" })),
+            probePublishedRoute: () =>
+              Effect.fail(new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" })),
+            sourceRevisions: () => Stream.never,
+            publishRoute: () =>
+              Effect.fail(new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" })),
+            removeRoute: () => Effect.void,
+            awaitExit: () => Effect.never,
+            stopProcess: () => Effect.void,
+          });
+          let runCalls = 0;
+          const supervisor: PreviewWorkflowApiSupervisorApi = {
+            withSessionLease: leaseSupervisor.withSessionLease,
+            run: () => {
+              runCalls += 1;
+              return Effect.fail(
+                new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" }),
+              );
+            },
+          };
+          const outputFiber = yield* Effect.forkChild(
+            connectedPreviewOutput(
+              parsePreviewAction(["preview", "start", "--config", configPath, "--json"], "start"),
+              {
+                cwd,
+                env: { TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite") },
+                previewSessionController: sessions,
+                previewAllocationController: allocations,
+                previewRelayProvider: makeRelayProviderWithAttachmentStatus("ready"),
+                previewWorkflowApiSupervisor: supervisor,
+              },
+            ),
+          );
+
+          yield* Deferred.await(allocationStarted);
+          if (allocatedSessionId === undefined)
+            return yield* Effect.die("The public allocation did not retain its session identity.");
+          yield* TestClock.adjust(Duration.seconds(15));
+          yield* Effect.yieldNow;
+          const output = yield* Fiber.join(outputFiber);
+          const current = yield* sessions.status(allocatedSessionId);
+          expect(heartbeatCalls).toBe(2);
+          expect(runCalls).toBe(0);
+          expect(output.ok).toBe(false);
+          expect(output.readiness).toBe("blocked");
+          expect(current.endedAt).not.toBeNull();
+          expect(current.generation).toBe(output.previewSession?.generation);
+          const diagnostic = output.errors[0];
+          expect(diagnostic?.message).toContain("session-fenced");
+          expect(diagnostic?.message).not.toContain("before profile admission");
+          expect(diagnostic?.dependency).toBe("workflow-api-session-lease");
+          expect(diagnostic?.remediation).toContain(
+            "exact route and process cleanup could not be confirmed",
+          );
+
+          const human = renderLauncherOutput(output, false);
+          const jsonText = renderLauncherOutput(output, true);
+          const json = Schema.decodeUnknownSync(
+            Schema.Struct({
+              ok: Schema.Boolean,
+              readiness: Schema.String,
+              errors: Schema.Array(
+                Schema.Struct({
+                  code: Schema.String,
+                  message: Schema.String,
+                  remediation: Schema.String,
+                  mode: Schema.NullOr(Schema.String),
+                  action: Schema.NullOr(Schema.String),
+                  dependency: Schema.NullOr(Schema.String),
+                }),
+              ),
+            }),
+          )(JSON.parse(jsonText));
+          const jsonStreamText = renderLifecycleTerminal(output);
+          const jsonStream = Schema.decodeUnknownSync(
+            Schema.Struct({
+              exitCode: Schema.Number,
+              outcome: Schema.String,
+              readiness: Schema.String,
+              diagnostics: Schema.Array(
+                Schema.Struct({
+                  code: Schema.String,
+                  message: Schema.String,
+                  remediation: Schema.String,
+                  mode: Schema.NullOr(Schema.String),
+                  action: Schema.NullOr(Schema.String),
+                  dependency: Schema.NullOr(Schema.String),
+                }),
+              ),
+            }),
+          )(JSON.parse(jsonStreamText));
+
+          expect(human).toContain("session-fenced");
+          expect(human).toContain("workflow API session lease");
+          expect(json.errors[0]).toMatchObject({
+            message: expect.stringContaining("session-fenced"),
+            dependency: "workflow-api-session-lease",
+          });
+          expect(jsonStream).toMatchObject({
+            exitCode: 2,
+            outcome: "blocked",
+            readiness: "blocked",
+            diagnostics: [
+              expect.objectContaining({
+                message: expect.stringContaining("session-fenced"),
+                dependency: "workflow-api-session-lease",
+              }),
+            ],
+          });
+
+          for (const rendered of [human, jsonText, jsonStreamText]) {
+            expect(rendered).not.toContain("credential=producer-lease-message-sentinel");
+            expect(rendered).not.toContain("token=producer-lease-cause-sentinel");
+            expect(rendered).not.toContain("stack=producer-lease-stack-sentinel");
+          }
+        }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
+    ),
+);
+
+type ProducerStartFailureScenario = "supervisor-run" | "adapter-missing";
+
+const publicStartFailureOutputSchema = Schema.Struct({
+  ok: Schema.Boolean,
+  readiness: Schema.String,
+  errors: Schema.Array(
+    Schema.Struct({
+      code: Schema.String,
+      message: Schema.String,
+      remediation: Schema.String,
+      mode: Schema.NullOr(Schema.String),
+      action: Schema.NullOr(Schema.String),
+      dependency: Schema.NullOr(Schema.String),
+    }),
+  ),
+});
+
+const publicStartFailureLifecycleSchema = Schema.Struct({
+  exitCode: Schema.Number,
+  outcome: Schema.String,
+  readiness: Schema.String,
+  diagnostics: Schema.Array(
+    Schema.Struct({
+      code: Schema.String,
+      message: Schema.String,
+      remediation: Schema.String,
+      mode: Schema.NullOr(Schema.String),
+      action: Schema.NullOr(Schema.String),
+      dependency: Schema.NullOr(Schema.String),
+    }),
+  ),
+});
+
+const publicStartFailureExpectations = {
+  "supervisor-run": {
+    code: "prerequisite-unavailable",
+    dependency: "workflow-execution",
+    message: "session-fenced",
+    humanFragments: ["session-fenced", "workflow execution"],
+    remediation:
+      "Producer supervision failed after the supervisor confirmed its owned route/process cleanup and session fence.",
+    sessionStopped: true,
+    runCalls: 1,
+    forbiddenFragments: [
+      "credential=producer-origin-message-sentinel",
+      "token=producer-origin-cause-sentinel",
+      "stack=producer-origin-stack-sentinel",
+    ],
+  },
+  "adapter-missing": {
+    code: "dependency-unavailable",
+    dependency: null,
+    message: "no session or resources were created",
+    humanFragments: ["no session or resources were created"],
+    remediation: "complete trusted workflow-execution endpoint",
+    sessionStopped: false,
+    runCalls: 0,
+    forbiddenFragments: [
+      "adapter-unavailable",
+      "credential=producer-origin-message-sentinel",
+      "token=producer-origin-cause-sentinel",
+      "stack=producer-origin-stack-sentinel",
+    ],
+  },
+} satisfies Record<
+  ProducerStartFailureScenario,
+  {
+    readonly code: string;
+    readonly dependency: string | null;
+    readonly message: string;
+    readonly humanFragments: readonly string[];
+    readonly remediation: string;
+    readonly sessionStopped: boolean;
+    readonly runCalls: number;
+    readonly forbiddenFragments: readonly string[];
+  }
+>;
+
+const renderPublicStartFailureOutput = (output: LauncherOutput) => {
+  const human = renderLauncherOutput(output, false);
+  const jsonText = renderLauncherOutput(output, true);
+  const json = Schema.decodeUnknownSync(publicStartFailureOutputSchema)(JSON.parse(jsonText));
+  const jsonStreamText = renderLifecycleTerminal(output);
+  const jsonStream = Schema.decodeUnknownSync(publicStartFailureLifecycleSchema)(
+    JSON.parse(jsonStreamText),
+  );
+
+  return { human, jsonText, json, jsonStreamText, jsonStream };
+};
+
+const assertPublicStartFailureFacts = (
+  result: {
+    readonly current: PreviewSession | undefined;
+    readonly output: LauncherOutput;
+    readonly runCalls: number;
+  },
+  expected: (typeof publicStartFailureExpectations)[ProducerStartFailureScenario],
+) => {
+  const diagnostic = result.output.errors[0];
+
+  expect(result.output.ok).toBe(false);
+  expect(result.output.readiness).toBe("blocked");
+  expect(diagnostic?.code).toBe(expected.code);
+  expect(diagnostic?.mode).toBe("preview");
+  expect(diagnostic?.action).toBe("start");
+  expect(diagnostic?.dependency).toBe(expected.dependency);
+  expect(diagnostic?.message).toContain(expected.message);
+  expect(diagnostic?.remediation).toContain(expected.remediation);
+  expect(result.current !== undefined && result.current.endedAt !== null).toBe(
+    expected.sessionStopped,
+  );
+  expect(Boolean(result.output.previewSession)).toBe(expected.sessionStopped);
+  expect(result.runCalls).toBe(expected.runCalls);
+};
+
+const assertPublicStartFailureRenderings = (
+  rendered: ReturnType<typeof renderPublicStartFailureOutput>,
+  expected: (typeof publicStartFailureExpectations)[ProducerStartFailureScenario],
+) => {
+  const noLeakFragments = [
+    ...expected.forbiddenFragments,
+    "token=producer-origin-cause-sentinel",
+    "stack=producer-origin-stack-sentinel",
+  ];
+
+  expected.humanFragments.forEach((fragment) => expect(rendered.human).toContain(fragment));
+  expect(rendered.json).toMatchObject({
+    ok: false,
+    readiness: "blocked",
+    errors: [
+      expect.objectContaining({
+        code: expected.code,
+        message: expect.stringContaining(expected.message),
+        dependency: expected.dependency,
+      }),
+    ],
+  });
+  expect(rendered.jsonStream).toMatchObject({
+    exitCode: 2,
+    outcome: "blocked",
+    readiness: "blocked",
+    diagnostics: [
+      expect.objectContaining({
+        code: expected.code,
+        message: expect.stringContaining(expected.message),
+        dependency: expected.dependency,
+      }),
+    ],
+  });
+  [rendered.human, rendered.jsonText, rendered.jsonStreamText].forEach((text) =>
+    noLeakFragments.forEach((fragment) => expect(text).not.toContain(fragment)),
+  );
+};
+
+const assertPublicStartFailureOutput = (result: {
+  readonly current: PreviewSession | undefined;
+  readonly origin: ProducerStartFailureScenario;
+  readonly output: LauncherOutput;
+  readonly runCalls: number;
+}) => {
+  const expected = publicStartFailureExpectations[result.origin];
+  assertPublicStartFailureFacts(result, expected);
+  assertPublicStartFailureRenderings(renderPublicStartFailureOutput(result.output), expected);
+};
+
+liveTestWithTestClock(
+  "reports producer startup failures using their origin across human and machine output",
+  () =>
+    Effect.forEach(
+      ["supervisor-run", "adapter-missing"] as const,
+      (origin) =>
+        withConnectedPreviewConfig(
+          createConnectedPreviewConfig({
+            roles: ["sheet-workflows-api"],
+            groupOwnership: {
+              "application-zero": "owned",
+              auth: "reused",
+              "workflow-execution": "reused",
+            },
+            configOverrides: { sharedExecution: "producer-only" },
+          }),
+          (configPath, cwd) =>
+            Effect.gen(function* () {
+              const clock = yield* Clock.Clock;
+              const now = () => clock.currentTimeMillisUnsafe();
+              const sessions = yield* makePreviewSessionController(now);
+              const local = makeLocalFilesystemPreviewResourceAdapter(path.join(cwd, "resources"));
+              const dimensions = previewCapacityDimensionsByGroup["application-zero"];
+              const allocations = yield* makePreviewAllocationController(
+                {
+                  ...local,
+                  planProfile: (input) =>
+                    Effect.succeed({
+                      demands: input.ownedGroups.flatMap((group) =>
+                        group === "application-zero"
+                          ? dimensions.map((dimension) => ({
+                              dimension,
+                              amount: 1,
+                              provider: "local-test",
+                              identity: "disposable",
+                            }))
+                          : [],
+                      ),
+                      resources: input.ownedGroups,
+                    }),
+                  validateProfileAllocation: () => Effect.void,
+                },
+                now,
+              );
+              yield* Effect.forEach(dimensions, (dimension) =>
+                allocations.observeCapacity({
+                  provider: "local-test",
+                  identity: "disposable",
+                  dimension,
+                  observedAt: now(),
+                  total: 4,
+                  inUse: 0,
+                  grantsVerified: true,
+                }),
+              );
+
+              const leaseSupervisor = makePreviewWorkflowApiSupervisor({
+                assertAuthorityCurrent: () => Effect.void,
+                currentSourceRevision: () => Effect.succeed(previewSourceRevision),
+                startProcess: () =>
+                  Effect.fail(
+                    new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" }),
+                  ),
+                probe: () =>
+                  Effect.fail(
+                    new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" }),
+                  ),
+                probePublishedRoute: () =>
+                  Effect.fail(
+                    new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" }),
+                  ),
+                sourceRevisions: () => Stream.never,
+                publishRoute: () =>
+                  Effect.fail(
+                    new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" }),
+                  ),
+                removeRoute: () => Effect.void,
+                awaitExit: () => Effect.never,
+                stopProcess: () => Effect.void,
+              });
+              const failure = new PreviewWorkflowApiSupervisorError({
+                reason: "session-fenced",
+              });
+              Object.defineProperty(failure, "message", {
+                value: "credential=producer-origin-message-sentinel",
+              });
+              Object.defineProperty(failure, "cause", {
+                value: "token=producer-origin-cause-sentinel",
+              });
+              Object.defineProperty(failure, "stack", {
+                value: "stack=producer-origin-stack-sentinel",
+              });
+              let runCalls = 0;
+              const supervisor: PreviewWorkflowApiSupervisorApi = {
+                withSessionLease: leaseSupervisor.withSessionLease,
+                run: () => {
+                  runCalls += 1;
+                  return Effect.fail(failure);
+                },
+              };
+              const output = yield* connectedPreviewOutput(
+                parsePreviewAction(["preview", "start", "--config", configPath, "--json"], "start"),
+                {
+                  cwd,
+                  env: { TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite") },
+                  previewSessionController: sessions,
+                  previewAllocationController: allocations,
+                  previewRelayProvider: makeRelayProviderWithAttachmentStatus("ready"),
+                  ...(origin === "supervisor-run"
+                    ? { previewWorkflowApiSupervisor: supervisor }
+                    : {}),
+                },
+              );
+              const current =
+                output.previewSession === undefined
+                  ? undefined
+                  : yield* sessions.status(output.previewSession.id);
+
+              return { current, origin, output, runCalls };
+            }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
+        ).pipe(Effect.tap((result) => Effect.sync(() => assertPublicStartFailureOutput(result)))),
+      { concurrency: 1 },
+    ),
+);
+
+liveTest(
+  "admits only the supported web-only producer-only start through the host support gate",
+  () =>
+    withConnectedPreviewConfig(
+      createConnectedPreviewConfig({
+        roles: ["sheet-web"],
+        groupOwnership: {
+          "application-zero": "reused",
+          auth: "reused",
+          "workflow-execution": "reused",
+          search: "reused",
+        },
+        configOverrides: { sharedExecution: "producer-only" },
+      }),
+      (configPath, cwd) =>
+        Effect.gen(function* () {
+          const now = () => 50_000;
+          const sessions = yield* makePreviewSessionController(now);
+          let sessionCreations = 0;
+          const trackedSessions: PreviewSessionControllerApi = {
+            ...sessions,
+            create: (input) =>
+              Effect.sync(() => {
+                sessionCreations += 1;
+              }).pipe(Effect.andThen(sessions.create(input))),
+          };
+          let profilePlans = 0;
+          const baseAllocation = makeLocalFilesystemPreviewResourceAdapter(
+            path.join(cwd, "resources"),
+          );
+          const allocations = yield* makePreviewAllocationController(
+            {
+              ...baseAllocation,
+              planProfile: () =>
+                Effect.sync(() => {
+                  profilePlans += 1;
+                  return { demands: [], resources: [] };
+                }),
+              validateProfileAllocation: () => Effect.void,
+            },
+            now,
+          );
+          const gateway = yield* makePreviewGateway({
+            domain: "dev.example.test",
+            controller: trackedSessions,
+            now,
+            adapters: {
+              checkSetup: Effect.succeed({
+                domain: "dev.example.test",
+                observedAt: now(),
+                wildcardDns: true,
+                wildcardCertificate: true,
+                independentGatewayAuthentication: true,
+                applicationIdentityMediation: true,
+                browserDependencyMediation: true,
+                singleControllerFenceDelivery: true,
+              }),
+              authenticate: () => Effect.fail(new PreviewGatewayError({ reason: "denied" })),
+              connect: () => Effect.fail(new PreviewGatewayError({ reason: "unavailable" })),
+              connectChannel: () => Effect.fail(new PreviewGatewayError({ reason: "unavailable" })),
+              recoverChannel: (identity) =>
+                Effect.succeed({ identity, channelAbsent: true, pendingCreatesFenced: true }),
+            },
+          });
+          const runtime: PreviewWebRuntimeApi = {
+            start: () => Effect.die(new Error("allocation did not reach runtime start")),
+            stop: () => Effect.void,
+            status: () => Effect.succeed(false),
+            measurements: () => Effect.succeed(undefined),
+          };
+          const command = parsePreviewAction(
+            ["preview", "start", "--config", configPath, "--json"],
+            "start",
+          );
+          const available = yield* connectedPreviewOutput(command, {
+            cwd,
+            env: { TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite") },
+            previewSessionController: trackedSessions,
+            previewAllocationController: allocations,
+            previewWebRuntime: runtime,
+            previewGateway: gateway,
+            previewSupervisorScheduler: () => undefined,
+          });
+          expect(available.readiness).toBe("blocked");
+          expect(available.errors[0]?.message).not.toContain(
+            "sheet-web preview runtime is unavailable",
+          );
+          expect(profilePlans).toBe(1);
+          expect(sessionCreations).toBe(0);
+
+          const unsupportedGateway = { ...gateway, configured: false } satisfies PreviewGatewayApi;
+          const unsupported = yield* connectedPreviewOutput(command, {
+            cwd,
+            env: { TIARA_PREVIEW_SESSION_DATABASE: path.join(cwd, "controller.sqlite") },
+            previewSessionController: trackedSessions,
+            previewAllocationController: allocations,
+            previewWebRuntime: runtime,
+            previewGateway: unsupportedGateway,
+            previewSupervisorScheduler: () => undefined,
+          });
+          expect(unsupported.readiness).toBe("blocked");
+          expect(unsupported.errors[0]?.message).toContain(
+            "sheet-web preview runtime is unavailable",
+          );
+          expect(profilePlans).toBe(1);
+          expect(sessionCreations).toBe(0);
+        }).pipe(Effect.provide(SqliteClient.layer({ filename: ":memory:" }))),
+    ),
+);
+
 for (const [action, args] of blockedPreviewActions) {
   liveTest(`keeps connected preview ${action} blocked`, () =>
     Effect.gen(function* () {
@@ -6690,6 +7843,293 @@ it.live(
           }),
       );
     }).pipe(
+      Effect.provide(
+        Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
+      ),
+    ),
+);
+
+it.live("keeps a legacy API session with its owner when no matching supervisor exists", () =>
+  withConnectedPreviewConfig(
+    createConnectedPreviewConfig({ roles: ["sheet-workflows-api"] }),
+    (_configPath, cwd) =>
+      Effect.gen(function* () {
+        const now = { value: 50_000 };
+        const fileSystem = yield* FileSystem.FileSystem;
+        const controller = yield* makePreviewSessionController(() => now.value);
+        const created = yield* controller.create({
+          owner: "owner",
+          checkout: cwd,
+          manifests: { "sheet-workflows-api": previewArtifactDigest },
+          requestedRevision: previewSourceRevision,
+        });
+        yield* controller.activate(
+          created.session.id,
+          created.session.generation,
+          created.supervisorIdentity,
+          previewSourceRevision,
+        );
+        const sessionDatabase = path.join(cwd, "controller.sqlite");
+        const credentialsDirectory = `${sessionDatabase}.credentials`;
+        yield* fileSystem.makeDirectory(credentialsDirectory, { recursive: true, mode: 0o700 });
+        yield* fileSystem.writeFileString(
+          path.join(credentialsDirectory, created.session.id),
+          JSON.stringify({
+            ownerIdentity: created.ownerIdentity,
+            supervisorIdentity: created.supervisorIdentity,
+          }),
+          { mode: 0o600 },
+        );
+
+        const output = yield* runLauncherEffect(
+          ["preview", "resume", "--session", created.session.id, "--json"],
+          {
+            cwd,
+            env: { TIARA_PREVIEW_SESSION_DATABASE: sessionDatabase },
+            previewSessionController: controller,
+          },
+        );
+        const current = yield* controller.status(created.session.id);
+        expect(output.exitCode).toBe(2);
+        expect(output.output.previewSession?.id).toBe(created.session.id);
+        expect(output.output.readiness).toBe("blocked");
+        expect(output.output.errors[0]?.message).toContain("original workflow owner");
+        expect(current.generation).toBe(created.session.generation);
+        expect(current.phase).toBe("active");
+      }),
+  ).pipe(
+    Effect.provide(
+      Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
+    ),
+  ),
+);
+
+it.live("rejects an incompatible producer resume before advancing its durable generation", () =>
+  withConnectedPreviewConfig(
+    createConnectedPreviewConfig({
+      roles: ["sheet-workflows-api"],
+      groupOwnership: {
+        "application-zero": "reused",
+        auth: "reused",
+        "workflow-execution": "reused",
+      },
+      configOverrides: { sharedExecution: "producer-only" },
+    }),
+    (_configPath, cwd) =>
+      Effect.gen(function* () {
+        const now = { value: 50_000 };
+        const fileSystem = yield* FileSystem.FileSystem;
+        const controller = yield* makePreviewSessionController(() => now.value);
+        const config = createConnectedPreviewConfig({
+          roles: ["sheet-workflows-api"],
+          groupOwnership: {
+            "application-zero": "reused",
+            auth: "reused",
+            "workflow-execution": "reused",
+          },
+          configOverrides: { sharedExecution: "producer-only" },
+        });
+        const created = yield* controller.create({
+          owner: "owner",
+          checkout: cwd,
+          manifests: {
+            "sheet-workflows-api": previewArtifactDigest,
+            "shared-execution-mode": "producer-only",
+            "deployed-manifest": previewManifestDigest,
+            "schema-artifact": `sha256:${"f".repeat(64)}`,
+            "workflow-catalog": previewWorkflowContractCatalogDigest,
+            "workflow-database-endpoint": previewWorkflowDatabaseEndpointIdentity,
+          },
+          requestedRevision: previewSourceRevision,
+        });
+        yield* controller.activate(
+          created.session.id,
+          created.session.generation,
+          created.supervisorIdentity,
+          previewSourceRevision,
+        );
+        now.value += previewSupervisorLeaseMs + 1;
+        const sessionDatabase = path.join(cwd, "controller.sqlite");
+        const credentialsDirectory = `${sessionDatabase}.credentials`;
+        yield* fileSystem.makeDirectory(credentialsDirectory, { recursive: true, mode: 0o700 });
+        yield* fileSystem.writeFileString(
+          path.join(credentialsDirectory, created.session.id),
+          JSON.stringify({
+            ownerIdentity: created.ownerIdentity,
+            supervisorIdentity: created.supervisorIdentity,
+            connectedPreviewConfig: config,
+          }),
+          { mode: 0o600 },
+        );
+        let supervisorCalls = 0;
+        const supervisor: PreviewWorkflowApiSupervisorApi = {
+          withSessionLease: (_input, use) => use,
+          run: () => {
+            supervisorCalls += 1;
+            return Effect.fail(
+              new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" }),
+            );
+          },
+        };
+        const output = yield* runLauncherEffect(
+          ["preview", "resume", "--session", created.session.id, "--json"],
+          {
+            cwd,
+            env: { TIARA_PREVIEW_SESSION_DATABASE: sessionDatabase },
+            previewSessionController: controller,
+            previewWorkflowApiSupervisor: supervisor,
+          },
+        );
+        const current = yield* controller.status(created.session.id);
+        expect(output.exitCode).toBe(2);
+        expect(output.output.previewSession).toMatchObject({
+          id: created.session.id,
+          generation: created.session.generation,
+          workflowApiCleanup: {
+            allocation: "unavailable",
+            route: "not-checked",
+            process: "not-checked",
+            sessionFence: "not-required",
+          },
+        });
+        expect(current.generation).toBe(created.session.generation);
+        expect(current.phase).toBe("active");
+        expect(supervisorCalls).toBe(0);
+      }),
+  ).pipe(
+    Effect.provide(
+      Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
+    ),
+  ),
+);
+
+it.live(
+  "fences only the acquired producer generation when resume identity changes after preflight",
+  () =>
+    withConnectedPreviewConfig(
+      createConnectedPreviewConfig({
+        roles: ["sheet-workflows-api"],
+        groupOwnership: {
+          "application-zero": "reused",
+          auth: "reused",
+          "workflow-execution": "reused",
+        },
+        configOverrides: { sharedExecution: "producer-only" },
+      }),
+      (_configPath, cwd) =>
+        Effect.gen(function* () {
+          const now = { value: 50_000 };
+          const fileSystem = yield* FileSystem.FileSystem;
+          const controller = yield* makePreviewSessionController(() => now.value);
+          const config = createConnectedPreviewConfig({
+            roles: ["sheet-workflows-api"],
+            groupOwnership: {
+              "application-zero": "reused",
+              auth: "reused",
+              "workflow-execution": "reused",
+            },
+            configOverrides: { sharedExecution: "producer-only" },
+          });
+          const created = yield* controller.create({
+            owner: "owner",
+            checkout: cwd,
+            manifests: {
+              "sheet-workflows-api": previewArtifactDigest,
+              "shared-execution-mode": "producer-only",
+              "deployed-manifest": previewManifestDigest,
+              "schema-artifact": previewSchemaArtifactDigest,
+              "workflow-catalog": previewWorkflowContractCatalogDigest,
+              "workflow-database-endpoint": previewWorkflowDatabaseEndpointIdentity,
+            },
+            requestedRevision: previewSourceRevision,
+          });
+          yield* controller.activate(
+            created.session.id,
+            created.session.generation,
+            created.supervisorIdentity,
+            previewSourceRevision,
+          );
+          now.value += previewSupervisorLeaseMs + 1;
+          const sessionDatabase = path.join(cwd, "controller.sqlite");
+          const credentialsDirectory = `${sessionDatabase}.credentials`;
+          yield* fileSystem.makeDirectory(credentialsDirectory, { recursive: true, mode: 0o700 });
+          yield* fileSystem.writeFileString(
+            path.join(credentialsDirectory, created.session.id),
+            JSON.stringify({
+              ownerIdentity: created.ownerIdentity,
+              supervisorIdentity: created.supervisorIdentity,
+              connectedPreviewConfig: config,
+            }),
+            { mode: 0o600 },
+          );
+          const racingController: PreviewSessionControllerApi = {
+            ...controller,
+            resume: (id, ownerIdentity, previousSupervisorIdentity) =>
+              controller.resume(id, ownerIdentity, previousSupervisorIdentity).pipe(
+                Effect.map((resumed) => ({
+                  ...resumed,
+                  session: {
+                    ...resumed.session,
+                    manifests: {
+                      ...resumed.session.manifests,
+                      "schema-artifact": `sha256:${"f".repeat(64)}`,
+                    },
+                  },
+                })),
+              ),
+          };
+          const leaseSupervisor = makePreviewWorkflowApiSupervisor({
+            assertAuthorityCurrent: () => Effect.void,
+            currentSourceRevision: () => Effect.succeed(previewSourceRevision),
+            startProcess: () =>
+              Effect.fail(new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" })),
+            probe: () =>
+              Effect.fail(new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" })),
+            probePublishedRoute: () =>
+              Effect.fail(new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" })),
+            sourceRevisions: () => Stream.never,
+            publishRoute: () =>
+              Effect.fail(new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" })),
+            removeRoute: () => Effect.void,
+            awaitExit: () => Effect.never,
+            stopProcess: () => Effect.void,
+          });
+          let supervisorCalls = 0;
+          const supervisor: PreviewWorkflowApiSupervisorApi = {
+            withSessionLease: leaseSupervisor.withSessionLease,
+            run: () => {
+              supervisorCalls += 1;
+              return Effect.fail(
+                new PreviewWorkflowApiSupervisorError({ reason: "adapter-unavailable" }),
+              );
+            },
+          };
+          const output = yield* runLauncherEffect(
+            ["preview", "resume", "--session", created.session.id, "--json"],
+            {
+              cwd,
+              env: { TIARA_PREVIEW_SESSION_DATABASE: sessionDatabase },
+              previewSessionController: racingController,
+              previewWorkflowApiSupervisor: supervisor,
+            },
+          );
+          const current = yield* controller.status(created.session.id);
+          expect(output.exitCode).toBe(2);
+          expect(output.output.previewSession).toMatchObject({
+            generation: created.session.generation + 1,
+            phase: "ended",
+            workflowApiCleanup: {
+              allocation: "unavailable",
+              route: "not-checked",
+              process: "not-checked",
+              sessionFence: "confirmed",
+            },
+          });
+          expect(current.generation).toBe(created.session.generation + 1);
+          expect(current.phase).toBe("ended");
+          expect(supervisorCalls).toBe(0);
+        }),
+    ).pipe(
       Effect.provide(
         Layer.mergeAll(SqliteClient.layer({ filename: ":memory:" }), NodeServices.layer),
       ),

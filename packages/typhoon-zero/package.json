@@ -12,34 +12,42 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.mts",
+      "development": "./src/index.ts",
       "default": "./dist/index.mjs"
     },
     "./client": {
       "types": "./dist/client/index.d.mts",
+      "development": "./src/client/index.ts",
       "default": "./dist/client/index.mjs"
     },
     "./error": {
       "types": "./dist/error/index.d.mts",
+      "development": "./src/error/index.ts",
       "default": "./dist/error/index.mjs"
     },
     "./schema": {
       "types": "./dist/schema/index.d.mts",
+      "development": "./src/schema/index.ts",
       "default": "./dist/schema/index.mjs"
     },
     "./server": {
       "types": "./dist/server/index.d.mts",
+      "development": "./src/server/index.ts",
       "default": "./dist/server/index.mjs"
     },
     "./zeroApi": {
       "types": "./dist/zeroApi/index.d.mts",
+      "development": "./src/zeroApi/index.ts",
       "default": "./dist/zeroApi/index.mjs"
     },
     "./zeroApiAtom": {
       "types": "./dist/zeroApiAtom/index.d.mts",
+      "development": "./src/zeroApiAtom/index.ts",
       "default": "./dist/zeroApiAtom/index.mjs"
     },
     "./*": {
       "types": "./dist/*/index.d.mts",
+      "development": "./src/*/index.ts",
       "default": "./dist/*/index.mjs"
     },
     "./package.json": "./package.json"

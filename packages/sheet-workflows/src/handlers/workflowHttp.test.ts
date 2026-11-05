@@ -1,5 +1,17 @@
-import { ConfigProvider, Deferred, Effect, Layer, Option, Schema, Stream } from "effect";
+import {
+  Cause,
+  ConfigProvider,
+  Deferred,
+  Effect,
+  Exit,
+  Layer,
+  Option,
+  Schema,
+  Stream,
+} from "effect";
 import { describe, expect, it } from "@effect/vitest";
+import { NodeServices } from "@effect/platform-node";
+import { SqliteClient } from "@effect/sql-sqlite-node";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import {
   defaultWorkflowRunListLimit,
@@ -20,8 +32,11 @@ import {
   workflowContractRoutes,
 } from "effect-zero-workflow/contract/transport";
 import { SheetWorkflowContractCatalog } from "sheet-workflow-contracts";
+import { getSheetDbMigrationArtifactDigest } from "sheet-zero-server/state-plane-admission";
 import type { SheetWorkflowZeroContext } from "sheet-zero-server";
 import { vi } from "vitest";
+import { producerApiRoutesLayer } from "../http";
+import { sheetWorkflowContractCatalogDigest } from "../workflows/catalogIdentity";
 import {
   makeWorkflowHttpRoutesLayer,
   makeWorkflowInvocationStore,
@@ -31,6 +46,8 @@ import {
 } from "./workflowHttp";
 import { WorkflowStore } from "effect-zero-workflow";
 import { ReadOnlyWorkflowAuthorization } from "@/workflows/readOnly/authorization";
+
+const sheetDbMigrationArtifactDigest = getSheetDbMigrationArtifactDigest();
 
 const routeManifest = workflowHttpRouteManifest(SheetWorkflowContractCatalog);
 
@@ -140,6 +157,79 @@ describe("sheet workflow HTTP contract boundary", () => {
           expect(responses.map(({ status }) => status)).toEqual(routeManifest.map(() => 401));
         } finally {
           fetchMock.mockRestore();
+        }
+      }),
+    ),
+  );
+
+  it.effect("producer API exposes workflow routes but denies rollout-gate mutation routes", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const handler = yield* HttpRouter.toHttpEffect(
+          producerApiRoutesLayer.pipe(
+            Layer.provide(Layer.mock(WorkflowStore)({})),
+            Layer.provide(Layer.mock(ReadOnlyWorkflowAuthorization)({})),
+            Layer.provide(SqliteClient.layer({ filename: ":memory:" })),
+            Layer.provide(NodeServices.layer),
+            Layer.provide(
+              ConfigProvider.layer(
+                ConfigProvider.fromUnknown({
+                  SHEET_AUTH_ISSUER: "https://auth.dev.tiara-stack.moe",
+                  SHEET_AUTH_WORKFLOW_HTTP_AUDIENCE: "sheet-workflows-http",
+                  SHEET_AUTH_TRUSTED_DELEGATION_CLIENT_IDS: "preview-workflow-api",
+                  SHEET_BOT_GATEWAY_OAUTH_CLIENT_ID: "preview-bot-gateway",
+                  SHEET_BOT_GATEWAY_SERVICE_ID: "sheet-bot.gateway",
+                  SHEET_WEB_BASE_URL: "https://sheet-web.dev.tiara-stack.moe",
+                  SHEET_WORKFLOWS_ROLE: "producer",
+                  WORKFLOWS_STATE_PLANE_POLICY: "shared-admission",
+                  WORKFLOWS_SOURCE_REVISION: `sha256:${"a".repeat(64)}`,
+                  WORKFLOWS_PREVIEW_SESSION_ID: "123e4567-e89b-42d3-a456-426614174000",
+                  WORKFLOWS_PREVIEW_API_ENDPOINT: "https://workflow-api.dev.tiara-stack.moe",
+                  WORKFLOWS_PREVIEW_GENERATION: "1",
+                  WORKFLOWS_PREVIEW_GROUP_TARGET: "workflow-execution:shared-state",
+                  WORKFLOWS_PREVIEW_API_ARTIFACT_DIGEST: `sha256:${"b".repeat(64)}`,
+                  WORKFLOWS_PREVIEW_MANIFEST_DIGEST: `sha256:${"c".repeat(64)}`,
+                  WORKFLOWS_PREVIEW_SCHEMA_ARTIFACT_DIGEST: sheetDbMigrationArtifactDigest,
+                  WORKFLOWS_PREVIEW_CATALOG_DIGEST: sheetWorkflowContractCatalogDigest,
+                }),
+              ),
+            ),
+          ),
+        );
+        const selected = SheetWorkflowContractCatalog.find(
+          ({ identity }) => identity === "notifications.loadSupportedClients",
+        );
+        expect(selected).toBeDefined();
+        if (selected === undefined) return yield* Effect.die("workflow test contract missing");
+        const routeServices = Layer.mergeAll(
+          Layer.mock(ReadOnlyWorkflowAuthorization)({}),
+          SqliteClient.layer({ filename: ":memory:" }),
+          NodeServices.layer,
+        );
+        const enqueue = yield* handler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              routeRequest("POST", workflowContractRoutes(selected).enqueue, "{}"),
+            ),
+          ),
+          Effect.provide(routeServices),
+        );
+        const mutation = yield* Effect.exit(
+          handler.pipe(
+            Effect.provideService(
+              HttpServerRequest.HttpServerRequest,
+              HttpServerRequest.fromWeb(routeRequest("POST", "/rollout-gate/change", "{}")),
+            ),
+            Effect.provide(routeServices),
+          ),
+        );
+
+        expect(enqueue.status).toBe(401);
+        expect(Exit.isFailure(mutation)).toBe(true);
+        if (Exit.isFailure(mutation)) {
+          const error = Option.getOrUndefined(Cause.findErrorOption(mutation.cause));
+          expect(error).toMatchObject({ reason: { _tag: "RouteNotFound" } });
         }
       }),
     ),
@@ -442,6 +532,117 @@ describe("sheet workflow HTTP contract boundary", () => {
             cursor: { submittedAt: new Date(cursorSubmittedAt), invocationId },
             limit: 2,
           },
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("observes the terminal run enqueued by the same producer API invocation", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const contract = Option.getOrThrow(
+          Option.fromNullishOr(
+            SheetWorkflowContractCatalog.find(
+              ({ identity }) => identity === "notifications.loadSupportedClients",
+            ),
+          ),
+        );
+        const invocationId = Schema.decodeUnknownSync(InvocationId)(
+          "123e4567-e89b-42d3-a456-426614174000",
+        );
+        const submittedAt = new Date("2026-10-09T00:00:00.000Z");
+        const completedAt = new Date("2026-10-09T00:00:01.000Z");
+        const acceptedInvocationIds = new Set<string>();
+        const calls: Array<string> = [];
+        const executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, never> = {
+          enqueue: <Contract extends AnyWorkflowContract>(
+            selected: Contract,
+            _context: SheetWorkflowZeroContext,
+            request: { readonly invocationId: InvocationId; readonly input: unknown },
+          ) => {
+            calls.push(`enqueue:${selected.identity}:${request.invocationId}`);
+            const reference = makeRunReference(selected, request.invocationId);
+            acceptedInvocationIds.add(`${selected.identity}:${request.invocationId}`);
+            return Effect.succeed(reference);
+          },
+          get: <Contract extends AnyWorkflowContract>(
+            selected: Contract,
+            _context: SheetWorkflowZeroContext,
+            requested: InvocationId,
+          ) => {
+            calls.push(`observe:${selected.identity}:${requested}`);
+            if (!acceptedInvocationIds.has(`${selected.identity}:${requested}`))
+              return Stream.succeed(Option.none());
+            const run = {
+              reference: makeRunReference(selected, requested),
+              result: {
+                _tag: "Failure",
+                failure: {
+                  _tag: "System",
+                  code: "UnexpectedFailure",
+                  retryable: false,
+                },
+                completedAt,
+              },
+              submittedAt,
+              updatedAt: completedAt,
+            } satisfies WorkflowRun<Contract>;
+            return Stream.succeed(Option.some(run));
+          },
+          list: () => Stream.succeed([]),
+        };
+        const handler = yield* HttpRouter.toHttpEffect(
+          makeWorkflowHttpRoutesLayer(authorized, authorized, executor).pipe(
+            Layer.provide(HttpRouter.layer),
+          ),
+        );
+        const routes = workflowContractRoutes(contract);
+        const enqueueResponse = yield* handler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              routeRequest(
+                "POST",
+                routes.enqueue,
+                JSON.stringify({ invocationId, input: { platform: "discord" } }),
+              ),
+            ),
+          ),
+        );
+        expect(enqueueResponse.status).toBe(202);
+
+        const observationResponse = yield* handler.pipe(
+          Effect.provideService(
+            HttpServerRequest.HttpServerRequest,
+            HttpServerRequest.fromWeb(
+              routeRequest("GET", routes.get.replace(":invocationId", invocationId)),
+            ),
+          ),
+        );
+        const observation = yield* readSseBody(observationResponse);
+        const terminalRun: unknown = JSON.parse(observation.slice("data: ".length).trim());
+
+        expect(terminalRun).toEqual({
+          reference: {
+            invocationId,
+            contractIdentity: contract.identity,
+            wireVersion: contract.wireVersion,
+          },
+          result: {
+            _tag: "Failure",
+            failure: {
+              _tag: "System",
+              code: "UnexpectedFailure",
+              retryable: false,
+            },
+            completedAt: completedAt.toISOString(),
+          },
+          submittedAt: submittedAt.toISOString(),
+          updatedAt: completedAt.toISOString(),
+        });
+        expect(calls).toEqual([
+          `enqueue:${contract.identity}:${invocationId}`,
+          `observe:${contract.identity}:${invocationId}`,
         ]);
       }),
     ),

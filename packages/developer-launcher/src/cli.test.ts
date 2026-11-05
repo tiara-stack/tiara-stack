@@ -1,9 +1,10 @@
 import { describe, expect, it } from "@effect/vitest";
 import { NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
-import { Deferred, Effect, Fiber, Layer, Schema } from "effect";
+import { Cause, Deferred, Effect, Fiber, Layer, Option, Result, Schema } from "effect";
 import { TestConsole } from "effect/testing";
 import { Command } from "effect/unstable/cli";
+import { vi } from "vitest";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -14,11 +15,25 @@ import {
   executeFastPlan,
   executeKubernetesPlan,
   previewAllocationConfigDiagnostic,
+  previewGatewayListenerSelectionForArguments,
+  main,
 } from "./cli";
 import { ConnectedWorkflowPreviewProvider } from "./connected-preview";
+import { CliLayerAcquisitionFailureForTesting } from "./cli-layer-test-support";
 import { runLauncherFromParsed, getKubernetesExecutionContext } from "./index";
 import { runKubernetesExecution, type KubernetesLifecycleObservation } from "./execution";
 import { makePreviewSessionController, PreviewSessionController } from "./preview-sessions";
+import { listenerSessionIdForAction } from "./preview-gateway-session-layer";
+import {
+  PreviewWorkflowApiTrustedAuthority,
+  type PreviewWorkflowApiAuthorityPayload,
+} from "./preview-workflow-api-authority";
+import {
+  PreviewWorkflowApiApplicationRoute,
+  type PreviewWorkflowApiApplicationRouteApi,
+} from "./preview-workflow-api-host";
+import { previewWorkflowApiDatabaseEndpointIdentity } from "./preview-workflow-api-supervisor";
+import { PreviewGatewayError } from "./preview-gateway";
 import {
   makePreviewAllocationController,
   PreviewAllocationController,
@@ -54,6 +69,172 @@ const kubernetesResult = (
     },
     { env: { KUBE_CONTEXT: "tiara-stack-dev" } },
   );
+
+const previewLayerFailureActions = [
+  {
+    action: "start",
+    layerFailure: "unavailable",
+    arguments: ["preview", "start", "--config", "./preview.json"],
+  },
+  {
+    action: "resume",
+    layerFailure: "identity-mismatch",
+    arguments: ["preview", "resume", "--session", "10000000-0000-4000-8000-000000000001"],
+  },
+  {
+    action: "recreate",
+    layerFailure: "route-conflict",
+    arguments: [
+      "preview",
+      "recreate",
+      "--config",
+      "./preview.json",
+      "--session",
+      "10000000-0000-4000-8000-000000000001",
+      "--confirm-development",
+    ],
+  },
+] as const;
+
+const previewLayerFailureFormats = [
+  { name: "human", flag: undefined },
+  { name: "json", flag: "--json" },
+  { name: "json-stream", flag: "--json-stream" },
+] as const;
+
+const previewLayerFailureOutputSchema = Schema.Struct({
+  action: Schema.optionalKey(Schema.String),
+  diagnostics: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        code: Schema.optionalKey(Schema.String),
+        message: Schema.optionalKey(Schema.String),
+      }),
+    ),
+  ),
+  errors: Schema.optionalKey(
+    Schema.Array(
+      Schema.Struct({
+        code: Schema.optionalKey(Schema.String),
+        message: Schema.optionalKey(Schema.String),
+      }),
+    ),
+  ),
+  exitCode: Schema.optionalKey(Schema.Number),
+  format: Schema.optionalKey(Schema.String),
+  ok: Schema.optionalKey(Schema.Boolean),
+  outcome: Schema.optionalKey(Schema.String),
+  readiness: Schema.optionalKey(Schema.String),
+  type: Schema.optionalKey(Schema.String),
+});
+
+const assertSafeLayerFailureText = (rendered: string, expectedReason: string | undefined) => {
+  if (expectedReason === undefined) expect(rendered).not.toContain("PreviewGatewayError:");
+  else expect(rendered).toContain(`PreviewGatewayError: ${expectedReason}`);
+  expect(rendered).not.toContain("credential=cli-layer-cause-sentinel");
+  expect(rendered).not.toContain("stack=cli-layer-cause-stack-sentinel");
+  expect(rendered).not.toContain("credential=cli-raw-layer-error-sentinel");
+  expect(rendered).not.toContain("token=cli-raw-layer-cause-sentinel");
+  expect(rendered).not.toContain("stack=cli-raw-layer-stack-sentinel");
+};
+
+type PreviewLayerFailureAction = (typeof previewLayerFailureActions)[number];
+type PreviewLayerFailureAssertion = (
+  rendered: string,
+  action: PreviewLayerFailureAction,
+) => string | undefined;
+
+const assertHumanPreviewLayerFailure: PreviewLayerFailureAssertion = (rendered, action) => {
+  expect(rendered).toContain(
+    `Connected preview ${action.action} is unavailable; no session operation was attempted`,
+  );
+  expect(rendered).toContain("[dependency-unavailable]");
+  return rendered;
+};
+
+const assertJsonPreviewLayerFailure: PreviewLayerFailureAssertion = (rendered, action) => {
+  const output = Schema.decodeUnknownSync(previewLayerFailureOutputSchema)(JSON.parse(rendered));
+  expect(output.action).toBe(action.action);
+  expect(output.readiness).toBe("blocked");
+  expect(output.ok).toBe(false);
+  expect(output.errors?.[0]?.code).toBe("dependency-unavailable");
+  expect(output.errors?.[0]?.message).toContain("no session operation was attempted");
+  return output.errors?.[0]?.message;
+};
+
+const assertJsonStreamPreviewLayerFailure: PreviewLayerFailureAssertion = (rendered, action) => {
+  const output = Schema.decodeUnknownSync(previewLayerFailureOutputSchema)(JSON.parse(rendered));
+  expect(output.action).toBe(action.action);
+  expect(output.readiness).toBe("blocked");
+  expect(output.format).toBe("tiara-stack.development.lifecycle");
+  expect(output.type).toBe("terminal");
+  expect(output.outcome).toBe("blocked");
+  expect(output.exitCode).toBe(2);
+  expect(output.diagnostics?.[0]?.code).toBe("dependency-unavailable");
+  expect(output.diagnostics?.[0]?.message).toContain("no session operation was attempted");
+  return output.diagnostics?.[0]?.message;
+};
+
+const previewLayerFailureAssertions = {
+  human: assertHumanPreviewLayerFailure,
+  json: assertJsonPreviewLayerFailure,
+  "json-stream": assertJsonStreamPreviewLayerFailure,
+} satisfies Record<
+  (typeof previewLayerFailureFormats)[number]["name"],
+  PreviewLayerFailureAssertion
+>;
+
+const assertPreviewLayerFailureOutput = (
+  rendered: string,
+  action: PreviewLayerFailureAction,
+  format: (typeof previewLayerFailureFormats)[number],
+  expectedReason: string | undefined,
+) => {
+  assertSafeLayerFailureText(rendered, expectedReason);
+  const message = previewLayerFailureAssertions[format.name](rendered, action);
+  if (expectedReason !== undefined)
+    expect(message).toContain(`PreviewGatewayError: ${expectedReason}`);
+};
+
+const runPreviewLayerFailureCase = (
+  action: (typeof previewLayerFailureActions)[number],
+  format: (typeof previewLayerFailureFormats)[number],
+  capture: { stdout: string; layerBuildCount: number; layerReleaseCount: number },
+  suppliedFailure?: unknown,
+) =>
+  Effect.gen(function* () {
+    const previousLogCount = (yield* TestConsole.logLines).length;
+    const previousStdoutLength = capture.stdout.length;
+    const arguments_ = [...action.arguments, ...(format.flag === undefined ? [] : [format.flag])];
+    process.argv = [process.execPath, "developer-launcher-cli-test", ...arguments_];
+    const error = suppliedFailure ?? new PreviewGatewayError({ reason: action.layerFailure });
+    if (error instanceof PreviewGatewayError) {
+      Object.defineProperty(error, "cause", { value: "credential=cli-layer-cause-sentinel" });
+      Object.defineProperty(error, "stack", { value: "stack=cli-layer-cause-stack-sentinel" });
+    }
+
+    yield* main.pipe(
+      Effect.provideService(CliLayerAcquisitionFailureForTesting, {
+        error,
+        onBuild: () => (capture.layerBuildCount += 1),
+        onRelease: () => (capture.layerReleaseCount += 1),
+      }),
+      Effect.provide(TestConsole.layer),
+    );
+
+    const rendered =
+      format.name === "json-stream"
+        ? capture.stdout.slice(previousStdoutLength)
+        : (yield* TestConsole.logLines).slice(previousLogCount).join("\n");
+    expect(process.exitCode).toBe(2);
+    expect(capture.layerReleaseCount).toBe(capture.layerBuildCount);
+    assertPreviewLayerFailureOutput(
+      rendered,
+      action,
+      format,
+      error instanceof PreviewGatewayError ? error.reason : undefined,
+    );
+  });
 
 it.effect("keeps the CLI scope open until the preview supervisor completes", () =>
   Effect.gen(function* () {
@@ -142,6 +323,30 @@ describe("developer launcher Effect CLI", () => {
     tag: null,
     changedSurfaces: [],
   });
+
+  it.effect("keeps recreate out of the old listener lease before its lifecycle command runs", () =>
+    Effect.sync(() => {
+      const selection = previewGatewayListenerSelectionForArguments([
+        "preview",
+        "recreate",
+        "--config",
+        "preview.json",
+        "--session",
+        "old-session-id",
+        "--confirm-development",
+      ]);
+
+      expect(selection).toEqual({ action: "recreate", sessionId: "old-session-id" });
+      expect(listenerSessionIdForAction(selection.action, selection.sessionId)).toBeUndefined();
+      const resume = previewGatewayListenerSelectionForArguments([
+        "preview",
+        "resume",
+        "--session",
+        "old-session-id",
+      ]);
+      expect(listenerSessionIdForAction(resume.action, resume.sessionId)).toBe("old-session-id");
+    }),
+  );
 
   it.live("passes the Effect session controller into preview session commands", () =>
     Effect.gen(function* () {
@@ -1335,6 +1540,148 @@ describe("developer launcher Effect CLI", () => {
         process.exitCode = 0;
       }
     }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer)),
+  );
+
+  it.live(
+    "renders typed preview layer-acquisition failures for each session action and output mode",
+    () =>
+      Effect.gen(function* () {
+        const capture = { stdout: "", layerBuildCount: 0, layerReleaseCount: 0 };
+        const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+          capture.stdout += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+          return true;
+        });
+        const originalArgv = process.argv;
+
+        process.exitCode = 0;
+        try {
+          for (const action of previewLayerFailureActions)
+            for (const format of previewLayerFailureFormats)
+              yield* runPreviewLayerFailureCase(action, format, capture);
+          expect(capture.layerBuildCount).toBe(
+            previewLayerFailureActions.length * previewLayerFailureFormats.length,
+          );
+          expect(capture.layerReleaseCount).toBe(capture.layerBuildCount);
+        } finally {
+          stdoutWrite.mockRestore();
+          process.argv = originalArgv;
+          process.exitCode = 0;
+        }
+      }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer)),
+  );
+
+  it.live("redacts arbitrary action-layer failure text in every preview output mode", () =>
+    Effect.gen(function* () {
+      const capture = { stdout: "", layerBuildCount: 0, layerReleaseCount: 0 };
+      const stdoutWrite = vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+        capture.stdout += typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf8");
+        return true;
+      });
+      const originalArgv = process.argv;
+
+      process.exitCode = 0;
+      try {
+        const startAction = previewLayerFailureActions[0];
+        if (startAction === undefined) throw new Error("expected a start failure case");
+        for (const format of previewLayerFailureFormats) {
+          const failure = new Error("credential=cli-raw-layer-error-sentinel");
+          Object.defineProperty(failure, "cause", { value: "token=cli-raw-layer-cause-sentinel" });
+          Object.defineProperty(failure, "stack", {
+            value: "stack=cli-raw-layer-stack-sentinel",
+          });
+          yield* runPreviewLayerFailureCase(startAction, format, capture, failure);
+        }
+        expect(capture.layerBuildCount).toBe(previewLayerFailureFormats.length);
+        expect(capture.layerReleaseCount).toBe(capture.layerBuildCount);
+      } finally {
+        stdoutWrite.mockRestore();
+        process.argv = originalArgv;
+        process.exitCode = 0;
+      }
+    }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer)),
+  );
+
+  it.live("does not convert a CLI layer failure for an unrelated command into preview output", () =>
+    Effect.gen(function* () {
+      process.exitCode = 0;
+      try {
+        const layerFailure = new PreviewGatewayError({ reason: "unavailable" });
+        const result = yield* Effect.exit(
+          Command.runWith(command, { version: "0.0.0" })(["fast", "help"]).pipe(
+            Effect.provideService(CliLayerAcquisitionFailureForTesting, {
+              error: layerFailure,
+              onBuild: () => undefined,
+              onRelease: () => undefined,
+            }),
+          ),
+        );
+        expect(result._tag).toBe("Failure");
+        if (result._tag === "Failure") {
+          const error = Cause.findError(result.cause);
+          expect(Result.isSuccess(error)).toBe(true);
+          if (Result.isSuccess(error) && error.success instanceof Error)
+            expect(error.success.cause).toBe(layerFailure);
+        }
+        expect(yield* TestConsole.logLines).toHaveLength(0);
+      } finally {
+        process.exitCode = 0;
+      }
+    }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer)),
+  );
+
+  it.live(
+    "keeps unrelated command output structured when optional supervisor construction fails",
+    () =>
+      Effect.gen(function* () {
+        process.exitCode = 0;
+        try {
+          const endpoint = "postgres://workflow.dev.tiara-stack.moe/tiara";
+          const endpointIdentity = previewWorkflowApiDatabaseEndpointIdentity(endpoint);
+          if (endpointIdentity === undefined) throw new Error("test database target is invalid");
+          const runtimeArtifactAttestations = new Proxy(
+            { schemaVersion: 1 as const, packages: {} },
+            {
+              get(target, property, receiver) {
+                if (property === "packages") throw new Error("adapter-construction-test-failure");
+                return Reflect.get(target, property, receiver);
+              },
+            },
+          );
+          const authority: PreviewWorkflowApiAuthorityPayload = {
+            schemaVersion: 1,
+            issuedAt: Date.now(),
+            expiresAt: Date.now() + 60_000,
+            gatewayDomain: "dev.example.test",
+            workflowExecution: {
+              workflowApiEndpoint: "https://workflow-api.dev.tiara-stack.moe",
+              databaseEndpoint: endpoint,
+              databaseEndpointIdentity: endpointIdentity,
+              stateIdentity: "workflow-state-dev",
+              deployedManifestDigest: `sha256:${"a".repeat(64)}`,
+              schemaArtifactDigest: `sha256:${"b".repeat(64)}`,
+              workflowContractCatalogDigest: `sha256:${"c".repeat(64)}`,
+              authIssuer: "https://auth.dev.tiara-stack.moe",
+              credentialEnvironmentBindings: [],
+            },
+            runtimeArtifactAttestations,
+          };
+          const route: PreviewWorkflowApiApplicationRouteApi = {
+            applicationOrigin: () => Effect.succeed("https://preview.dev.example.test"),
+            publish: () => Effect.succeed("https://preview.dev.example.test"),
+            remove: () => Effect.void,
+          };
+
+          yield* Command.runWith(command, { version: "0.0.0" })(["unknown", "--json"]).pipe(
+            Effect.provideService(PreviewWorkflowApiApplicationRoute, route),
+            Effect.provideService(PreviewWorkflowApiTrustedAuthority, Option.some(authority)),
+          );
+
+          const output = (yield* TestConsole.logLines).join("\n");
+          expect(output).toContain('"code":"invalid-mode"');
+        } finally {
+          process.exitCode = 0;
+        }
+      }).pipe(Effect.provide(TestConsole.layer), Effect.provide(NodeServices.layer)),
   );
 });
 

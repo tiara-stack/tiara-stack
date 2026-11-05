@@ -237,6 +237,12 @@ export interface LauncherOutput {
       readonly recovery?: import("sheet-workflow-contracts").WorkflowRecreationRecovery;
     };
     readonly workflowTransitionPhases?: import("sheet-workflow-contracts").WorkflowTransitionPhaseFacts;
+    readonly workflowApiCleanup?: {
+      readonly allocation: "inspected" | "unavailable";
+      readonly route: "not-checked" | "confirmed" | "unconfirmed";
+      readonly process: "not-checked" | "confirmed" | "unconfirmed";
+      readonly sessionFence: "confirmed" | "unconfirmed" | "not-required";
+    };
     readonly allocations?: {
       readonly reservations: readonly {
         readonly dimension: string;
@@ -281,6 +287,8 @@ export interface ConnectedPreviewReport {
     readonly sourceRevision: string;
     readonly artifactDigests: Readonly<Partial<Record<ConnectedPreviewRole, string>>>;
     readonly deployedManifestDigest: string;
+    readonly workflowContractCatalogDigest?: string;
+    readonly schemaArtifactDigest?: string;
   };
   readonly environmentFileInputs: readonly {
     readonly role: ConnectedPreviewRole;
@@ -312,6 +320,9 @@ export interface ConnectedPreviewReport {
     readonly endpoint?: string;
     readonly stateIdentity?: string;
     readonly deployedManifestDigest?: string;
+    readonly databaseEndpointIdentity?: string;
+    readonly schemaArtifactDigest?: string;
+    readonly workflowContractCatalogDigest?: string;
     readonly allocationProfile?: string;
   }[];
   readonly quotaRequirements: readonly {
@@ -452,6 +463,13 @@ export interface LauncherOptions {
       never,
       import("effect/FileSystem").FileSystem | import("effect/unstable/http").HttpClient.HttpClient
     >,
+  ) => void;
+  readonly previewWorkflowApiSupervisor?: import("./preview-workflow-api-supervisor").PreviewWorkflowApiSupervisorApi;
+  readonly previewWorkflowApiSupervisorUnavailableReason?: string;
+  readonly previewGatewayRuntimeUnavailableReason?: import("./preview-gateway-runtime").PreviewGatewayRuntimeFailureReason;
+  readonly onPreviewSessionReady?: (
+    session: import("./preview-sessions").PreviewSession,
+    applicationOrigin: string,
   ) => void;
 }
 

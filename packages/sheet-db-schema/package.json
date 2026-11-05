@@ -19,10 +19,17 @@
     },
     "./migrations": {
       "types": "./dist/migrations.d.mts",
+      "development": "./src/migrations.ts",
+      "default": "./dist/migrations.mjs"
+    },
+    "./migration-artifact-identity": {
+      "types": "./dist/migrations.d.mts",
+      "development": "./src/migration-artifact-identity.ts",
       "default": "./dist/migrations.mjs"
     },
     "./admission": {
       "types": "./dist/admission/index.d.mts",
+      "development": "./src/admission/index.ts",
       "default": "./dist/admission/index.mjs"
     },
     "./testdb": {

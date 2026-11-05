@@ -681,6 +681,51 @@ it.effect("bounds the status read after heartbeat failures", () =>
   ),
 );
 
+it.live("fences readiness across requested workflow API source revisions", () =>
+  withController(({ value }) =>
+    Effect.gen(function* () {
+      const controller = yield* makePreviewSessionController(() => value);
+      const created = yield* controller.create({
+        owner: "owner",
+        checkout: "/checkout",
+        manifests: { "sheet-workflows-api": "sha256:api" },
+        requestedRevision: "revision-a",
+      });
+      const active = yield* controller.activate(
+        created.session.id,
+        1,
+        created.supervisorIdentity,
+        "revision-a",
+      );
+      expect(active.phase).toBe("active");
+
+      const requested = yield* controller.requestRevision(
+        created.session.id,
+        1,
+        created.supervisorIdentity,
+        "revision-b",
+      );
+      expect(requested.phase).toBe("starting");
+      expect(requested.requestedRevision).toBe("revision-b");
+      expect(requested.activeRevision).toBe("revision-a");
+
+      const staleReady = yield* Effect.exit(
+        controller.activate(created.session.id, 1, created.supervisorIdentity, "revision-a"),
+      );
+      expect(staleReady._tag).toBe("Failure");
+
+      const ready = yield* controller.activate(
+        created.session.id,
+        1,
+        created.supervisorIdentity,
+        "revision-b",
+      );
+      expect(ready.phase).toBe("active");
+      expect(ready.activeRevision).toBe("revision-b");
+    }),
+  ),
+);
+
 it.live("recovers a session after closing and reopening the durable SQLite store", () =>
   Effect.gen(function* () {
     const fileSystem = yield* FileSystem.FileSystem;
@@ -981,6 +1026,306 @@ it.live("settles only the original work admission after the session ends", () =>
       expect((yield* controller.status(created.session.id)).unsettled).toBe(0);
       const replay = yield* Effect.exit(controller.settleWorkload(admission));
       expect(replay._tag).toBe("Failure");
+    }),
+  ),
+);
+
+it.live("allows a resumed producer to observe the original accepted shared invocation", () =>
+  withController(({ value }) =>
+    Effect.gen(function* () {
+      const controller = yield* makePreviewSessionController(() => value);
+      const target =
+        "workflow-execution:state-a:manifest-a:api-a:catalog-a:notifications.loadSupportedClients:1";
+      const endpoint = "https://session-api.dev.tiara-stack.moe";
+      const created = yield* controller.create({
+        owner: "owner",
+        checkout: "/checkout",
+        manifests: {
+          "sheet-workflows-api": "sha256:api",
+          "shared-execution-mode": "producer-only",
+          "schema-artifact": "sha256:schema",
+        },
+        requestedRevision: "revision-a",
+        groups: ["workflow-execution"],
+        endpoints: [endpoint],
+        targets: [target],
+      });
+      const firstCredential = yield* controller.authorizeCredentialIssue(
+        created.session.id,
+        1,
+        "sheet-workflows-api",
+      );
+      yield* controller.registerCredentialIdentity({
+        id: created.session.id,
+        generation: 1,
+        role: "sheet-workflows-api",
+        reservationId: firstCredential.reservationId,
+        credentialName: "workload-identity",
+        serviceAccount: "tiara-stack-dev/preview-api",
+        oauthClientId: "preview-api-generation-1",
+        credentialFile: "/private/session/api/generation-1",
+      });
+      yield* controller.authorizeWorkEndpoint(
+        created.session.id,
+        1,
+        created.supervisorIdentity,
+        endpoint,
+      );
+      yield* controller.activate(created.session.id, 1, created.supervisorIdentity, "revision-a");
+      const original = yield* controller.admitWorkload({
+        sessionId: created.session.id,
+        generation: 1,
+        role: "sheet-workflows-api",
+        oauthClientId: "preview-api-generation-1",
+        groupId: "workflow-execution",
+        invocationId: "123e4567-e89b-42d3-a456-426614174000",
+        continuationId: null,
+        endpoint,
+        target,
+      });
+      yield* controller.settleWorkload(original);
+
+      value += previewSupervisorLeaseMs;
+      const resumed = yield* controller.resume(created.session.id, created.ownerIdentity);
+      const nextCredential = yield* controller.authorizeCredentialIssue(
+        created.session.id,
+        resumed.session.generation,
+        "sheet-workflows-api",
+      );
+      yield* controller.registerCredentialIdentity({
+        id: created.session.id,
+        generation: resumed.session.generation,
+        role: "sheet-workflows-api",
+        reservationId: nextCredential.reservationId,
+        credentialName: "workload-identity",
+        serviceAccount: "tiara-stack-dev/preview-api",
+        oauthClientId: "preview-api-generation-2",
+        credentialFile: "/private/session/api/generation-2",
+      });
+      yield* controller.authorizeWorkEndpoint(
+        created.session.id,
+        resumed.session.generation,
+        resumed.supervisorIdentity,
+        endpoint,
+      );
+      yield* controller.activate(
+        created.session.id,
+        resumed.session.generation,
+        resumed.supervisorIdentity,
+        "revision-a",
+      );
+      const found = yield* controller.findWorkloadAdmission({
+        sessionId: created.session.id,
+        generation: resumed.session.generation,
+        role: "sheet-workflows-api",
+        oauthClientId: "preview-api-generation-2",
+        groupId: "workflow-execution",
+        invocationId: original.invocationId,
+        endpoint,
+        target,
+      });
+      const continuation = yield* controller.admitWorkload({
+        sessionId: created.session.id,
+        generation: resumed.session.generation,
+        role: "sheet-workflows-api",
+        oauthClientId: "preview-api-generation-2",
+        groupId: "workflow-execution",
+        invocationId: original.invocationId,
+        continuationId: found.admissionId,
+        endpoint,
+        target,
+      });
+
+      expect(found.admissionId).toBe(original.admissionId);
+      expect(continuation.invocationId).toBe(original.invocationId);
+      expect(continuation.groupId).toBe(original.groupId);
+      yield* controller.settleWorkload(continuation);
+      expect((yield* controller.status(created.session.id)).unsettled).toBe(0);
+    }),
+  ),
+);
+
+it.live("authorizes non-producer API endpoints with the same key used by admission", () =>
+  withController(({ value }) =>
+    Effect.gen(function* () {
+      const controller = yield* makePreviewSessionController(() => value);
+      const endpoint = "https://session-api.dev.tiara-stack.moe";
+      const target = "workflow-execution:state-a:manifest-a:api-a:catalog-a:workflow:1";
+      const created = yield* controller.create({
+        owner: "owner",
+        checkout: "/checkout",
+        manifests: { "sheet-workflows-api": "sha256:api" },
+        requestedRevision: "revision-a",
+        groups: ["workflow-execution"],
+        endpoints: [endpoint],
+        targets: [target],
+      });
+      const issuance = yield* controller.authorizeCredentialIssue(
+        created.session.id,
+        created.session.generation,
+        "sheet-workflows-api",
+      );
+      yield* controller.registerCredentialIdentity({
+        id: created.session.id,
+        generation: created.session.generation,
+        role: "sheet-workflows-api",
+        reservationId: issuance.reservationId,
+        credentialName: "workload-identity",
+        serviceAccount: "tiara-stack-dev/api",
+        oauthClientId: "api-client",
+        credentialFile: "/private/session/api",
+      });
+      yield* controller.authorizeWorkEndpoint(
+        created.session.id,
+        created.session.generation,
+        created.supervisorIdentity,
+        endpoint,
+      );
+      const sql = yield* SqlClient.SqlClient;
+      const rows =
+        yield* sql`SELECT value FROM preview_session_allowed_work WHERE session_id=${created.session.id} AND kind='endpoint'`;
+      expect(rows).toEqual([{ value: endpoint }]);
+      yield* controller.activate(
+        created.session.id,
+        created.session.generation,
+        created.supervisorIdentity,
+        "revision-a",
+      );
+      const admission = yield* controller.admitWorkload({
+        sessionId: created.session.id,
+        generation: created.session.generation,
+        role: "sheet-workflows-api",
+        oauthClientId: "api-client",
+        groupId: "workflow-execution",
+        invocationId: "123e4567-e89b-42d3-a456-426614174000",
+        continuationId: null,
+        endpoint,
+        target,
+      });
+      expect(admission.endpoint).toBe(endpoint);
+    }),
+  ),
+);
+
+it.live("authorizes the exact HTTPS origin under any approved development gateway domain", () =>
+  withController(({ value }) =>
+    Effect.gen(function* () {
+      const controller = yield* makePreviewSessionController(() => value);
+      const endpoint = "https://session-api.preview.dev.example.test";
+      const target = "workflow-execution:state-a:manifest-a:api-a:catalog-a:workflow:1";
+      const created = yield* controller.create({
+        owner: "approved-alternate-domain",
+        checkout: "/checkout",
+        manifests: { "sheet-workflows-api": "sha256:api" },
+        requestedRevision: "revision-a",
+        groups: ["workflow-execution"],
+        endpoints: [endpoint],
+        targets: [target],
+      });
+
+      yield* controller.authorizeWorkEndpoint(
+        created.session.id,
+        created.session.generation,
+        created.supervisorIdentity,
+        endpoint,
+      );
+
+      const sql = yield* SqlClient.SqlClient;
+      const rows = yield* sql`SELECT value FROM preview_session_allowed_work
+        WHERE session_id=${created.session.id} AND kind='endpoint'`;
+      expect(rows).toEqual([{ value: endpoint }]);
+    }),
+  ),
+);
+
+it.live("does not let an old generation endpoint row authorize new producer work", () =>
+  withController(({ value }) =>
+    Effect.gen(function* () {
+      const controller = yield* makePreviewSessionController(() => value);
+      const endpoint = "https://session-api.dev.tiara-stack.moe";
+      const target = "workflow-execution:state-a:manifest-a:api-a:catalog-a:workflow:1";
+      const created = yield* controller.create({
+        owner: "owner",
+        checkout: "/checkout",
+        manifests: {
+          "sheet-workflows-api": "sha256:api",
+          "shared-execution-mode": "producer-only",
+          "schema-artifact": "sha256:schema",
+        },
+        requestedRevision: "revision-a",
+        groups: ["workflow-execution"],
+        endpoints: [endpoint],
+        targets: [target],
+      });
+
+      yield* controller.authorizeWorkEndpoint(
+        created.session.id,
+        created.session.generation,
+        created.supervisorIdentity,
+        endpoint,
+      );
+      value += previewSupervisorLeaseMs;
+      const expiredSupervisorAuthorization = yield* Effect.exit(
+        controller.authorizeWorkEndpoint(
+          created.session.id,
+          1,
+          created.supervisorIdentity,
+          endpoint,
+        ),
+      );
+      expect(Exit.isFailure(expiredSupervisorAuthorization)).toBe(true);
+      if (Exit.isFailure(expiredSupervisorAuthorization)) {
+        const error = Option.getOrUndefined(
+          Cause.findErrorOption(expiredSupervisorAuthorization.cause),
+        );
+        expect(error).toMatchObject({ reason: "stale-supervisor-or-expired" });
+      }
+      const resumed = yield* controller.resume(created.session.id, created.ownerIdentity);
+      const sql = yield* SqlClient.SqlClient;
+      const oldGenerationEndpoint = `generation:${created.session.generation}:${endpoint}`;
+      const staleRows =
+        yield* sql`SELECT value FROM preview_session_allowed_work WHERE session_id=${created.session.id} AND kind='endpoint' AND value=${oldGenerationEndpoint}`;
+      expect(staleRows).toHaveLength(1);
+      const issuance = yield* controller.authorizeCredentialIssue(
+        created.session.id,
+        resumed.session.generation,
+        "sheet-workflows-api",
+      );
+      yield* controller.registerCredentialIdentity({
+        id: created.session.id,
+        generation: resumed.session.generation,
+        role: "sheet-workflows-api",
+        reservationId: issuance.reservationId,
+        credentialName: "workload-identity",
+        serviceAccount: "tiara-stack-dev/preview-api",
+        oauthClientId: "preview-api-generation-2",
+        credentialFile: "/private/session/api/generation-2",
+      });
+      yield* controller.activate(
+        created.session.id,
+        resumed.session.generation,
+        resumed.supervisorIdentity,
+        "revision-a",
+      );
+
+      const staleEndpointAdmission = yield* Effect.exit(
+        controller.admitWorkload({
+          sessionId: created.session.id,
+          generation: resumed.session.generation,
+          role: "sheet-workflows-api",
+          oauthClientId: "preview-api-generation-2",
+          groupId: "workflow-execution",
+          invocationId: "123e4567-e89b-42d3-a456-426614174000",
+          continuationId: null,
+          endpoint,
+          target,
+        }),
+      );
+      expect(Exit.isFailure(staleEndpointAdmission)).toBe(true);
+      if (Exit.isFailure(staleEndpointAdmission)) {
+        const error = Option.getOrUndefined(Cause.findErrorOption(staleEndpointAdmission.cause));
+        expect(error).toMatchObject({ reason: "unapproved-work-endpoint" });
+      }
     }),
   ),
 );
