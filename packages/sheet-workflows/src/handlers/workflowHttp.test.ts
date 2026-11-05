@@ -53,18 +53,23 @@ import {
 } from "./workflowHttp";
 import { WorkflowStore } from "effect-zero-workflow";
 import { ReadOnlyWorkflowAuthorization } from "@/workflows/readOnly/authorization";
+import { isBrowserRunnerFleetReady } from "../services/clusterReadiness";
 
 const sheetDbMigrationArtifactDigest = getSheetDbMigrationArtifactDigest();
 
 const routeManifest = workflowHttpRouteManifest(SheetWorkflowContractCatalog);
-const makeBrowserReadinessSqlClient = () =>
+const makeBrowserReadinessSqlClient = (
+  isReady: (sql: string, parameters: ReadonlyArray<unknown>) => boolean = () => true,
+) =>
   Effect.gen(function* () {
+    const rowsFor = (sql: string, parameters: ReadonlyArray<unknown>) =>
+      Effect.succeed([{ ready: isReady(sql, parameters) }]);
     const connection: Connection = {
-      execute: () => Effect.succeed([{ ready: true }]),
+      execute: rowsFor,
       executeRaw: () => Effect.succeed(undefined),
       executeStream: () => Stream.empty,
       executeValues: () => Effect.succeed([]),
-      executeUnprepared: () => Effect.succeed([{ ready: true }]),
+      executeUnprepared: rowsFor,
     };
 
     return yield* SqlClient.make({
@@ -73,6 +78,29 @@ const makeBrowserReadinessSqlClient = () =>
       spanAttributes: [],
     }).pipe(Effect.provide(Reactivity.layer));
   });
+
+const ordinaryOnlyBrowserReadiness = (sql: string, parameters: ReadonlyArray<unknown>) => {
+  const hasBrowserGroupFence = sql.includes('"sheet_workflows_locks".shard_id LIKE ?');
+  const browserGroupPattern = hasBrowserGroupFence
+    ? parameters.find(
+        (parameter): parameter is string =>
+          typeof parameter === "string" && parameter.endsWith(":%"),
+      )
+    : undefined;
+  const ordinaryShardIds = Array.from({ length: 300 }, (_, shard) => `dispatch:${shard}`);
+  const countedShardIds = ordinaryShardIds.filter((shardId) => {
+    if (!hasBrowserGroupFence) return true;
+    return (
+      browserGroupPattern !== undefined && shardId.startsWith(browserGroupPattern.slice(0, -1))
+    );
+  });
+  return (
+    sql.includes("runner.healthy = TRUE") &&
+    sql.includes("runner.last_heartbeat > NOW()") &&
+    sql.includes('"sheet_workflows_locks".address = runner.address') &&
+    countedShardIds.length === 300
+  );
+};
 
 const requestPath = (path: string) => path.replace(":invocationId", "not-an-invocation-id");
 
@@ -304,6 +332,9 @@ describe("sheet workflow HTTP contract boundary", () => {
       Effect.scoped(
         Effect.gen(function* () {
           let enqueueCalls = 0;
+          const readinessSqlClient = yield* makeBrowserReadinessSqlClient(
+            ordinaryOnlyBrowserReadiness,
+          );
           const executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, never> = {
             enqueue: () =>
               Effect.sync(() => {
@@ -320,7 +351,7 @@ describe("sheet workflow HTTP contract boundary", () => {
               undefined,
               undefined,
               undefined,
-              () => Effect.succeed(false),
+              () => isBrowserRunnerFleetReady,
             ).pipe(Layer.provide(HttpRouter.layer)),
           );
           const requestSchema = WorkflowEnqueueRequest(ScreenshotsCaptureAndDeliver);
@@ -341,6 +372,7 @@ describe("sheet workflow HTTP contract boundary", () => {
               HttpServerRequest.HttpServerRequest,
               HttpServerRequest.fromWeb(routeRequest("POST", routes.enqueue, JSON.stringify(body))),
             ),
+            Effect.provideService(SqlClient.SqlClient, readinessSqlClient),
           );
 
           expect(response.status).toBe(503);

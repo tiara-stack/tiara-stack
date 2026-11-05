@@ -152,6 +152,48 @@ describe("staged source snapshot structural contract", () => {
 
     expect(validateStagedSourceSnapshot(source, source.completion.filesDigest)).toBeUndefined();
   });
+
+  it("rejects absolute and separator-alias browser state before accepting a snapshot", () => {
+    const forbiddenFiles: ReadonlyArray<StagedSourceFile> = [
+      utf8File("/workspace/.config/google-chrome/Default/Cookies", "synthetic cookie bytes"),
+      utf8File(
+        "C:\\Users\\dev\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cookies",
+        "synthetic cookie bytes",
+      ),
+      utf8File("\\\\server\\share\\playwright\\.auth\\user.json", "synthetic auth bytes"),
+      utf8File("..\\..\\private\\Cookies", "synthetic cookie bytes"),
+      utf8File("packages/sheet-workflows\\..\\..\\private/Cookies", "synthetic cookie bytes"),
+      utf8File("packages\\sheet-workflows\\playwright\\.auth\\user.json", "synthetic state"),
+      {
+        path: "C:\\Users\\dev\\AppData\\Local\\Google\\Chrome\\Cookies",
+        contentEncoding: "base64",
+        content: Buffer.from("synthetic binary cookie bytes", "utf8").toString("base64"),
+        mode: 0o644,
+      },
+    ];
+
+    for (const file of forbiddenFiles) {
+      const candidate = sealSnapshot("r1", [
+        utf8File("package.json", '{"name":"workspace"}'),
+        utf8File("pnpm-lock.yaml", "lockfileVersion: '9.0'"),
+        file,
+      ]);
+
+      expect({
+        path: file.path,
+        reason: validateStagedSourceSnapshot(candidate, candidate.completion.filesDigest),
+      }).toEqual({ path: file.path, reason: "excluded-or-unsafe-path" });
+    }
+
+    const ordinarySource = sealSnapshot("r1", [
+      utf8File("package.json", '{"name":"workspace"}'),
+      utf8File("pnpm-lock.yaml", "lockfileVersion: '9.0'"),
+      utf8File("packages/sheet-workflows/src/cookies.ts", "export const cookies = []"),
+    ]);
+    expect(
+      validateStagedSourceSnapshot(ordinarySource, ordinarySource.completion.filesDigest),
+    ).toBeUndefined();
+  });
 });
 
 describe("workflow recreation recovery contract", () => {

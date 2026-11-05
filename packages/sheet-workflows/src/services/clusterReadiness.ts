@@ -11,6 +11,7 @@ const SHARD_LOCK_WINDOW_SECONDS = 35;
 const SHARD_LOCK_COUNT_PER_WORKFLOW_GROUP = 300;
 const ORDINARY_SHARD_LOCK_COUNT = 2 * SHARD_LOCK_COUNT_PER_WORKFLOW_GROUP;
 const BROWSER_SHARD_LOCK_COUNT = SHARD_LOCK_COUNT_PER_WORKFLOW_GROUP;
+const BROWSER_SHARD_GROUP_PATTERN = "browser:%";
 
 const shardLockCountByRole = {
   api: ORDINARY_SHARD_LOCK_COUNT,
@@ -126,6 +127,7 @@ export const isBrowserRunnerFleetReady = Effect.gen(function* () {
           SELECT COUNT(*)
           FROM "sheet_workflows_locks"
           WHERE "sheet_workflows_locks".address = runner.address
+            AND "sheet_workflows_locks".shard_id LIKE ${BROWSER_SHARD_GROUP_PATTERN}
             AND "sheet_workflows_locks".acquired_at > NOW() - (${SHARD_LOCK_WINDOW_SECONDS} * INTERVAL '1 second')
         ) = ${BROWSER_SHARD_LOCK_COUNT}
     ) AS ready

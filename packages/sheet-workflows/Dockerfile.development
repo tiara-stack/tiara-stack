@@ -116,8 +116,7 @@ RUN mkdir -p /tmp/browser-runtime \
   && playwright_version="$(node -p "require('/tmp/sheet-workflows-package.json').dependencies.playwright")" \
   && npm install --no-save "playwright@${playwright_version}" \
   && npx playwright install --with-deps chromium \
-  && cd /workspace-build \
-  && TIA_BROWSER_SMOKE_PLAYWRIGHT_MODULE=/tmp/browser-runtime/node_modules/playwright/index.mjs pnpm --dir packages/sheet-workflows test:browser-smoke \
+  && TIA_BROWSER_SMOKE_PLAYWRIGHT_MODULE=/tmp/browser-runtime/node_modules/playwright/index.mjs node /workspace-build/packages/sheet-workflows/browser-runner-smoke.mjs \
   && npm cache clean --force \
   && rm -rf /tmp/browser-runtime /tmp/sheet-workflows-package.json /var/lib/apt/lists/* \
   && chown -R node:node /ms-playwright /workspace

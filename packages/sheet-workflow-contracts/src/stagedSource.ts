@@ -65,12 +65,15 @@ export const isSafeStagedSourcePath = Predicate.and(
   Predicate.and(
     (path: string) => !path.startsWith("/"),
     Predicate.and(
-      (path: string) =>
-        !path.split("/").some((part) => part === "" || part === "." || part === ".."),
-      (path: string) =>
-        !excludedPath.test(path) &&
-        !excludedBrowserProfilePaths.some((pattern) => pattern.test(path)) &&
-        !excludedBrowserStatePaths.some((pattern) => pattern.test(path)),
+      (path: string) => !path.includes("\\") && !/^[A-Za-z]:/.test(path),
+      Predicate.and(
+        (path: string) =>
+          !path.split("/").some((part) => part === "" || part === "." || part === ".."),
+        (path: string) =>
+          !excludedPath.test(path) &&
+          !excludedBrowserProfilePaths.some((pattern) => pattern.test(path)) &&
+          !excludedBrowserStatePaths.some((pattern) => pattern.test(path)),
+      ),
     ),
   ),
 );
