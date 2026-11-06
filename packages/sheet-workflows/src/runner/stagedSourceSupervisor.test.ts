@@ -197,6 +197,18 @@ describe("runner staged-source supervisor", () => {
           snapshot("browser-cookie-artifact", [
             utf8File("tests/fixtures/cookies.sqlite", "synthetic cookie bytes"),
           ]),
+          snapshot("browser-state-named-directory-json", [
+            utf8File(
+              "packages/sheet-workflows/src/authState/session.json",
+              "synthetic state bytes",
+            ),
+          ]),
+          snapshot("browser-state-named-directory-sqlite", [
+            utf8File(
+              "packages/sheet-workflows/src/storage-state/session.sqlite",
+              "synthetic state bytes",
+            ),
+          ]),
           snapshot("browser-drive-profile-alias", [
             utf8File(
               "C:\\Users\\dev\\AppData\\Local\\Google\\Chrome\\User Data\\Default\\Cookies",
@@ -259,6 +271,14 @@ describe("runner staged-source supervisor", () => {
       const candidate = snapshot("browser-source-modules", [
         utf8File("packages/sheet-workflows/src/authState.ts", "export const authState = true;"),
         utf8File(
+          "packages/sheet-workflows/src/authState/index.ts",
+          "export const authStateModule = true;",
+        ),
+        utf8File(
+          "packages/sheet-workflows/src/STORAGE-STATE/Store.mts",
+          "export const storageStateStore = {};",
+        ),
+        utf8File(
           "packages/sheet-workflows/src/cookies/index.ts",
           "export const cookies = [] as const;",
         ),
@@ -278,6 +298,16 @@ describe("runner staged-source supervisor", () => {
           join(activeRoot, "current/packages/sheet-workflows/src/authState.ts"),
         ),
       ).toContain("authState");
+      expect(
+        yield* fileSystem.readFileString(
+          join(activeRoot, "current/packages/sheet-workflows/src/authState/index.ts"),
+        ),
+      ).toContain("authStateModule");
+      expect(
+        yield* fileSystem.readFileString(
+          join(activeRoot, "current/packages/sheet-workflows/src/STORAGE-STATE/Store.mts"),
+        ),
+      ).toContain("storageStateStore");
       expect(
         yield* fileSystem.readFileString(
           join(activeRoot, "current/packages/sheet-workflows/src/cookies/index.ts"),

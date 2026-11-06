@@ -20,9 +20,7 @@ it.effect("uses expiry-aware database shard locks", () =>
     expect(shardingConfig.availableShardGroups).toContain(
       shardingConfig.assignedShardGroups.at(-1),
     );
-    expect(shardingConfig.availableShardGroups.at(-1)).toMatch(
-      /^browser-capability-v1-[a-f0-9]{64}$/,
-    );
+    expect(shardingConfig.availableShardGroups.at(-1)).toMatch(/^brcap-v1-[a-f0-9]{32}$/);
   }).pipe(
     Effect.provide(shardingConfigLayer),
     Effect.provide(
@@ -48,10 +46,10 @@ it.effect("assigns the scoped capability group only to the browser runner", () =
   Effect.gen(function* () {
     const shardingConfig = yield* ShardingConfig.ShardingConfig;
     const browserCapabilityGroup = shardingConfig.availableShardGroups.find((group) =>
-      group.startsWith("browser-capability-v1-"),
+      group.startsWith("brcap-v1-"),
     );
 
-    expect(browserCapabilityGroup).toMatch(/^browser-capability-v1-[a-f0-9]{64}$/);
+    expect(browserCapabilityGroup).toMatch(/^brcap-v1-[a-f0-9]{32}$/);
     expect(shardingConfig.assignedShardGroups).toEqual(["browser", browserCapabilityGroup]);
   }).pipe(
     Effect.provide(shardingConfigLayer),

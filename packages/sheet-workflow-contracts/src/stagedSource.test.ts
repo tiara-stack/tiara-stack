@@ -129,6 +129,9 @@ describe("staged source snapshot structural contract", () => {
       "tests/fixtures/authState.json",
       "tests/fixtures/storageState.json",
       "tests/fixtures/cookies.sqlite",
+      "packages/sheet-workflows/src/authState/private.json",
+      "packages/sheet-workflows/src/storage-state/snapshot.sqlite",
+      "packages/sheet-workflows/src/STORAGE_STATE/snapshot.bin",
     ];
 
     for (const path of forbiddenPaths) {
@@ -150,6 +153,30 @@ describe("staged source snapshot structural contract", () => {
       utf8File("packages/sheet-workflows/src/storage-state-schema.ts", "export const schema = 1"),
       utf8File("packages/sheet-workflows/src/authState.ts", "export const authState = 1"),
       utf8File("packages/sheet-workflows/src/cookies/index.ts", "export const cookies = []"),
+      utf8File(
+        "packages/sheet-workflows/src/authState/index.ts",
+        "export const authStateModule = true;",
+      ),
+      utf8File(
+        "packages/sheet-workflows/src/AUTH-STATE/Provider.tsx",
+        "export const AuthStateProvider = () => null;",
+      ),
+      utf8File(
+        "packages/sheet-workflows/src/auth_state/hooks.mts",
+        "export const useAuthState = () => undefined;",
+      ),
+      utf8File(
+        "packages/sheet-workflows/src/storageState/Store.cts",
+        "export const storageStateStore = {};",
+      ),
+      utf8File(
+        "packages/sheet-workflows/src/STORAGE-STATE/index.jsx",
+        "export const StorageStateView = () => null;",
+      ),
+      utf8File(
+        "packages/sheet-workflows/src/storage_state/types.d.ts",
+        "export type StorageState = never;",
+      ),
     ]);
 
     expect(validateStagedSourceSnapshot(source, source.completion.filesDigest)).toBeUndefined();

@@ -84,40 +84,64 @@ const makeBrowserReadinessSqlClient = (
     }).pipe(Effect.provide(Reactivity.layer));
   });
 
+type BrowserReadinessGroup = {
+  readonly group: string;
+  readonly count: number;
+  readonly owner?: string;
+  readonly acquiredAgeSeconds?: number;
+};
+
+type BrowserReadinessState = {
+  readonly healthy?: boolean;
+  readonly heartbeatAgeSeconds?: number;
+};
+
+const browserReadinessGroupPatterns = (parameters: ReadonlyArray<unknown>) =>
+  parameters.filter(
+    (parameter): parameter is string => typeof parameter === "string" && parameter.endsWith(":%"),
+  );
+
+const hasBrowserReadinessSqlFences = (sql: string) =>
+  sql.includes("runner.healthy = TRUE") &&
+  sql.includes("runner.last_heartbeat > NOW()") &&
+  sql.split('"sheet_workflows_locks".address = runner.address').length - 1 === 2 &&
+  (sql.match(/"sheet_workflows_locks"\.shard_id LIKE \?/g)?.length ?? 0) === 2;
+
+const browserGroupLockCount = (
+  groups: ReadonlyArray<BrowserReadinessGroup>,
+  owner: string,
+  groupPattern: string,
+) =>
+  groups
+    .filter((row) => (row.owner ?? "browser-runner-a") === owner)
+    .filter((row) => row.group === groupPattern.slice(0, -2))
+    .reduce((count, row) => count + row.count, 0);
+
+const hasCompleteCoOwnedBrowserGroups = (
+  groups: ReadonlyArray<BrowserReadinessGroup>,
+  groupPatterns: ReadonlyArray<string>,
+) => {
+  const freshGroups = groups.filter((group) => (group.acquiredAgeSeconds ?? 1) < 35);
+  const owners = new Set(groups.map(({ owner }) => owner ?? "browser-runner-a"));
+  return [...owners].some((owner) =>
+    groupPatterns.every((pattern) => browserGroupLockCount(freshGroups, owner, pattern) === 300),
+  );
+};
+
 const browserReadinessForGroups =
-  (
-    groups: ReadonlyArray<{
-      readonly group: string;
-      readonly count: number;
-      readonly owner?: string;
-    }>,
-  ) =>
+  (groups: ReadonlyArray<BrowserReadinessGroup>, runner: BrowserReadinessState = {}) =>
   (sql: string, parameters: ReadonlyArray<unknown>) => {
-    const groupPatterns = parameters.filter(
-      (parameter): parameter is string => typeof parameter === "string" && parameter.endsWith(":%"),
-    );
+    const groupPatterns = browserReadinessGroupPatterns(parameters);
     const requiredLockCounts = parameters.filter(
       (parameter): parameter is number => typeof parameter === "number" && parameter === 300,
     );
-    const owners = new Set(groups.map(({ owner }) => owner ?? "browser-runner-a"));
     return (
-      sql.includes("runner.healthy = TRUE") &&
-      sql.includes("runner.last_heartbeat > NOW()") &&
-      sql.split('"sheet_workflows_locks".address = runner.address').length - 1 === 2 &&
-      (sql.match(/"sheet_workflows_locks"\.shard_id LIKE \?/g)?.length ?? 0) === 2 &&
+      hasBrowserReadinessSqlFences(sql) &&
+      runner.healthy !== false &&
+      (runner.heartbeatAgeSeconds ?? 1) < 35 &&
       groupPatterns.length === 2 &&
       requiredLockCounts.length === 2 &&
-      [...owners].some((owner) =>
-        groupPatterns.every((pattern) => {
-          const group = pattern.slice(0, -2);
-          return (
-            groups
-              .filter((row) => (row.owner ?? "browser-runner-a") === owner)
-              .filter((row) => row.group === group)
-              .reduce((count, row) => count + row.count, 0) === 300
-          );
-        }),
-      )
+      hasCompleteCoOwnedBrowserGroups(groups, groupPatterns)
     );
   };
 
@@ -368,6 +392,7 @@ describe("sheet workflow HTTP contract boundary", () => {
             ...capabilityIdentity,
             loadedSchemaArtifactDigest: `sha256:${"f".repeat(64)}`,
           });
+          const priorLongGroup = "browser-capability-v1-" + "a".repeat(64);
           let enqueueCalls = 0;
           const executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, never> = {
             enqueue: (contract, _context, request) =>
@@ -403,7 +428,13 @@ describe("sheet workflow HTTP contract boundary", () => {
           );
           const routes = workflowContractRoutes(ScreenshotsCaptureAndDeliver);
           const actionGroup = screenshotShardGroups.browser;
-          const scenarios = [
+          const scenarios: ReadonlyArray<{
+            readonly label: string;
+            readonly groups: ReadonlyArray<BrowserReadinessGroup>;
+            readonly readiness?: BrowserReadinessState;
+            readonly status: number;
+            readonly enqueues: number;
+          }> = [
             {
               label: "selected runtime owns both action and capability groups",
               groups: [
@@ -431,6 +462,24 @@ describe("sheet workflow HTTP contract boundary", () => {
             {
               label: "action-only shard ownership",
               groups: [{ group: actionGroup, count: 300 }],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "partial capability group does not satisfy readiness",
+              groups: [
+                { group: selectedGroup, count: 299 },
+                { group: actionGroup, count: 300 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "prior long capability group does not satisfy current readiness",
+              groups: [
+                { group: priorLongGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
               status: 503,
               enqueues: 0,
             },
@@ -489,6 +538,44 @@ describe("sheet workflow HTTP contract boundary", () => {
               enqueues: 0,
             },
             {
+              label: "stale capability shard rows do not enqueue",
+              groups: [
+                { group: selectedGroup, count: 300, acquiredAgeSeconds: 36 },
+                { group: actionGroup, count: 300 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "stale legacy action shard rows do not enqueue",
+              groups: [
+                { group: selectedGroup, count: 300 },
+                { group: actionGroup, count: 300, acquiredAgeSeconds: 36 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "stale browser runner heartbeat does not enqueue",
+              groups: [
+                { group: selectedGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
+              readiness: { heartbeatAgeSeconds: 36 },
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "unhealthy browser runner does not enqueue",
+              groups: [
+                { group: selectedGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
+              readiness: { healthy: false },
+              status: 503,
+              enqueues: 0,
+            },
+            {
               label: "browser capability lost before admission",
               groups: [],
               status: 503,
@@ -499,7 +586,7 @@ describe("sheet workflow HTTP contract boundary", () => {
           for (const scenario of scenarios) {
             const enqueueCallsBeforeScenario = enqueueCalls;
             const readinessSqlClient = yield* makeBrowserReadinessSqlClient(
-              browserReadinessForGroups(scenario.groups),
+              browserReadinessForGroups(scenario.groups, scenario.readiness),
             );
             const response = yield* handler.pipe(
               Effect.provideService(

@@ -1611,7 +1611,10 @@ describe("staged source snapshots", () => {
     () =>
       Effect.gen(function* () {
         const first = snapshot("r1", [["src/old.ts", "old"]]);
-        const next = snapshot("r2", [["src/new.ts", "new"]]);
+        const next = snapshot("r2", [
+          ["packages/sheet-workflows/src/authState/index.ts", "export const authState = true;"],
+          ["packages/sheet-workflows/src/storage-state/Provider.mts", "export const store = {};"],
+        ]);
         yield* validateStagedSnapshot(next);
         expect(classifySnapshotChange(first, next)).toBe("source");
         expect(next.files.some(({ path }) => path === "src/old.ts")).toBe(false);
@@ -1630,6 +1633,8 @@ describe("staged source snapshots", () => {
         });
         expect(result.failure).toBeNull();
         expect(result.activeRevision).toBe("r2");
+        expect(stagedPaths).toContain("packages/sheet-workflows/src/authState/index.ts");
+        expect(stagedPaths).toContain("packages/sheet-workflows/src/storage-state/Provider.mts");
         expect(stagedPaths).not.toContain("src/old.ts");
       }),
   );
@@ -1904,6 +1909,40 @@ describe("staged source snapshots", () => {
         let runtimeCalls = 0;
         const result = yield* activateWithRuntime({
           snapshot: snapshot("r2", [[path, "credential"]]),
+          previous: snapshot("r1"),
+          owner: "owner",
+          nextOwner: "next-owner",
+          runtime: runtimeLayer({
+            stageComplete: () => {
+              runtimeCalls += 1;
+              return Effect.void;
+            },
+            fenceOldOwner: () => {
+              runtimeCalls += 1;
+              return Effect.void;
+            },
+            activateComplete: () => {
+              runtimeCalls += 1;
+              return Effect.void;
+            },
+          }),
+        });
+        expect(result.failure).toBe("excluded-or-unsafe-path");
+        expect(runtimeCalls).toBe(0);
+      }
+    }),
+  );
+
+  it.effect("rejects browser state in state-named directories before runtime effects", () =>
+    Effect.gen(function* () {
+      const paths = [
+        "packages/sheet-workflows/src/authState/session.json",
+        "packages/sheet-workflows/src/storage-state/session.sqlite",
+      ];
+      for (const path of paths) {
+        let runtimeCalls = 0;
+        const result = yield* activateWithRuntime({
+          snapshot: snapshot("r2", [[path, "synthetic private state"]]),
           previous: snapshot("r1"),
           owner: "owner",
           nextOwner: "next-owner",

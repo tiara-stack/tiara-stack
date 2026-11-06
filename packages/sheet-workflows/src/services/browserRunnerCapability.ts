@@ -21,6 +21,9 @@ export type BrowserRunnerCapabilityIdentity = {
   readonly playwrightVersion: string;
 };
 
+const browserRunnerCapabilityGroupPrefix = "brcap-v1-";
+const browserRunnerCapabilityDigestLength = 32;
+
 /** Builds a shard group whose ownership is tied to the loaded browser runtime and selected store. */
 export const browserRunnerCapabilityGroupFor = (identity: BrowserRunnerCapabilityIdentity) => {
   const capabilityIdentity = {
@@ -39,7 +42,7 @@ export const browserRunnerCapabilityGroupFor = (identity: BrowserRunnerCapabilit
     loadedSchemaArtifactDigest: identity.loadedSchemaArtifactDigest,
   };
   const digest = createHash("sha256").update(JSON.stringify(capabilityIdentity)).digest("hex");
-  return `browser-capability-v1-${digest}`;
+  return browserRunnerCapabilityGroupPrefix + digest.slice(0, browserRunnerCapabilityDigestLength);
 };
 
 const databaseEndpointIdentity = (url: Redacted.Redacted<string>) =>

@@ -3,8 +3,14 @@ import { ConfigProvider, Effect, Stream } from "effect";
 import { Reactivity } from "effect/unstable/reactivity";
 import { SqlClient, Statement } from "effect/unstable/sql";
 import type { Connection } from "effect/unstable/sql/SqlConnection";
+import { make as makeShardId } from "effect/unstable/cluster/ShardId";
 import { screenshotShardGroups } from "@/workflows/screenshots/definition";
-import { browserRunnerCapabilityGroup } from "./browserRunnerCapability";
+import {
+  browserRunnerCapabilityGroup,
+  browserRunnerCapabilityGroupFor,
+  browserRunnerCapabilityShardPattern,
+  type BrowserRunnerCapabilityIdentity,
+} from "./browserRunnerCapability";
 import { isBrowserRunnerFleetReady } from "./clusterReadiness";
 
 type ReadinessRunner = {
@@ -104,6 +110,55 @@ const browserReadinessSql = (
   ).pipe(Effect.provide(Reactivity.layer));
 
 describe("browser runner cluster readiness", () => {
+  it("keeps capability shard IDs inside the persisted lock column", () => {
+    const identity: BrowserRunnerCapabilityIdentity = {
+      databaseEndpointIdentity: "postgres://database.example:5432/sheets",
+      loadedCatalogDigest: "c".repeat(64),
+      loadedSchemaArtifactDigest: "d".repeat(64),
+      playwrightVersion: "1.58.2",
+    };
+    const group = browserRunnerCapabilityGroupFor(identity);
+
+    expect(group).toMatch(/^brcap-v1-[a-f0-9]{32}$/);
+    expect(browserRunnerCapabilityGroupFor(identity)).toBe(group);
+    expect(
+      browserRunnerCapabilityGroupFor({
+        ...identity,
+        databaseEndpointIdentity: "postgres://database.example:5433/sheets",
+      }),
+    ).not.toBe(group);
+    expect(
+      browserRunnerCapabilityGroupFor({
+        ...identity,
+        loadedCatalogDigest: "e".repeat(64),
+      }),
+    ).not.toBe(group);
+    expect(
+      browserRunnerCapabilityGroupFor({
+        ...identity,
+        loadedSchemaArtifactDigest: "f".repeat(64),
+      }),
+    ).not.toBe(group);
+    expect(
+      browserRunnerCapabilityGroupFor({
+        ...identity,
+        playwrightVersion: "1.58.3",
+      }),
+    ).not.toBe(group);
+
+    const shardIds = Array.from({ length: 300 }, (_, index) =>
+      makeShardId(group, index + 1).toString(),
+    );
+
+    expect(shardIds).toHaveLength(300);
+    expect(shardIds[0]).toBe(group + ":1");
+    expect(shardIds[299]).toBe(group + ":300");
+    expect(new Set(shardIds).size).toBe(300);
+    expect(shardIds.every((shardId) => shardId.length <= 50)).toBe(true);
+    expect(browserRunnerCapabilityShardPattern(group)).toBe(group + ":%");
+    expect(group).not.toMatch(/[%_]/);
+  });
+
   it.effect("requires a healthy runner holding exactly the fresh browser shard group", () =>
     Effect.gen(function* () {
       const queries: string[] = [];
@@ -126,7 +181,7 @@ describe("browser runner cluster readiness", () => {
       ): ReadonlyArray<ReadinessLock> =>
         Array.from({ length: count }, (_, shard) => ({
           address,
-          shardId: `${group}:${shard}`,
+          shardId: makeShardId(group, shard + 1).toString(),
           acquiredAgeSeconds: ageSeconds,
         }));
       const browserActionGroup = screenshotShardGroups.browser;

@@ -55,9 +55,9 @@ const excludedBrowserProfilePaths = [
 
 const excludedBrowserStatePaths = [
   /(^|\/)(?:\.auth|(?:browser|brave|chrome|chromium|edge)-(?:profile|user-data))(\/|$)/i,
-  /(^|\/)(?:storage[-_]?state|auth[-_]?state)(\/|$)/i,
 ] as const;
 
+const browserStateDirectory = /^(?:storage[-_]?state|auth[-_]?state)$/i;
 const browserStateArtifactFile =
   /^(?:storage[-_]?state|auth[-_]?state)(?:\.(?:json|jsonc|jsonl|txt|state|db|sqlite(?:-(?:shm|wal))?))?$/i;
 const cookieArtifactFile =
@@ -70,7 +70,7 @@ const isBrowserStateArtifactPath = (path: string) => {
   const segments = path.split("/");
   if (segments.some((part) => /^cookie-jar$/i.test(part))) return true;
   if (sourceCodeFile.test(fileName)) return false;
-  return segments.some((part) => /^cookies?$/i.test(part));
+  return segments.some((part) => /^cookies?$/i.test(part) || browserStateDirectory.test(part));
 };
 
 /** Shared transfer path check so the host and runner reject the same files. */
