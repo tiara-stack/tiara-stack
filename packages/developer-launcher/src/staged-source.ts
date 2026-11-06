@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { parse as parseYaml } from "yaml";
-import { Cause, Clock, Context, Effect, Layer, Match, Option, Schema } from "effect";
+import { Cause, Clock, Context, Effect, Layer, Match, Option, Predicate, Schema } from "effect";
 import {
   RunnerRevisionStatusSchema,
   RunnerRoleSchema,
@@ -195,12 +195,11 @@ const hasOnlyPlaywrightDependencyChangePaths = (changedPaths: ReadonlyArray<stri
   changedPaths.every((path) => path === sheetWorkflowsPackageManifestPath || path === pnpmLockPath);
 
 type JsonValue = typeof Schema.Json.Type;
-type JsonRecord = Readonly<Record<string, JsonValue>>;
-
 const JsonRecordSchema = Schema.Record(Schema.String, Schema.Json);
+type JsonRecord = typeof JsonRecordSchema.Type;
 
 const isJsonRecord = (value: JsonValue | undefined): value is JsonRecord =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
+  Predicate.isObject(value);
 
 const jsonRecordProperty = (record: JsonRecord, key: string): JsonRecord | undefined => {
   const value = record[key];
@@ -260,7 +259,7 @@ const readPnpmImporterPlaywright = (lockfile: JsonRecord) => {
   if (playwright === undefined) return undefined;
   const specifier = playwright.specifier;
   const version = playwright.version;
-  return typeof specifier === "string" && typeof version === "string"
+  return Predicate.isString(specifier) && Predicate.isString(version)
     ? { specifier, version }
     : undefined;
 };
@@ -284,7 +283,7 @@ const lockDependencyEntries = (
     if (dependencies === undefined) continue;
     if (!isJsonRecord(dependencies)) return undefined;
     for (const [name, version] of Object.entries(dependencies)) {
-      if (typeof version !== "string") return undefined;
+      if (!Predicate.isString(version)) return undefined;
       entries.push([name, version]);
     }
   }
@@ -407,7 +406,7 @@ const readSheetWorkflowsManifest = (snapshot: StagedSourceSnapshot) => {
 const playwrightManifestDependency = (manifest: JsonRecord): string | undefined => {
   const dependencies = jsonRecordProperty(manifest, "dependencies");
   const version = dependencies?.playwright;
-  return typeof version === "string" ? version : undefined;
+  return Predicate.isString(version) ? version : undefined;
 };
 
 const manifestsDifferOnlyByPlaywright = (before: JsonRecord, after: JsonRecord) => {

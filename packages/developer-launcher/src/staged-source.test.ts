@@ -1732,6 +1732,100 @@ describe("staged source snapshots", () => {
     expect(affectedRunnerRoles(previous, otherLockfileChange, selected)).toEqual(selected);
   });
 
+  it("falls back to selected roles when Playwright lock metadata has malformed JSON shapes", () => {
+    const previous = playwrightWorkspaceSnapshot("r1", "1.58.1");
+    const selected = ["workflow-api", "ordinary-runner", "browser-runner"] as const;
+    const malformedSnapshots = [
+      playwrightWorkspaceSnapshot("r2", "1.58.2", {
+        manifestChange: { dependencies: { effect: "catalog:" } },
+      }),
+      playwrightWorkspaceSnapshot("r3", "1.58.2", {
+        lockfileChange: { importers: null },
+      }),
+      playwrightWorkspaceSnapshot("r4", "1.58.2", {
+        lockfileChange: { importers: [] },
+      }),
+      playwrightWorkspaceSnapshot("r5", "1.58.2", {
+        lockfileChange: {
+          importers: { "packages/sheet-workflows": { dependencies: null } },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r6", "1.58.2", {
+        lockfileChange: {
+          importers: { "packages/sheet-workflows": { dependencies: [] } },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r7", "1.58.2", {
+        lockfileChange: {
+          importers: {
+            "packages/sheet-workflows": {
+              dependencies: { playwright: { specifier: null, version: "1.58.2" } },
+            },
+          },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r8", "1.58.2", {
+        lockfileChange: {
+          importers: {
+            "packages/sheet-workflows": {
+              dependencies: { playwright: { specifier: 1, version: "1.58.2" } },
+            },
+          },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r9", "1.58.2", {
+        lockfileChange: {
+          importers: {
+            "packages/sheet-workflows": {
+              dependencies: { playwright: { specifier: "1.58.2", version: 1 } },
+            },
+          },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r10", "1.58.2", {
+        lockfileChange: {
+          importers: {
+            "packages/sheet-workflows": { dependencies: { playwright: { specifier: "1.58.2" } } },
+          },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r11", "1.58.2", {
+        lockfileChange: {
+          packages: {
+            "playwright@1.58.2": {
+              resolution: { integrity: "sha512-playwright-1.58.2" },
+              dependencies: null,
+            },
+          },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r12", "1.58.2", {
+        lockfileChange: {
+          packages: {
+            "playwright@1.58.2": {
+              resolution: { integrity: "sha512-playwright-1.58.2" },
+              dependencies: [],
+            },
+          },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r13", "1.58.2", {
+        lockfileChange: {
+          packages: {
+            "playwright@1.58.2": {
+              resolution: { integrity: "sha512-playwright-1.58.2" },
+              dependencies: { "playwright-core": 1 },
+            },
+          },
+        },
+      }),
+    ];
+
+    for (const next of malformedSnapshots) {
+      expect(affectedRunnerRoles(previous, next, selected)).toEqual(selected);
+    }
+  });
+
   it.effect("does not restart workflow roles for a mode-only unrelated source edit", () =>
     Effect.gen(function* () {
       const manifestsAndSources = [
@@ -1977,7 +2071,15 @@ describe("staged source snapshots", () => {
         ),
       );
       const invalidPackage = snapshot("r2", [["packages/broken/package.json", "{"]]);
-      for (const candidate of [invalidRoot, invalidPackage]) {
+      const invalidWorkspaceDependencies = [null, []].map((dependencies) =>
+        snapshot("r2", [
+          [
+            "packages/sheet-workflows/package.json",
+            JSON.stringify({ name: "sheet-workflows", dependencies }),
+          ],
+        ]),
+      );
+      for (const candidate of [invalidRoot, invalidPackage, ...invalidWorkspaceDependencies]) {
         let stageCalls = 0;
         let fenceCalls = 0;
         let activationCalls = 0;
