@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { createRequire } from "node:module";
-import { Config, ConfigProvider, Effect, Redacted, Schema } from "effect";
+import { Config, ConfigProvider, Effect, Redacted } from "effect";
 import { ScreenshotsCaptureAndDeliver } from "sheet-workflow-contracts";
 import { config } from "@/config";
 import { sheetWorkflowsRuntimePolicy } from "@/config/runtimePolicy";
@@ -8,11 +7,9 @@ import {
   screenshotActionVersion,
   screenshotWorkflowDefinitionVersion,
 } from "@/workflows/screenshots/catalog";
+import { playwrightPackageVersionFrom } from "./playwrightPackage";
 
-const PlaywrightPackageSchema = Schema.Struct({ version: Schema.NonEmptyString });
-const playwrightVersion = Schema.decodeUnknownSync(PlaywrightPackageSchema)(
-  createRequire(import.meta.url)("playwright/package.json"),
-).version;
+const playwrightVersion = playwrightPackageVersionFrom(import.meta.url);
 
 export type BrowserRunnerCapabilityIdentity = {
   readonly databaseEndpointIdentity: string;
@@ -66,16 +63,17 @@ const databaseEndpointIdentity = (url: Redacted.Redacted<string>) =>
 
 /** Shared by API admission and the browser runner's actual assigned shard groups. */
 export const browserRunnerCapabilityIdentity = Effect.gen(function* () {
-  const [policy, postgresUrl] = yield* Effect.all([
+  const [policy, postgresUrl, installedPlaywrightVersion] = yield* Effect.all([
     sheetWorkflowsRuntimePolicy,
     config.postgresUrl,
+    playwrightVersion,
   ] as const);
 
   return {
     databaseEndpointIdentity: yield* databaseEndpointIdentity(postgresUrl),
     loadedCatalogDigest: policy.workflowContractCatalogDigest,
     loadedSchemaArtifactDigest: policy.schemaArtifactDigest,
-    playwrightVersion,
+    playwrightVersion: installedPlaywrightVersion,
   } satisfies BrowserRunnerCapabilityIdentity;
 }).pipe(Effect.withSpan("sheet-workflows.browserRunner.capabilityGroup"));
 

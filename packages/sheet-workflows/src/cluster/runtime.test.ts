@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { ConfigProvider, Effect, Option } from "effect";
 import { RunnerAddress, ShardingConfig } from "effect/unstable/cluster";
+import { sheetWorkflowsRuntimePolicy } from "@/config/runtimePolicy";
 import {
   assignedSheetWorkflowShardGroups,
   clientOnlyWorkflowShardingConfig,
@@ -32,6 +33,59 @@ it.effect("uses expiry-aware database shard locks", () =>
       ),
     ),
   ),
+);
+
+it.effect("loads one pinned browser capability identity for every workflow role", () =>
+  Effect.gen(function* () {
+    const roles = ["api", "producer", "runner", "browser-runner"] as const;
+    const sharedConfig = {
+      POSTGRES_URL: "postgres://workflows:test@127.0.0.1:5432/workflows",
+      WORKFLOWS_RUNNER_HOST: "sheet-workflows-runner",
+    };
+    const loadedPolicy = yield* sheetWorkflowsRuntimePolicy.pipe(
+      Effect.provide(
+        ConfigProvider.layer(
+          ConfigProvider.fromUnknown({ ...sharedConfig, SHEET_WORKFLOWS_ROLE: "api" }),
+        ),
+      ),
+    );
+    const roleConfigs = yield* Effect.forEach(roles, (role) =>
+      ShardingConfig.ShardingConfig.pipe(
+        Effect.provide(shardingConfigLayer),
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown({
+              ...sharedConfig,
+              SHEET_WORKFLOWS_ROLE: role,
+              ...(role === "producer"
+                ? {
+                    WORKFLOWS_STATE_PLANE_POLICY: "shared-admission",
+                    WORKFLOWS_PREVIEW_CATALOG_DIGEST: loadedPolicy.workflowContractCatalogDigest,
+                    WORKFLOWS_PREVIEW_SCHEMA_ARTIFACT_DIGEST: loadedPolicy.schemaArtifactDigest,
+                  }
+                : {}),
+            }),
+          ),
+        ),
+        Effect.map((shardingConfig) => {
+          const capabilityGroup = shardingConfig.availableShardGroups.find((group) =>
+            group.startsWith("brcap-v1-"),
+          );
+          if (capabilityGroup === undefined) throw new Error("Browser capability group is absent");
+          expect(shardingConfig.shardsPerGroup).toBe(300);
+          return { role, shardingConfig, capabilityGroup };
+        }),
+      ),
+    );
+    const capabilityGroups = new Set(roleConfigs.map(({ capabilityGroup }) => capabilityGroup));
+
+    expect(capabilityGroups.size).toBe(1);
+    for (const { role, shardingConfig, capabilityGroup } of roleConfigs) {
+      expect(shardingConfig.assignedShardGroups.includes(capabilityGroup)).toBe(
+        role === "browser-runner",
+      );
+    }
+  }),
 );
 
 it("isolates browser capability on the browser-runner shard group", () => {
