@@ -114,11 +114,11 @@ install their workspace links, restart the selected owner, and verify
 group-scoped readiness. Those live operations are not wired by these image and
 chart options. Keep both switches disabled until that provider is available.
 
-The owned workflow-execution group requires an explicitly selected browser
-runner role. Its separate `browser` shard group prevents browser actions from
-being accepted as ready through an ordinary runner. The provisional group
-startup and edit budgets are 180 seconds and 30 seconds; this checkout has no
-live measurements for either target.
+Browser-capability workflows require an explicitly selected browser runner
+and compatible browser dependencies. A separate `browser` shard group prevents
+browser actions from being accepted as ready through an ordinary runner. The
+provisional group startup and edit budgets are 180 seconds and 30 seconds; this
+checkout has no live measurements for either target.
 
 The bot, workflow API, and both runner workloads use separate development
 Discord, OAuth, and Google Sheets credentials; do not reuse production
