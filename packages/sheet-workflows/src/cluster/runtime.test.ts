@@ -51,6 +51,7 @@ it.effect("assigns the scoped capability group only to the browser runner", () =
 
     expect(browserCapabilityGroup).toMatch(/^brcap-v1-[a-f0-9]{32}$/);
     expect(shardingConfig.assignedShardGroups).toEqual(["browser", browserCapabilityGroup]);
+    expect(shardingConfig.assignedShardGroups.length * shardingConfig.shardsPerGroup).toBe(600);
   }).pipe(
     Effect.provide(shardingConfigLayer),
     Effect.provide(

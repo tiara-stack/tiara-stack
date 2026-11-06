@@ -47,6 +47,35 @@ const runReadiness = (
   );
 
 describe("cluster readiness", () => {
+  // This synthetic SqlClient fixture models the count equality; it is not database execution.
+  it.effect("requires every assigned browser shard lock for browser-runner self-readiness", () =>
+    Effect.gen(function* () {
+      const cases = [
+        { heldLockCount: 600, expected: true },
+        { heldLockCount: 300, expected: false },
+        { heldLockCount: 0, expected: false },
+      ] as const;
+
+      for (const { heldLockCount, expected } of cases) {
+        const queries: string[] = [];
+        const parameterSets: unknown[][] = [];
+        const ready = yield* runReadiness(isWorkflowApiReady, [{ ready: heldLockCount === 600 }], {
+          env: { SHEET_WORKFLOWS_ROLE: "browser-runner" },
+          parameterSets,
+          queries,
+        });
+
+        expect(ready).toBe(expected);
+        expect(parameterSets[0]?.at(-1)).toBe(600);
+        const query = queries.join("\n");
+        expect(query).toContain('"sheet_workflows_runners".healthy = TRUE');
+        expect(query).toContain('"sheet_workflows_runners".last_heartbeat');
+        expect(query).toContain('"sheet_workflows_locks".address = ?');
+        expect(query).toContain('"sheet_workflows_locks".acquired_at');
+      }
+    }),
+  );
+
   it.effect("requires a healthy runner holding the browser shard group", () =>
     Effect.gen(function* () {
       const queries: string[] = [];
@@ -181,8 +210,7 @@ describe("cluster readiness", () => {
 
       expect(ready).toBe(true);
       expect(queries.join("\n")).toContain('"sheet_workflows_runners".address = ?');
-      expect(parameterSets.flat()).toContain(300);
-      expect(parameterSets.flat()).not.toContain(600);
+      expect(parameterSets[0]?.at(-1)).toBe(600);
     }),
   );
 });
