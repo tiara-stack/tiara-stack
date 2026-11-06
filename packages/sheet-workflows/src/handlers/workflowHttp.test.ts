@@ -131,9 +131,9 @@ const browserReadinessForGroups =
   (groups: ReadonlyArray<BrowserReadinessGroup>, runner: BrowserReadinessState = {}) =>
   (sql: string, parameters: ReadonlyArray<unknown>) => {
     const groupPatterns = browserReadinessGroupPatterns(parameters);
-    const requiredLockCounts = parameters.filter(
-      (parameter): parameter is number => typeof parameter === "number" && parameter === 300,
-    );
+    const requiredLockCounts = parameters
+      .filter(Predicate.isNumber)
+      .filter((parameter) => parameter === 300);
     return (
       hasBrowserReadinessSqlFences(sql) &&
       runner.healthy !== false &&

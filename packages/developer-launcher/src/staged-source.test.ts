@@ -2243,6 +2243,56 @@ describe("staged source snapshots", () => {
     }),
   );
 
+  it.effect("restarts the selected API and browser roles for an isolated Playwright update", () =>
+    Effect.gen(function* () {
+      const before = playwrightWorkspaceSnapshot("r1", "1.58.2");
+      const after = playwrightWorkspaceSnapshot("r2", "1.58.3");
+      const cases = [
+        {
+          roles: ["workflow-api", "ordinary-runner", "browser-runner"],
+          expected: ["workflow-api", "browser-runner"],
+        },
+        {
+          roles: ["workflow-api", "browser-runner"],
+          expected: ["workflow-api", "browser-runner"],
+        },
+        { roles: ["browser-runner"], expected: ["browser-runner"] },
+        { roles: ["workflow-api"], expected: ["workflow-api"] },
+      ] as const;
+
+      for (const { roles, expected } of cases) {
+        const restarted: string[] = [];
+        const rebuilt: Array<{ revision: string; roles: ReadonlyArray<string> }> = [];
+        const readyRoles: ReadonlyArray<string>[] = [];
+        const result = yield* activateWithRuntime({
+          snapshot: after,
+          previous: before,
+          owner: "playwright-owner",
+          nextOwner: "playwright-next-owner",
+          roles,
+          runtime: runtimeLayer({
+            rebuildArtifacts: (revision, affectedRoles) =>
+              Effect.sync(() => rebuilt.push({ revision, roles: affectedRoles })).pipe(
+                Effect.asVoid,
+              ),
+            restartRole: (role, revision, kind) =>
+              Effect.sync(() => restarted.push(`${role}:${revision}:${kind}`)).pipe(Effect.asVoid),
+            verifyActualReadiness: (_revision, affectedRoles) =>
+              Effect.sync(() => {
+                readyRoles.push([...affectedRoles]);
+                return true;
+              }),
+          }),
+        });
+
+        expect(result.failure).toBeNull();
+        expect(rebuilt).toEqual([{ revision: "r2", roles: expected }]);
+        expect(restarted).toEqual(expected.map((role) => `${role}:r2:artifact`));
+        expect(readyRoles).toEqual([expected]);
+      }
+    }),
+  );
+
   it.effect(
     "restarts the selected browser runner in dependency order and scopes its image rebuild",
     () =>
@@ -2256,7 +2306,7 @@ describe("staged source snapshots", () => {
           previous: before,
           owner: "browser-owner",
           nextOwner: "browser-next-owner",
-          roles: ["ordinary-runner", "browser-runner"],
+          roles: ["workflow-api", "ordinary-runner", "browser-runner"],
           runtime: runtimeLayer({
             rebuildArtifacts: (revision, roles) =>
               Effect.sync(() => rebuilt.push({ revision, roles })).pipe(Effect.asVoid),
@@ -2266,8 +2316,8 @@ describe("staged source snapshots", () => {
         });
 
         expect(result.failure).toBeNull();
-        expect(rebuilt).toEqual([{ revision: "r2", roles: ["browser-runner"] }]);
-        expect(restarted).toEqual(["browser-runner:r2:artifact"]);
+        expect(rebuilt).toEqual([{ revision: "r2", roles: ["workflow-api", "browser-runner"] }]);
+        expect(restarted).toEqual(["workflow-api:r2:artifact", "browser-runner:r2:artifact"]);
       }),
   );
 

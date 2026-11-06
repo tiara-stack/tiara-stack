@@ -498,7 +498,7 @@ export const affectedRunnerRoles = (
   const changedPaths = changedSnapshotPaths(previous, next);
   if (changedPaths.length === 0) return selectedRoles;
   if (playwrightOnlyDependencyChange(previous, next, changedPaths))
-    return selectedRoles.filter((role) => role === "browser-runner");
+    return selectedRoles.filter((role) => role === "workflow-api" || role === "browser-runner");
   if (
     changedPaths.every(
       (path) => path === "packages/sheet-workflows/src/workflows/screenshots/browser.ts",
