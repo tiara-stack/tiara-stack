@@ -126,6 +126,9 @@ describe("staged source snapshot structural contract", () => {
       ".config/BraveSoftware/Brave-Browser/Default/Preferences",
       "Library/Application Support/Microsoft Edge/Default/Cookies",
       "playwright/.auth/user.json",
+      "playwright/auth/user.json",
+      "packages/sheet-workflows/playwright/auth/user.json",
+      "packages/sheet-workflows/Playwright/Auth/USER.JSON",
       "tests/fixtures/authState.json",
       "tests/fixtures/storageState.json",
       "tests/fixtures/cookies.sqlite",
@@ -153,6 +156,10 @@ describe("staged source snapshot structural contract", () => {
       utf8File("packages/sheet-workflows/src/storage-state-schema.ts", "export const schema = 1"),
       utf8File("packages/sheet-workflows/src/authState.ts", "export const authState = 1"),
       utf8File("packages/sheet-workflows/src/cookies/index.ts", "export const cookies = []"),
+      utf8File(
+        "packages/sheet-workflows/playwright/auth/user.ts",
+        "export const authFixture = true;",
+      ),
       utf8File(
         "packages/sheet-workflows/src/authState/index.ts",
         "export const authStateModule = true;",

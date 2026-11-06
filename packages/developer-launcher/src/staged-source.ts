@@ -496,8 +496,7 @@ export const affectedRunnerRoles = (
 ): ReadonlyArray<RunnerRole> => {
   const changedPaths = changedSnapshotPaths(previous, next);
   if (changedPaths.length === 0) return selectedRoles;
-  if (playwrightOnlyDependencyChange(previous, next, changedPaths))
-    return selectedRoles.filter((role) => role === "workflow-api" || role === "browser-runner");
+  if (playwrightOnlyDependencyChange(previous, next, changedPaths)) return selectedRoles;
   if (
     changedPaths.every(
       (path) => path === "packages/sheet-workflows/src/workflows/screenshots/browser.ts",
@@ -684,11 +683,29 @@ type RunnerActivationState = {
   workflowTransitionPhases: WorkflowTransitionPhaseFacts | undefined;
   startedAt: number;
   change: SnapshotChange | null;
+  readinessOnly: boolean;
   stagingMillis: number;
   artifactRebuildMillis: number;
   restartMillis: number;
   readinessMillis: number;
 };
+
+const measureAttempt = <A, E, R>(
+  operation: Effect.Effect<A, E, R>,
+  recordElapsed: (elapsedMillis: number) => void,
+): Effect.Effect<A, E, R> =>
+  Effect.gen(function* () {
+    const startedAt = yield* Clock.currentTimeMillis;
+    return yield* operation.pipe(
+      Effect.ensuring(
+        Clock.currentTimeMillis.pipe(
+          Effect.flatMap((completedAt) =>
+            Effect.sync(() => recordElapsed(Math.max(0, completedAt - startedAt))),
+          ),
+        ),
+      ),
+    );
+  });
 
 const statusForRevision = (
   revision: string,
@@ -749,19 +766,27 @@ const prepareRunnerRevision = (
 ): Effect.Effect<SnapshotChange, SnapshotRuntimeError> =>
   Effect.timeoutOrElse(
     Effect.gen(function* () {
-      const stagingStartedAt = yield* Clock.currentTimeMillis;
-      yield* runtime.stageComplete(snapshot);
-      yield* runtime.fenceOldOwner(input.owner, input.nextOwner);
-      if (input.previous) yield* runtime.retainImmutableRevision(input.previous.revision);
-      const change = input.previous ? classifySnapshotChange(input.previous, snapshot) : "artifact";
-      state.change = change;
-      state.stagingMillis += Math.max(0, (yield* Clock.currentTimeMillis) - stagingStartedAt);
+      const change = yield* measureAttempt(
+        Effect.gen(function* () {
+          yield* runtime.stageComplete(snapshot);
+          yield* runtime.fenceOldOwner(input.owner, input.nextOwner);
+          if (input.previous) yield* runtime.retainImmutableRevision(input.previous.revision);
+          const classified = input.previous
+            ? classifySnapshotChange(input.previous, snapshot)
+            : "artifact";
+          state.change = classified;
+          return classified;
+        }),
+        (elapsedMillis) => {
+          state.stagingMillis += elapsedMillis;
+        },
+      );
       if (change === "artifact" && roles.length > 0) {
-        const rebuildStartedAt = yield* Clock.currentTimeMillis;
-        yield* runtime.rebuildArtifacts(snapshot.revision, roles);
-        state.artifactRebuildMillis += Math.max(
-          0,
-          (yield* Clock.currentTimeMillis) - rebuildStartedAt,
+        yield* measureAttempt(
+          runtime.rebuildArtifacts(snapshot.revision, roles),
+          (elapsedMillis) => {
+            state.artifactRebuildMillis += elapsedMillis;
+          },
         );
       }
       return change;
@@ -829,16 +854,19 @@ const requireRunnerReadiness = (
   state: RunnerActivationState,
 ): Effect.Effect<void, SnapshotError | SnapshotRuntimeError> =>
   Effect.gen(function* () {
-    const startedAt = yield* Clock.currentTimeMillis;
-    const ready = yield* runtime.verifyActualReadiness(revision, roles).pipe(
-      Effect.timeout(stagedSourceActivationTimeouts.readiness),
-      Effect.mapError((error) =>
-        Cause.isTimeoutError(error)
-          ? new SnapshotRuntimeError({ reason: "runner-readiness-timeout" })
-          : error,
+    const ready = yield* measureAttempt(
+      runtime.verifyActualReadiness(revision, roles).pipe(
+        Effect.timeout(stagedSourceActivationTimeouts.readiness),
+        Effect.mapError((error) =>
+          Cause.isTimeoutError(error)
+            ? new SnapshotRuntimeError({ reason: "runner-readiness-timeout" })
+            : error,
+        ),
       ),
+      (elapsedMillis) => {
+        state.readinessMillis += elapsedMillis;
+      },
     );
-    state.readinessMillis += Math.max(0, (yield* Clock.currentTimeMillis) - startedAt);
     if (!ready) return yield* Effect.fail(new SnapshotError({ reason: "readiness-check-failed" }));
   });
 
@@ -1151,16 +1179,19 @@ const restartRunnerRoles = (
 ): Effect.Effect<void, SnapshotRuntimeError> =>
   Effect.gen(function* () {
     for (const role of roles) {
-      const startedAt = yield* Clock.currentTimeMillis;
-      yield* runtime.restartRole(role, revision, change).pipe(
-        Effect.timeout(stagedSourceActivationTimeouts.restart),
-        Effect.mapError((error) =>
-          Cause.isTimeoutError(error)
-            ? new SnapshotRuntimeError({ reason: "runner-restart-timeout" })
-            : error,
+      yield* measureAttempt(
+        runtime.restartRole(role, revision, change).pipe(
+          Effect.timeout(stagedSourceActivationTimeouts.restart),
+          Effect.mapError((error) =>
+            Cause.isTimeoutError(error)
+              ? new SnapshotRuntimeError({ reason: "runner-restart-timeout" })
+              : error,
+          ),
         ),
+        (elapsedMillis) => {
+          state.restartMillis += elapsedMillis;
+        },
       );
-      state.restartMillis += Math.max(0, (yield* Clock.currentTimeMillis) - startedAt);
     }
   });
 
@@ -1207,6 +1238,7 @@ const executeRunnerActivation = (
       roles = affectedRunnerRoles(input.previous, snapshot, selectedRoles);
     state.roles = roles;
     if (isSameRevision && state.workflowRecreation === undefined) {
+      state.readinessOnly = true;
       yield* requireRunnerReadiness(runtime, snapshot.revision, roles, state);
       return statusForRevision(snapshot.revision, state.workflowRecreation);
     }
@@ -1276,6 +1308,7 @@ export const activateRunnerSnapshot = (
     workflowTransitionPhases: undefined,
     startedAt: 0,
     change: null,
+    readinessOnly: false,
     stagingMillis: 0,
     artifactRebuildMillis: 0,
     restartMillis: 0,
@@ -1292,7 +1325,7 @@ export const activateRunnerSnapshot = (
               activeRevision: status.activeRevision,
               roles: state.roles.join(","),
               outcome: status.failure === null ? "ready" : "unavailable",
-              changeKind: state.change ?? "readiness-only",
+              changeKind: state.change ?? (state.readinessOnly ? "readiness-only" : "unclassified"),
               stagingMillis: state.stagingMillis,
               artifactRebuildMillis: state.artifactRebuildMillis,
               restartMillis: state.restartMillis,

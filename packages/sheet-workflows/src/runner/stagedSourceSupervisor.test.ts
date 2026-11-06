@@ -191,6 +191,12 @@ describe("runner staged-source supervisor", () => {
           snapshot("browser-auth-state-file", [
             utf8File("tests/fixtures/authState.json", "synthetic state bytes"),
           ]),
+          snapshot("browser-playwright-auth-state-alias", [
+            utf8File("playwright/auth/user.json", "synthetic state bytes"),
+          ]),
+          snapshot("browser-nested-playwright-auth-state-alias", [
+            utf8File("packages/sheet-workflows/Playwright/Auth/USER.JSON", "synthetic state bytes"),
+          ]),
           snapshot("browser-storage-state-file", [
             utf8File("tests/fixtures/storageState.json", "synthetic state bytes"),
           ]),
