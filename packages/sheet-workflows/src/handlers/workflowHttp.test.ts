@@ -6,6 +6,7 @@ import {
   Exit,
   Layer,
   Option,
+  Predicate,
   Schema,
   Stream,
 } from "effect";
@@ -97,9 +98,7 @@ type BrowserReadinessState = {
 };
 
 const browserReadinessGroupPatterns = (parameters: ReadonlyArray<unknown>) =>
-  parameters.filter(
-    (parameter): parameter is string => typeof parameter === "string" && parameter.endsWith(":%"),
-  );
+  parameters.filter(Predicate.isString).filter((parameter) => parameter.endsWith(":%"));
 
 const hasBrowserReadinessSqlFences = (sql: string) =>
   sql.includes("runner.healthy = TRUE") &&
