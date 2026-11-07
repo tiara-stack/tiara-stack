@@ -6,19 +6,14 @@ import { workflowContractKey } from "effect-zero-workflow/contract";
 import { InteractiveDeclaredFailure, ScreenshotsCaptureAndDeliver } from "sheet-workflow-contracts";
 import { preserveInteractiveDeclaredFailure as preserveDeclaredFailure } from "../shared/interactive";
 import { decodeWorkflowContractInputOrDie } from "../shared/execution";
-import { screenshotActionVersion } from "./catalog";
+import { screenshotActionVersion, screenshotShardGroups } from "./catalog";
+export { screenshotShardGroups } from "./catalog";
 import { makeScreenshotActionKey } from "./keys";
 import { ScreenshotCaptureExecution, ScreenshotCaptureResult, ScreenshotExecution } from "./schema";
 import { ScreenshotCaptureOperations, ScreenshotSourceOperations } from "./service";
 
 const name = workflowContractKey(ScreenshotsCaptureAndDeliver);
 const actionName = ScreenshotsCaptureAndDeliver.identity;
-
-export const screenshotShardGroups = Object.freeze({
-  workflow: "dispatch",
-  source: "dispatch",
-  browser: "browser",
-} as const);
 
 const executeResolveScreenshotSourceAction = (execution: typeof ScreenshotExecution.Type) =>
   Effect.gen(function* () {

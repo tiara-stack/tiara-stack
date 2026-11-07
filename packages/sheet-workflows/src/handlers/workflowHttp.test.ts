@@ -6,6 +6,7 @@ import {
   Exit,
   Layer,
   Option,
+  Predicate,
   Schema,
   Stream,
 } from "effect";
@@ -13,6 +14,9 @@ import { describe, expect, it } from "@effect/vitest";
 import { NodeServices } from "@effect/platform-node";
 import { SqliteClient } from "@effect/sql-sqlite-node";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { Reactivity } from "effect/unstable/reactivity";
+import { SqlClient, Statement } from "effect/unstable/sql";
+import type { Connection } from "effect/unstable/sql/SqlConnection";
 import {
   defaultWorkflowRunListLimit,
   InvocationId,
@@ -29,9 +33,13 @@ import {
 } from "effect-zero-workflow/contract/http/server";
 import {
   WorkflowObservationInvalidData,
+  WorkflowEnqueueRequest,
   workflowContractRoutes,
 } from "effect-zero-workflow/contract/transport";
-import { SheetWorkflowContractCatalog } from "sheet-workflow-contracts";
+import {
+  ScreenshotsCaptureAndDeliver,
+  SheetWorkflowContractCatalog,
+} from "sheet-workflow-contracts";
 import { getSheetDbMigrationArtifactDigest } from "sheet-zero-server/state-plane-admission";
 import type { SheetWorkflowZeroContext } from "sheet-zero-server";
 import { vi } from "vitest";
@@ -46,10 +54,95 @@ import {
 } from "./workflowHttp";
 import { WorkflowStore } from "effect-zero-workflow";
 import { ReadOnlyWorkflowAuthorization } from "@/workflows/readOnly/authorization";
+import { screenshotShardGroups } from "@/workflows/screenshots/definition";
+import { isBrowserRunnerFleetReady } from "../services/clusterReadiness";
+import {
+  browserRunnerCapabilityGroupFor,
+  browserRunnerCapabilityIdentity,
+} from "../services/browserRunnerCapability";
 
 const sheetDbMigrationArtifactDigest = getSheetDbMigrationArtifactDigest();
 
 const routeManifest = workflowHttpRouteManifest(SheetWorkflowContractCatalog);
+const makeBrowserReadinessSqlClient = (
+  isReady: (sql: string, parameters: ReadonlyArray<unknown>) => boolean = () => true,
+) =>
+  Effect.gen(function* () {
+    const rowsFor = (sql: string, parameters: ReadonlyArray<unknown>) =>
+      Effect.succeed([{ ready: isReady(sql, parameters) }]);
+    const connection: Connection = {
+      execute: rowsFor,
+      executeRaw: () => Effect.succeed(undefined),
+      executeStream: () => Stream.empty,
+      executeValues: () => Effect.succeed([]),
+      executeUnprepared: rowsFor,
+    };
+
+    return yield* SqlClient.make({
+      acquirer: Effect.succeed(connection),
+      compiler: Statement.makeCompilerSqlite(),
+      spanAttributes: [],
+    }).pipe(Effect.provide(Reactivity.layer));
+  });
+
+type BrowserReadinessGroup = {
+  readonly group: string;
+  readonly count: number;
+  readonly owner?: string;
+  readonly acquiredAgeSeconds?: number;
+};
+
+type BrowserReadinessState = {
+  readonly healthy?: boolean;
+  readonly heartbeatAgeSeconds?: number;
+};
+
+const browserReadinessGroupPatterns = (parameters: ReadonlyArray<unknown>) =>
+  parameters.filter(Predicate.isString).filter((parameter) => parameter.endsWith(":%"));
+
+const hasBrowserReadinessSqlFences = (sql: string) =>
+  sql.includes("runner.healthy = TRUE") &&
+  sql.includes("runner.last_heartbeat > NOW()") &&
+  sql.split('"sheet_workflows_locks".address = runner.address').length - 1 === 2 &&
+  (sql.match(/"sheet_workflows_locks"\.shard_id LIKE \?/g)?.length ?? 0) === 2;
+
+const browserGroupLockCount = (
+  groups: ReadonlyArray<BrowserReadinessGroup>,
+  owner: string,
+  groupPattern: string,
+) =>
+  groups
+    .filter((row) => (row.owner ?? "browser-runner-a") === owner)
+    .filter((row) => row.group === groupPattern.slice(0, -2))
+    .reduce((count, row) => count + row.count, 0);
+
+const hasCompleteCoOwnedBrowserGroups = (
+  groups: ReadonlyArray<BrowserReadinessGroup>,
+  groupPatterns: ReadonlyArray<string>,
+) => {
+  const freshGroups = groups.filter((group) => (group.acquiredAgeSeconds ?? 1) < 35);
+  const owners = new Set(groups.map(({ owner }) => owner ?? "browser-runner-a"));
+  return [...owners].some((owner) =>
+    groupPatterns.every((pattern) => browserGroupLockCount(freshGroups, owner, pattern) === 300),
+  );
+};
+
+const browserReadinessForGroups =
+  (groups: ReadonlyArray<BrowserReadinessGroup>, runner: BrowserReadinessState = {}) =>
+  (sql: string, parameters: ReadonlyArray<unknown>) => {
+    const groupPatterns = browserReadinessGroupPatterns(parameters);
+    const requiredLockCounts = parameters
+      .filter(Predicate.isNumber)
+      .filter((parameter) => parameter === 300);
+    return (
+      hasBrowserReadinessSqlFences(sql) &&
+      runner.healthy !== false &&
+      (runner.heartbeatAgeSeconds ?? 1) < 35 &&
+      groupPatterns.length === 2 &&
+      requiredLockCounts.length === 2 &&
+      hasCompleteCoOwnedBrowserGroups(groups, groupPatterns)
+    );
+  };
 
 const requestPath = (path: string) => path.replace(":invocationId", "not-an-invocation-id");
 
@@ -122,6 +215,7 @@ describe("sheet workflow HTTP contract boundary", () => {
         expect(routeManifest).toHaveLength(SheetWorkflowContractCatalog.length * 3);
         const routeKeys = routeManifest.map(({ method, path }) => `${method} ${path}`);
         expect(new Set(routeKeys).size).toBe(routeKeys.length);
+        const browserReadinessSqlClient = yield* makeBrowserReadinessSqlClient();
 
         const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
           new Response(JSON.stringify({ issuer: "https://issuer.example.com" }), {
@@ -133,6 +227,7 @@ describe("sheet workflow HTTP contract boundary", () => {
           const handler = yield* HttpRouter.toHttpEffect(
             workflowHttpRoutesLayer.pipe(
               Layer.provide(Layer.mock(WorkflowStore)({})),
+              Layer.provide(Layer.succeed(SqlClient.SqlClient, browserReadinessSqlClient)),
               Layer.provide(
                 ConfigProvider.layer(
                   ConfigProvider.fromUnknown({
@@ -143,13 +238,14 @@ describe("sheet workflow HTTP contract boundary", () => {
               ),
               Layer.provide(HttpRouter.layer),
             ),
-          );
+          ).pipe(Effect.provideService(SqlClient.SqlClient, browserReadinessSqlClient));
           const responses = yield* Effect.forEach(routeManifest, ({ method, path }) =>
             handler.pipe(
               Effect.provideService(
                 HttpServerRequest.HttpServerRequest,
                 HttpServerRequest.fromWeb(routeRequest(method, path)),
               ),
+              Effect.provideService(SqlClient.SqlClient, browserReadinessSqlClient),
               Effect.provide(Layer.mock(ReadOnlyWorkflowAuthorization)({})),
             ),
           );
@@ -270,6 +366,251 @@ describe("sheet workflow HTTP contract boundary", () => {
         expect(responses.map(({ status }) => status)).toEqual(routeManifest.map(() => 400));
       }),
     ),
+  );
+
+  it.effect(
+    "admits browser enqueue only when one owner holds the compatible and action shard groups",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          const capabilityIdentity = yield* browserRunnerCapabilityIdentity;
+          const selectedGroup = browserRunnerCapabilityGroupFor(capabilityIdentity);
+          const wrongVersionGroup = browserRunnerCapabilityGroupFor({
+            ...capabilityIdentity,
+            playwrightVersion: `${capabilityIdentity.playwrightVersion}-old`,
+          });
+          const wrongScopeGroup = browserRunnerCapabilityGroupFor({
+            ...capabilityIdentity,
+            databaseEndpointIdentity: `${capabilityIdentity.databaseEndpointIdentity}/other`,
+          });
+          const wrongCatalogGroup = browserRunnerCapabilityGroupFor({
+            ...capabilityIdentity,
+            loadedCatalogDigest: `sha256:${"e".repeat(64)}`,
+          });
+          const wrongSchemaGroup = browserRunnerCapabilityGroupFor({
+            ...capabilityIdentity,
+            loadedSchemaArtifactDigest: `sha256:${"f".repeat(64)}`,
+          });
+          const priorLongGroup = "browser-capability-v1-" + "a".repeat(64);
+          let enqueueCalls = 0;
+          const executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, never> = {
+            enqueue: (contract, _context, request) =>
+              Effect.sync(() => {
+                enqueueCalls += 1;
+                return makeRunReference(contract, request.invocationId);
+              }),
+            get: () => Stream.die("unused"),
+            list: () => Stream.die("unused"),
+          };
+          const handler = yield* HttpRouter.toHttpEffect(
+            makeWorkflowHttpRoutesLayer(
+              authorized,
+              authorized,
+              executor,
+              undefined,
+              undefined,
+              undefined,
+              () => isBrowserRunnerFleetReady,
+            ).pipe(Layer.provide(HttpRouter.layer)),
+          );
+          const requestSchema = WorkflowEnqueueRequest(ScreenshotsCaptureAndDeliver);
+          const body = Schema.encodeSync(requestSchema)(
+            Schema.decodeUnknownSync(requestSchema)({
+              invocationId: "123e4567-e89b-42d3-a456-426614174000",
+              input: {
+                workspaceId: "workspace-1",
+                responseReference: "response-1",
+                conversationName: "fixture",
+                day: 1,
+              },
+            }),
+          );
+          const routes = workflowContractRoutes(ScreenshotsCaptureAndDeliver);
+          const actionGroup = screenshotShardGroups.browser;
+          const scenarios: ReadonlyArray<{
+            readonly label: string;
+            readonly groups: ReadonlyArray<BrowserReadinessGroup>;
+            readonly readiness?: BrowserReadinessState;
+            readonly status: number;
+            readonly enqueues: number;
+          }> = [
+            {
+              label: "selected runtime owns both action and capability groups",
+              groups: [
+                { group: selectedGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
+              status: 202,
+              enqueues: 1,
+            },
+            {
+              label: "current capability owner cannot borrow action locks from another runner",
+              groups: [
+                { group: selectedGroup, count: 300, owner: "runner-a" },
+                { group: actionGroup, count: 300, owner: "runner-b" },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "capability-only shard ownership",
+              groups: [{ group: selectedGroup, count: 300 }],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "action-only shard ownership",
+              groups: [{ group: actionGroup, count: 300 }],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "partial capability group does not satisfy readiness",
+              groups: [
+                { group: selectedGroup, count: 299 },
+                { group: actionGroup, count: 300 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "prior long capability group does not satisfy current readiness",
+              groups: [
+                { group: priorLongGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "partial action group does not satisfy readiness",
+              groups: [
+                { group: selectedGroup, count: 300 },
+                { group: actionGroup, count: 299 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "ordinary-only shard ownership",
+              groups: [
+                { group: "dispatch", count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "wrong admitted Playwright version",
+              groups: [
+                { group: wrongVersionGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "selected store identity changed before guarded admission",
+              groups: [
+                { group: wrongScopeGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "mismatched declared workflow catalog",
+              groups: [
+                { group: wrongCatalogGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "mismatched admitted schema artifact",
+              groups: [
+                { group: wrongSchemaGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "stale capability shard rows do not enqueue",
+              groups: [
+                { group: selectedGroup, count: 300, acquiredAgeSeconds: 36 },
+                { group: actionGroup, count: 300 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "stale legacy action shard rows do not enqueue",
+              groups: [
+                { group: selectedGroup, count: 300 },
+                { group: actionGroup, count: 300, acquiredAgeSeconds: 36 },
+              ],
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "stale browser runner heartbeat does not enqueue",
+              groups: [
+                { group: selectedGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
+              readiness: { heartbeatAgeSeconds: 36 },
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "unhealthy browser runner does not enqueue",
+              groups: [
+                { group: selectedGroup, count: 300 },
+                { group: actionGroup, count: 300 },
+              ],
+              readiness: { healthy: false },
+              status: 503,
+              enqueues: 0,
+            },
+            {
+              label: "browser capability lost before admission",
+              groups: [],
+              status: 503,
+              enqueues: 0,
+            },
+          ] as const;
+
+          for (const scenario of scenarios) {
+            const enqueueCallsBeforeScenario = enqueueCalls;
+            const readinessSqlClient = yield* makeBrowserReadinessSqlClient(
+              browserReadinessForGroups(scenario.groups, scenario.readiness),
+            );
+            const response = yield* handler.pipe(
+              Effect.provideService(
+                HttpServerRequest.HttpServerRequest,
+                HttpServerRequest.fromWeb(
+                  routeRequest("POST", routes.enqueue, JSON.stringify(body)),
+                ),
+              ),
+              Effect.provideService(SqlClient.SqlClient, readinessSqlClient),
+            );
+            expect(response.status, scenario.label).toBe(scenario.status);
+            expect(enqueueCalls - enqueueCallsBeforeScenario, scenario.label).toBe(
+              scenario.enqueues,
+            );
+          }
+        }),
+      ).pipe(
+        Effect.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown({
+              POSTGRES_URL: "postgres://workflows:test@127.0.0.1:5432/workflows",
+            }),
+          ),
+        ),
+      ),
   );
 
   it.effect("keeps service-only workflow routes on the service authorizer", () =>

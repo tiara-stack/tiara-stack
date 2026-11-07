@@ -7,26 +7,29 @@ cd "$repo_root"
 render_development_source() {
   local staged_root=$1
   local active_root=$2
+  local service_key=${3:-sheetWorkflowsRunner}
+  local enabled=${4:-true}
   local args=(
     --values charts/tiara-stack/values.yaml
     --set-string global.appImage.registry=ci-validation
     --set-string global.appImage.tag=template-validation
-    --set services.sheetWorkflowsRunner.developmentSource.enabled=true
+    --set "services.$service_key.developmentSource.enabled=$enabled"
   )
 
   if [[ -n $staged_root ]]; then
-    args+=(--set-string "services.sheetWorkflowsRunner.env.TIA_RUNNER_STAGED_SOURCE_ROOT=$staged_root")
+    args+=(--set-string "services.$service_key.env.TIA_RUNNER_STAGED_SOURCE_ROOT=$staged_root")
   fi
   if [[ -n $active_root ]]; then
-    args+=(--set-string "services.sheetWorkflowsRunner.env.TIA_RUNNER_ACTIVE_SOURCE_ROOT=$active_root")
+    args+=(--set-string "services.$service_key.env.TIA_RUNNER_ACTIVE_SOURCE_ROOT=$active_root")
   fi
 
-  helm template tiara-stack charts/tiara-stack "${args[@]}"
+  helm template tiara-stack charts/tiara-stack --kube-version 1.24.0 "${args[@]}"
 }
 
 render_scheduling_profile() {
   local profile=$1
   helm template tiara-stack charts/tiara-stack \
+    --kube-version 1.24.0 \
     --values charts/tiara-stack/values.yaml \
     --values "charts/tiara-stack/${profile}" \
     --set-string global.appImage.registry=ci-validation \
@@ -187,10 +190,11 @@ assert_helm_failure() {
   local expected_detail=$2
   local staged_root=$3
   local active_root=$4
+  local service_key=${5:-sheetWorkflowsRunner}
   local output
   local normalized_output
 
-  if output=$(render_development_source "$staged_root" "$active_root" 2>&1); then
+  if output=$(render_development_source "$staged_root" "$active_root" "$service_key" 2>&1); then
     echo "Expected Helm render to fail for staged=${staged_root}, active=${active_root}" >&2
     exit 1
   fi
@@ -275,3 +279,25 @@ assert_helm_failure "$active_root_path_key" not /workspace/custom/staged /worksp
 assert_helm_failure "$overlapping_roots_error" "" /workspace/custom/shared /workspace/custom/shared
 assert_helm_failure "$overlapping_roots_error" "" /workspace/custom /workspace/custom/active
 assert_helm_failure "$overlapping_roots_error" "" /workspace/custom/active /workspace/custom
+
+# Browser root overrides remain backward-compatible while browser source mode is disabled.
+render_development_source /tmp/staged "" sheetWorkflowsBrowserRunner false >/dev/null
+
+# Enabled browser source mode keeps the same canonical-root and overlap checks.
+render_development_source \
+  /workspace/browser/staged \
+  /workspace/browser/active \
+  sheetWorkflowsBrowserRunner \
+  true >/dev/null
+assert_helm_failure \
+  "$staged_root_path_key" \
+  pattern \
+  /tmp/staged \
+  /workspace/browser/active \
+  sheetWorkflowsBrowserRunner
+assert_helm_failure \
+  "$overlapping_roots_error" \
+  "" \
+  /workspace/browser \
+  /workspace/browser/active \
+  sheetWorkflowsBrowserRunner

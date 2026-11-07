@@ -117,9 +117,20 @@ const parseWorkflowRecreationRecoveryRecord = (input: string) =>
   Schema.decodeUnknownSync(WorkflowRecreationRecoveryRecordSchema)(JSON.parse(input));
 
 const connectedPreviewPlanOutputSchema = Schema.Struct({
+  errors: Schema.Array(
+    Schema.Struct({
+      code: Schema.String,
+    }),
+  ),
   connectedPreview: Schema.Struct({
     requiredRoles: Schema.Array(Schema.String),
     missingRoles: Schema.Array(Schema.String),
+    requiredGroups: Schema.Array(
+      Schema.Struct({
+        id: Schema.String,
+        ownership: Schema.Literals(["owned", "reused"]),
+      }),
+    ),
     compatibility: Schema.Array(
       Schema.Struct({
         role: Schema.String,
@@ -1988,34 +1999,31 @@ liveTest(
     }),
 );
 
-liveTest("requires explicit workflow callers for an owned group", () =>
-  Effect.gen(function* () {
-    const result = yield* runConnectedPreviewConfig(
-      "plan",
-      createConnectedPreviewConfig({ roles: ["sheet-web"] }),
-    );
+liveTest(
+  "requires the API and ordinary runner for an owned workflow group without selecting optional browser execution",
+  () =>
+    Effect.gen(function* () {
+      const result = yield* runConnectedPreviewConfig(
+        "plan",
+        createConnectedPreviewConfig({ roles: ["sheet-web"] }),
+      );
 
-    const output = JSON.parse(
-      result.stdout,
-    ) /* oxlint-disable typescript/no-unsafe-type-assertion -- inherited master site */ as {
-      readonly connectedPreview: {
-        readonly missingRoles: readonly string[];
-        readonly requiredGroups: readonly { readonly id: string; readonly ownership: string }[];
-      };
-      readonly errors: readonly { readonly code: string }[];
-    } /* oxlint-enable typescript/no-unsafe-type-assertion -- inherited master site */;
+      const output = Schema.decodeUnknownSync(connectedPreviewPlanOutputSchema)(
+        JSON.parse(result.stdout),
+      );
 
-    expect(result.exitCode).toBe(2);
-    expect(output.connectedPreview.missingRoles).toEqual([
-      "sheet-workflows-api",
-      "sheet-workflows-runner",
-    ]);
-    expect(output.connectedPreview.requiredGroups).toContainEqual({
-      id: "workflow-execution",
-      ownership: "owned",
-    });
-    expect(output.errors.filter(({ code }) => code === "required-role-missing")).toHaveLength(2);
-  }),
+      expect(result.exitCode).toBe(2);
+      expect(output.connectedPreview.missingRoles).toEqual([
+        "sheet-workflows-api",
+        "sheet-workflows-runner",
+      ]);
+      expect(output.connectedPreview.missingRoles).not.toContain("sheet-workflows-browser-runner");
+      expect(output.connectedPreview.requiredGroups).toContainEqual({
+        id: "workflow-execution",
+        ownership: "owned",
+      });
+      expect(output.errors.filter(({ code }) => code === "required-role-missing")).toHaveLength(2);
+    }),
 );
 
 const invalidPreviewInputs: readonly [string, PreviewFixtureOptions, string][] = [
@@ -2733,7 +2741,13 @@ liveTest("reports unreadable capacity baseline as not imported", () =>
 liveTest("keeps sheet-web allocation unavailable until its host runtime is wired", () =>
   withConnectedPreviewConfig(
     createConnectedPreviewConfig({
-      roles: ["sheet-web", "sheet-db-server", "sheet-workflows-api", "sheet-workflows-runner"],
+      roles: [
+        "sheet-web",
+        "sheet-db-server",
+        "sheet-workflows-api",
+        "sheet-workflows-runner",
+        "sheet-workflows-browser-runner",
+      ],
       configOverrides: { seed: "synthetic-development-v1" },
     }),
     (configPath, cwd) =>

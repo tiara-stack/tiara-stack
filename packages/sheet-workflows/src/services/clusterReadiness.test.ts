@@ -2,6 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { ConfigProvider, Effect } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import {
+  isBrowserRunnerFleetReady,
   isClusterRunnerFleetReady,
   isCurrentClusterRunnerReady,
   isWorkflowApiReady,
@@ -10,6 +11,7 @@ import {
 const configLayer = (env: Record<string, unknown> = {}) =>
   ConfigProvider.layer(
     ConfigProvider.fromUnknown({
+      POSTGRES_URL: "postgres://workflows:test@127.0.0.1:5432/workflows",
       WORKFLOWS_RUNNER_HOST: "10.0.0.12",
       WORKFLOWS_RUNNER_PORT: "34431",
       ...env,
@@ -45,6 +47,52 @@ const runReadiness = (
   );
 
 describe("cluster readiness", () => {
+  // This synthetic SqlClient fixture models the count equality; it is not database execution.
+  it.effect("requires every assigned browser shard lock for browser-runner self-readiness", () =>
+    Effect.gen(function* () {
+      const cases = [
+        { heldLockCount: 600, expected: true },
+        { heldLockCount: 300, expected: false },
+        { heldLockCount: 0, expected: false },
+      ] as const;
+
+      for (const { heldLockCount, expected } of cases) {
+        const queries: string[] = [];
+        const parameterSets: unknown[][] = [];
+        const ready = yield* runReadiness(isWorkflowApiReady, [{ ready: heldLockCount === 600 }], {
+          env: { SHEET_WORKFLOWS_ROLE: "browser-runner" },
+          parameterSets,
+          queries,
+        });
+
+        expect(ready).toBe(expected);
+        expect(parameterSets[0]?.at(-1)).toBe(600);
+        const query = queries.join("\n");
+        expect(query).toContain('"sheet_workflows_runners".healthy = TRUE');
+        expect(query).toContain('"sheet_workflows_runners".last_heartbeat');
+        expect(query).toContain('"sheet_workflows_locks".address = ?');
+        expect(query).toContain('"sheet_workflows_locks".acquired_at');
+      }
+    }),
+  );
+
+  it.effect("requires a healthy runner holding the browser shard group", () =>
+    Effect.gen(function* () {
+      const queries: string[] = [];
+      const parameterSets: unknown[][] = [];
+      const ready = yield* runReadiness(isBrowserRunnerFleetReady, [{ ready: true }], {
+        parameterSets,
+        queries,
+      });
+
+      expect(ready).toBe(true);
+      expect(queries.join("\n")).toContain('FROM "sheet_workflows_runners" AS runner');
+      expect(queries.join("\n")).toContain('"sheet_workflows_locks".address = runner.address');
+      expect(parameterSets.flat()).toContain(300);
+      expect(parameterSets.flat()).not.toContain(600);
+    }),
+  );
+
   it.effect("marks the current runner ready when its healthy heartbeat is recent", () =>
     Effect.gen(function* () {
       const queries: string[] = [];
@@ -162,8 +210,7 @@ describe("cluster readiness", () => {
 
       expect(ready).toBe(true);
       expect(queries.join("\n")).toContain('"sheet_workflows_runners".address = ?');
-      expect(parameterSets.flat()).toContain(300);
-      expect(parameterSets.flat()).not.toContain(600);
+      expect(parameterSets[0]?.at(-1)).toBe(600);
     }),
   );
 });

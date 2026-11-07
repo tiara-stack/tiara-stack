@@ -1,5 +1,5 @@
 import { it } from "@effect/vitest";
-import { Clock, Deferred, Duration, Effect, Exit, Fiber, Layer } from "effect";
+import { Clock, Deferred, Duration, Effect, Exit, Fiber, Layer, Logger } from "effect";
 import { TestClock as TestClockService } from "effect/testing";
 import { describe, expect } from "vitest";
 import { stagedSourceActivationTimeouts } from "sheet-workflow-contracts";
@@ -54,6 +54,67 @@ const snapshot = (
     utf8File("pnpm-lock.yaml", "lockfileVersion: '9.0'"),
     ...files.map(([path, content]) => utf8File(path, content)),
   ]);
+
+const playwrightWorkspaceSnapshot = (
+  revision: string,
+  playwrightVersion: string,
+  options: {
+    readonly manifestChange?: Readonly<Record<string, unknown>>;
+    readonly lockfileChange?: Readonly<Record<string, unknown>>;
+    readonly unrelatedImporterVersion?: string;
+  } = {},
+) => {
+  const manifest = {
+    name: "sheet-workflows",
+    version: "0.0.0",
+    private: true,
+    scripts: { build: "vp pack" },
+    dependencies: { playwright: playwrightVersion, effect: "catalog:" },
+    ...options.manifestChange,
+  };
+  const lockfile = {
+    lockfileVersion: "9.0",
+    settings: { autoInstallPeers: true },
+    importers: {
+      ".": {},
+      "packages/sheet-workflows": {
+        dependencies: {
+          playwright: { specifier: playwrightVersion, version: playwrightVersion },
+          effect: { specifier: "catalog:", version: "4.0.0-beta.67" },
+        },
+      },
+      "packages/unrelated": {
+        dependencies: {
+          tinyglobby: {
+            specifier: options.unrelatedImporterVersion ?? "1.0.0",
+            version: options.unrelatedImporterVersion ?? "1.0.0",
+          },
+        },
+      },
+    },
+    packages: {
+      [`playwright@${playwrightVersion}`]: {
+        resolution: { integrity: `sha512-playwright-${playwrightVersion}` },
+        dependencies: { "playwright-core": playwrightVersion },
+      },
+      [`playwright-core@${playwrightVersion}`]: {
+        resolution: { integrity: `sha512-core-${playwrightVersion}` },
+      },
+    },
+    snapshots: {
+      [`playwright@${playwrightVersion}`]: {
+        dependencies: { "playwright-core": playwrightVersion },
+      },
+      [`playwright-core@${playwrightVersion}`]: {},
+    },
+    ...options.lockfileChange,
+  };
+  return sealStagedSourceSnapshot(revision, [
+    utf8File("package.json", '{"name":"workspace"}'),
+    utf8File("pnpm-lock.yaml", JSON.stringify(lockfile)),
+    utf8File("packages/sheet-workflows/package.json", JSON.stringify(manifest)),
+  ]);
+};
 
 const withFileMode = (
   tree: StagedSourceSnapshot,
@@ -211,6 +272,58 @@ const watchCallbackTimeoutEffects = (events: Array<string>, started: Deferred.De
       pauseAdmission: () => waitForCallback("admission"),
     },
   } as const;
+};
+
+const makeManualClock = (timeoutMillis?: number) => {
+  let now = 0;
+  const clock: Clock.Clock = {
+    currentTimeMillisUnsafe: () => now,
+    currentTimeMillis: Effect.sync(() => now),
+    currentTimeNanosUnsafe: () => BigInt(now) * 1_000_000n,
+    currentTimeNanos: Effect.sync(() => BigInt(now) * 1_000_000n),
+    sleep: (duration) =>
+      Duration.toMillis(duration) === timeoutMillis
+        ? Effect.sync(() => {
+            now += Duration.toMillis(duration);
+          })
+        : Effect.never,
+  };
+  return {
+    clock,
+    advance: (elapsedMillis: number) =>
+      Effect.sync(() => {
+        now += elapsedMillis;
+      }),
+  };
+};
+
+const captureActivationLog = (messages: Array<unknown>) =>
+  Logger.make((options) => {
+    messages.push(Logger.formatStructured.log(options));
+  });
+
+const lastLogJson = (messages: ReadonlyArray<unknown>) => JSON.stringify(messages.at(-1) ?? null);
+
+const activateWithClockAndLog = (
+  input: Parameters<typeof activateRunnerSnapshot>[0],
+  overrides: Partial<StagedRunnerRuntimeApi>,
+  clock: Clock.Clock,
+  messages: Array<unknown>,
+) => {
+  const workflowTransition =
+    input.workflowTransition ??
+    (input.previous === null
+      ? undefined
+      : compatibleWorkflowTransition(input.previous, input.snapshot));
+  const runtime = runtimeLayer(overrides).pipe(
+    Layer.provideMerge(
+      Layer.merge(
+        Layer.succeed(Clock.Clock, clock),
+        Logger.layer([captureActivationLog(messages)]),
+      ),
+    ),
+  );
+  return activateRunnerSnapshot({ ...input, workflowTransition }).pipe(Effect.provide(runtime));
 };
 
 const watchCallbackTimeoutClock = (
@@ -1550,7 +1663,10 @@ describe("staged source snapshots", () => {
     () =>
       Effect.gen(function* () {
         const first = snapshot("r1", [["src/old.ts", "old"]]);
-        const next = snapshot("r2", [["src/new.ts", "new"]]);
+        const next = snapshot("r2", [
+          ["packages/sheet-workflows/src/authState/index.ts", "export const authState = true;"],
+          ["packages/sheet-workflows/src/storage-state/Provider.mts", "export const store = {};"],
+        ]);
         yield* validateStagedSnapshot(next);
         expect(classifySnapshotChange(first, next)).toBe("source");
         expect(next.files.some(({ path }) => path === "src/old.ts")).toBe(false);
@@ -1569,6 +1685,8 @@ describe("staged source snapshots", () => {
         });
         expect(result.failure).toBeNull();
         expect(result.activeRevision).toBe("r2");
+        expect(stagedPaths).toContain("packages/sheet-workflows/src/authState/index.ts");
+        expect(stagedPaths).toContain("packages/sheet-workflows/src/storage-state/Provider.mts");
         expect(stagedPaths).not.toContain("src/old.ts");
       }),
   );
@@ -1638,6 +1756,141 @@ describe("staged source snapshots", () => {
       expect(runtimeCalls).toBe(0);
     }),
   );
+
+  it("limits the Playwright fast path to complete manifest and lockfile impact", () => {
+    const previous = playwrightWorkspaceSnapshot("r1", "1.58.1");
+    const playwrightOnly = playwrightWorkspaceSnapshot("r2", "1.58.2");
+    const allSelected = ["workflow-api", "ordinary-runner", "browser-runner"] as const;
+    expect(affectedRunnerRoles(previous, playwrightOnly, allSelected)).toEqual(allSelected);
+    expect(
+      affectedRunnerRoles(previous, playwrightOnly, ["workflow-api", "browser-runner"]),
+    ).toEqual(["workflow-api", "browser-runner"]);
+    expect(affectedRunnerRoles(previous, playwrightOnly, ["browser-runner"])).toEqual([
+      "browser-runner",
+    ]);
+    expect(affectedRunnerRoles(previous, playwrightOnly, ["workflow-api"])).toEqual([
+      "workflow-api",
+    ]);
+    expect(affectedRunnerRoles(previous, playwrightOnly, ["ordinary-runner"])).toEqual([
+      "ordinary-runner",
+    ]);
+
+    const selected = ["ordinary-runner", "browser-runner"] as const;
+
+    const scriptAndDependencyChange = playwrightWorkspaceSnapshot("r3", "1.58.2", {
+      manifestChange: { scripts: { build: "vp pack", postinstall: "node setup.mjs" } },
+    });
+    expect(affectedRunnerRoles(previous, scriptAndDependencyChange, selected)).toEqual(selected);
+
+    const otherManifestFieldChange = playwrightWorkspaceSnapshot("r4", "1.58.2", {
+      manifestChange: { exports: { "./runtime": "./dist/runtime.mjs" } },
+    });
+    expect(affectedRunnerRoles(previous, otherManifestFieldChange, selected)).toEqual(selected);
+
+    const unrelatedImporterChange = playwrightWorkspaceSnapshot("r5", "1.58.2", {
+      unrelatedImporterVersion: "1.1.0",
+    });
+    expect(affectedRunnerRoles(previous, unrelatedImporterChange, selected)).toEqual(selected);
+
+    const otherLockfileChange = playwrightWorkspaceSnapshot("r6", "1.58.2", {
+      lockfileChange: { settings: { autoInstallPeers: false } },
+    });
+    expect(affectedRunnerRoles(previous, otherLockfileChange, selected)).toEqual(selected);
+  });
+
+  it("falls back to selected roles when Playwright lock metadata has malformed JSON shapes", () => {
+    const previous = playwrightWorkspaceSnapshot("r1", "1.58.1");
+    const selected = ["workflow-api", "ordinary-runner", "browser-runner"] as const;
+    const malformedSnapshots = [
+      playwrightWorkspaceSnapshot("r2", "1.58.2", {
+        manifestChange: { dependencies: { effect: "catalog:" } },
+      }),
+      playwrightWorkspaceSnapshot("r3", "1.58.2", {
+        lockfileChange: { importers: null },
+      }),
+      playwrightWorkspaceSnapshot("r4", "1.58.2", {
+        lockfileChange: { importers: [] },
+      }),
+      playwrightWorkspaceSnapshot("r5", "1.58.2", {
+        lockfileChange: {
+          importers: { "packages/sheet-workflows": { dependencies: null } },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r6", "1.58.2", {
+        lockfileChange: {
+          importers: { "packages/sheet-workflows": { dependencies: [] } },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r7", "1.58.2", {
+        lockfileChange: {
+          importers: {
+            "packages/sheet-workflows": {
+              dependencies: { playwright: { specifier: null, version: "1.58.2" } },
+            },
+          },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r8", "1.58.2", {
+        lockfileChange: {
+          importers: {
+            "packages/sheet-workflows": {
+              dependencies: { playwright: { specifier: 1, version: "1.58.2" } },
+            },
+          },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r9", "1.58.2", {
+        lockfileChange: {
+          importers: {
+            "packages/sheet-workflows": {
+              dependencies: { playwright: { specifier: "1.58.2", version: 1 } },
+            },
+          },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r10", "1.58.2", {
+        lockfileChange: {
+          importers: {
+            "packages/sheet-workflows": { dependencies: { playwright: { specifier: "1.58.2" } } },
+          },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r11", "1.58.2", {
+        lockfileChange: {
+          packages: {
+            "playwright@1.58.2": {
+              resolution: { integrity: "sha512-playwright-1.58.2" },
+              dependencies: null,
+            },
+          },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r12", "1.58.2", {
+        lockfileChange: {
+          packages: {
+            "playwright@1.58.2": {
+              resolution: { integrity: "sha512-playwright-1.58.2" },
+              dependencies: [],
+            },
+          },
+        },
+      }),
+      playwrightWorkspaceSnapshot("r13", "1.58.2", {
+        lockfileChange: {
+          packages: {
+            "playwright@1.58.2": {
+              resolution: { integrity: "sha512-playwright-1.58.2" },
+              dependencies: { "playwright-core": 1 },
+            },
+          },
+        },
+      }),
+    ];
+
+    for (const next of malformedSnapshots) {
+      expect(affectedRunnerRoles(previous, next, selected)).toEqual(selected);
+    }
+  });
 
   it.effect("does not restart workflow roles for a mode-only unrelated source edit", () =>
     Effect.gen(function* () {
@@ -1772,37 +2025,42 @@ describe("staged source snapshots", () => {
     }),
   );
 
-  it.effect("rejects host dependencies, credentials, traversal, and incomplete manifests", () =>
-    Effect.gen(function* () {
-      const bad = [
-        snapshot("r", [["node_modules/x/index.js", "x"]]),
-        snapshot("r", [[".env", "secret"]]),
-        snapshot("r", [[".env.local", "secret"]]),
-        snapshot("r", [[".env.production", "secret"]]),
-        snapshot("r", [["secrets/google-service-account.json", "secret"]]),
-        snapshot("r", [["certs/client.pem", "secret"]]),
-        snapshot("r", [[".cache/ms-playwright/chromium", "binary"]]),
-        snapshot("r", [["../escape", "x"]]),
-        snapshot("r", [
-          ["src/duplicate.ts", "one"],
-          ["src/duplicate.ts", "two"],
-        ]),
-        {
-          ...sealStagedSourceSnapshot("r", [
-            ...snapshot("r").files,
-            utf8File("src/invalid.ts", "x", 0o1000),
+  it.effect(
+    "rejects host dependencies, credentials, browser state, traversal, and incomplete manifests",
+    () =>
+      Effect.gen(function* () {
+        const bad = [
+          snapshot("r", [["node_modules/x/index.js", "x"]]),
+          snapshot("r", [[".env", "secret"]]),
+          snapshot("r", [[".env.local", "secret"]]),
+          snapshot("r", [[".env.production", "secret"]]),
+          snapshot("r", [["secrets/google-service-account.json", "secret"]]),
+          snapshot("r", [["certs/client.pem", "secret"]]),
+          snapshot("r", [[".cache/ms-playwright/chromium", "binary"]]),
+          snapshot("r", [[".config/google-chrome/Default/Cookies", "private browser data"]]),
+          snapshot("r", [["playwright/.auth/user.json", "private browser data"]]),
+          snapshot("r", [["tests/fixtures/storageState.json", "private browser data"]]),
+          snapshot("r", [["../escape", "x"]]),
+          snapshot("r", [
+            ["src/duplicate.ts", "one"],
+            ["src/duplicate.ts", "two"],
           ]),
-        },
-        sealStagedSourceSnapshot("", snapshot("r").files),
-        sealStagedSourceSnapshot("r", [utf8File("package.json", "{}")]),
-      ];
-      for (const candidate of bad) {
-        const result = yield* Effect.exit(
-          validateStagedSnapshot(candidate as StagedSourceSnapshot),
-        );
-        expect(Exit.isFailure(result)).toBe(true);
-      }
-    }),
+          {
+            ...sealStagedSourceSnapshot("r", [
+              ...snapshot("r").files,
+              utf8File("src/invalid.ts", "x", 0o1000),
+            ]),
+          },
+          sealStagedSourceSnapshot("", snapshot("r").files),
+          sealStagedSourceSnapshot("r", [utf8File("package.json", "{}")]),
+        ];
+        for (const candidate of bad) {
+          const result = yield* Effect.exit(
+            validateStagedSnapshot(candidate as StagedSourceSnapshot),
+          );
+          expect(Exit.isFailure(result)).toBe(true);
+        }
+      }),
   );
 
   it.effect("rejects suffixed environment files before runtime effects", () =>
@@ -1811,6 +2069,40 @@ describe("staged source snapshots", () => {
         let runtimeCalls = 0;
         const result = yield* activateWithRuntime({
           snapshot: snapshot("r2", [[path, "credential"]]),
+          previous: snapshot("r1"),
+          owner: "owner",
+          nextOwner: "next-owner",
+          runtime: runtimeLayer({
+            stageComplete: () => {
+              runtimeCalls += 1;
+              return Effect.void;
+            },
+            fenceOldOwner: () => {
+              runtimeCalls += 1;
+              return Effect.void;
+            },
+            activateComplete: () => {
+              runtimeCalls += 1;
+              return Effect.void;
+            },
+          }),
+        });
+        expect(result.failure).toBe("excluded-or-unsafe-path");
+        expect(runtimeCalls).toBe(0);
+      }
+    }),
+  );
+
+  it.effect("rejects browser state in state-named directories before runtime effects", () =>
+    Effect.gen(function* () {
+      const paths = [
+        "packages/sheet-workflows/src/authState/session.json",
+        "packages/sheet-workflows/src/storage-state/session.sqlite",
+      ];
+      for (const path of paths) {
+        let runtimeCalls = 0;
+        const result = yield* activateWithRuntime({
+          snapshot: snapshot("r2", [[path, "synthetic private state"]]),
           previous: snapshot("r1"),
           owner: "owner",
           nextOwner: "next-owner",
@@ -1845,7 +2137,15 @@ describe("staged source snapshots", () => {
         ),
       );
       const invalidPackage = snapshot("r2", [["packages/broken/package.json", "{"]]);
-      for (const candidate of [invalidRoot, invalidPackage]) {
+      const invalidWorkspaceDependencies = [null, []].map((dependencies) =>
+        snapshot("r2", [
+          [
+            "packages/sheet-workflows/package.json",
+            JSON.stringify({ name: "sheet-workflows", dependencies }),
+          ],
+        ]),
+      );
+      for (const candidate of [invalidRoot, invalidPackage, ...invalidWorkspaceDependencies]) {
         let stageCalls = 0;
         let fenceCalls = 0;
         let activationCalls = 0;
@@ -2081,7 +2381,7 @@ describe("staged source snapshots", () => {
       }),
   );
 
-  it.effect("starts affected dependencies before the ordinary runner", () =>
+  it.effect("starts the API and ordinary runner before the isolated browser runner", () =>
     Effect.gen(function* () {
       const restarted: string[] = [];
       const readinessRoles: ReadonlyArray<string>[] = [];
@@ -2110,6 +2410,193 @@ describe("staged source snapshots", () => {
       expect(readinessRoles).toEqual([["workflow-api", "ordinary-runner", "browser-runner"]]);
     }),
   );
+
+  it.effect("restarts every selected consumer for an isolated Playwright update", () =>
+    Effect.gen(function* () {
+      const before = playwrightWorkspaceSnapshot("r1", "1.58.2");
+      const after = playwrightWorkspaceSnapshot("r2", "1.58.3");
+      const cases = [
+        {
+          roles: ["workflow-api", "ordinary-runner", "browser-runner"],
+          expected: ["workflow-api", "ordinary-runner", "browser-runner"],
+        },
+        {
+          roles: ["workflow-api", "browser-runner"],
+          expected: ["workflow-api", "browser-runner"],
+        },
+        { roles: ["browser-runner"], expected: ["browser-runner"] },
+        { roles: ["workflow-api"], expected: ["workflow-api"] },
+        { roles: ["ordinary-runner"], expected: ["ordinary-runner"] },
+      ] as const;
+
+      for (const { roles, expected } of cases) {
+        const restarted: string[] = [];
+        const rebuilt: Array<{ revision: string; roles: ReadonlyArray<string> }> = [];
+        const readyRoles: ReadonlyArray<string>[] = [];
+        const result = yield* activateWithRuntime({
+          snapshot: after,
+          previous: before,
+          owner: "playwright-owner",
+          nextOwner: "playwright-next-owner",
+          roles,
+          runtime: runtimeLayer({
+            rebuildArtifacts: (revision, affectedRoles) =>
+              Effect.sync(() => rebuilt.push({ revision, roles: affectedRoles })).pipe(
+                Effect.asVoid,
+              ),
+            restartRole: (role, revision, kind) =>
+              Effect.sync(() => restarted.push(`${role}:${revision}:${kind}`)).pipe(Effect.asVoid),
+            verifyActualReadiness: (_revision, affectedRoles) =>
+              Effect.sync(() => {
+                readyRoles.push([...affectedRoles]);
+                return true;
+              }),
+          }),
+        });
+
+        expect(result.failure).toBeNull();
+        expect(rebuilt).toEqual([{ revision: "r2", roles: expected }]);
+        expect(restarted).toEqual(expected.map((role) => `${role}:r2:artifact`));
+        expect(readyRoles).toEqual([expected]);
+      }
+    }),
+  );
+
+  it.effect("refreshes the selected ordinary package closure before a later source reload", () =>
+    Effect.gen(function* () {
+      const before = playwrightWorkspaceSnapshot("r1", "1.58.2");
+      const pinUpdate = playwrightWorkspaceSnapshot("r2", "1.58.3");
+      const laterSourceUpdate = sealStagedSourceSnapshot("r3", [
+        ...pinUpdate.files,
+        utf8File("packages/sheet-workflows/src/ordinary.ts", "export const source = 'next';"),
+      ]);
+      const rebuilt: Array<{ revision: string; roles: ReadonlyArray<string> }> = [];
+      const firstActivation = yield* activateWithRuntime({
+        snapshot: pinUpdate,
+        previous: before,
+        owner: "pin-owner",
+        nextOwner: "pin-next-owner",
+        roles: ["workflow-api", "ordinary-runner", "browser-runner"],
+        runtime: runtimeLayer({
+          rebuildArtifacts: (revision, roles) =>
+            Effect.sync(() => rebuilt.push({ revision, roles })).pipe(Effect.asVoid),
+        }),
+      });
+      const laterRestarted: string[] = [];
+      const laterActivation = yield* activateWithRuntime({
+        snapshot: laterSourceUpdate,
+        previous: pinUpdate,
+        owner: "ordinary-owner",
+        nextOwner: "ordinary-next-owner",
+        roles: ["ordinary-runner"],
+        runtime: runtimeLayer({
+          rebuildArtifacts: (revision, roles) =>
+            Effect.sync(() => rebuilt.push({ revision, roles })).pipe(Effect.asVoid),
+          restartRole: (role, revision, kind) =>
+            Effect.sync(() => laterRestarted.push(`${role}:${revision}:${kind}`)).pipe(
+              Effect.asVoid,
+            ),
+        }),
+      });
+
+      expect(firstActivation.failure).toBeNull();
+      expect(laterActivation.failure).toBeNull();
+      expect(rebuilt).toEqual([
+        {
+          revision: "r2",
+          roles: ["workflow-api", "ordinary-runner", "browser-runner"],
+        },
+      ]);
+      expect(laterRestarted).toEqual(["ordinary-runner:r3:source"]);
+    }),
+  );
+
+  it.effect(
+    "restarts all selected consumers in dependency order after a Playwright package update",
+    () =>
+      Effect.gen(function* () {
+        const restarted: string[] = [];
+        const rebuilt: Array<{ revision: string; roles: ReadonlyArray<string> }> = [];
+        const before = playwrightWorkspaceSnapshot("r1", "1.58.2");
+        const after = playwrightWorkspaceSnapshot("r2", "1.58.3");
+        const result = yield* activateWithRuntime({
+          snapshot: after,
+          previous: before,
+          owner: "browser-owner",
+          nextOwner: "browser-next-owner",
+          roles: ["workflow-api", "ordinary-runner", "browser-runner"],
+          runtime: runtimeLayer({
+            rebuildArtifacts: (revision, roles) =>
+              Effect.sync(() => rebuilt.push({ revision, roles })).pipe(Effect.asVoid),
+            restartRole: (role, revision, kind) =>
+              Effect.sync(() => restarted.push(`${role}:${revision}:${kind}`)).pipe(Effect.asVoid),
+          }),
+        });
+
+        expect(result.failure).toBeNull();
+        expect(rebuilt).toEqual([
+          { revision: "r2", roles: ["workflow-api", "ordinary-runner", "browser-runner"] },
+        ]);
+        expect(restarted).toEqual([
+          "workflow-api:r2:artifact",
+          "ordinary-runner:r2:artifact",
+          "browser-runner:r2:artifact",
+        ]);
+      }),
+  );
+
+  it("rebuilds selected workflow roles when a Playwright update changes another dependency", () => {
+    const before = snapshot("r1", [
+      [
+        "packages/sheet-workflows/package.json",
+        '{"name":"sheet-workflows","dependencies":{"playwright":"1.58.2","effect":"4.0.0-beta.67"}}',
+      ],
+    ]);
+    const after = snapshot("r2", [
+      [
+        "packages/sheet-workflows/package.json",
+        '{"name":"sheet-workflows","dependencies":{"playwright":"1.58.3","effect":"4.0.0-beta.68"}}',
+      ],
+    ]);
+
+    expect(
+      affectedRunnerRoles(before, after, ["workflow-api", "ordinary-runner", "browser-runner"]),
+    ).toEqual(["workflow-api", "ordinary-runner", "browser-runner"]);
+  });
+
+  it("rebuilds selected workflow roles when other runner source changes with Playwright", () => {
+    const before = snapshot("r1", [
+      [
+        "packages/sheet-workflows/package.json",
+        '{"name":"sheet-workflows","dependencies":{"playwright":"1.58.2"}}',
+      ],
+      ["packages/sheet-workflows/src/runner.ts", "export const runner = 'ordinary'"],
+    ]);
+    const after = snapshot("r2", [
+      [
+        "packages/sheet-workflows/package.json",
+        '{"name":"sheet-workflows","dependencies":{"playwright":"1.58.3"}}',
+      ],
+      ["packages/sheet-workflows/src/runner.ts", "export const runner = 'updated'"],
+    ]);
+
+    expect(
+      affectedRunnerRoles(before, after, ["workflow-api", "ordinary-runner", "browser-runner"]),
+    ).toEqual(["workflow-api", "ordinary-runner", "browser-runner"]);
+  });
+
+  it("routes screenshot renderer source edits only to the browser runner", () => {
+    const before = snapshot("r1", [
+      ["packages/sheet-workflows/src/workflows/screenshots/browser.ts", "export const browser = 1"],
+    ]);
+    const after = snapshot("r2", [
+      ["packages/sheet-workflows/src/workflows/screenshots/browser.ts", "export const browser = 2"],
+    ]);
+
+    expect(affectedRunnerRoles(before, after, ["ordinary-runner", "browser-runner"])).toEqual([
+      "browser-runner",
+    ]);
+  });
 
   it.effect("coalesces a rapid save burst to one activation of the newest complete revision", () =>
     Effect.gen(function* () {
@@ -2355,5 +2842,266 @@ describe("staged source snapshots", () => {
         expect(recovered.failure).toBeNull();
         expect(activateCalls).toBe(1);
       }),
+  );
+
+  it.effect("records each successful activation phase once in its completion log", () =>
+    Effect.gen(function* () {
+      const clock = makeManualClock();
+      const messages: Array<unknown> = [];
+      const status = yield* activateWithClockAndLog(
+        {
+          snapshot: snapshot("timed-r1", [["src/run.ts", "new"]]),
+          previous: null,
+          owner: "old",
+          nextOwner: "new",
+        },
+        {
+          stageComplete: () => clock.advance(2),
+          rebuildArtifacts: () => clock.advance(3),
+          restartRole: () => clock.advance(5),
+          verifyActualReadiness: () => clock.advance(7).pipe(Effect.as(true)),
+        },
+        clock.clock,
+        messages,
+      );
+      const log = lastLogJson(messages);
+
+      expect(status.failure).toBeNull();
+      expect(log).toContain('"changeKind":"artifact"');
+      expect(log).toContain('"stagingMillis":2');
+      expect(log).toContain('"artifactRebuildMillis":3');
+      expect(log).toContain('"restartMillis":5');
+      expect(log).toContain('"readinessMillis":7');
+      expect(log).toContain('"totalMillis":17');
+    }),
+  );
+
+  it.effect("records failed phase durations and labels only classified readiness failures", () =>
+    Effect.gen(function* () {
+      const clock = makeManualClock();
+
+      const stageMessages: Array<unknown> = [];
+      const stageStatus = yield* activateWithClockAndLog(
+        {
+          snapshot: snapshot("stage-failure-r1", [["src/run.ts", "new"]]),
+          previous: null,
+          owner: "old",
+          nextOwner: "new",
+        },
+        {
+          stageComplete: () =>
+            clock
+              .advance(5)
+              .pipe(
+                Effect.andThen(Effect.fail(new SnapshotRuntimeError({ reason: "stage-failed" }))),
+              ),
+        },
+        clock.clock,
+        stageMessages,
+      );
+      const stageLog = lastLogJson(stageMessages);
+      expect(stageStatus.failure).toBe("stage-failed");
+      expect(stageLog).toContain('"changeKind":"unclassified"');
+      expect(stageLog).toContain('"stagingMillis":5');
+      expect(stageLog).toContain('"totalMillis":5');
+
+      const rebuildMessages: Array<unknown> = [];
+      const rebuildStatus = yield* activateWithClockAndLog(
+        {
+          snapshot: snapshot("rebuild-failure-r1", [["src/run.ts", "new"]]),
+          previous: null,
+          owner: "old",
+          nextOwner: "new",
+        },
+        {
+          rebuildArtifacts: () =>
+            clock
+              .advance(7)
+              .pipe(
+                Effect.andThen(Effect.fail(new SnapshotRuntimeError({ reason: "rebuild-failed" }))),
+              ),
+        },
+        clock.clock,
+        rebuildMessages,
+      );
+      const rebuildLog = lastLogJson(rebuildMessages);
+      expect(rebuildStatus.failure).toBe("rebuild-failed");
+      expect(rebuildLog).toContain('"changeKind":"artifact"');
+      expect(rebuildLog).toContain('"artifactRebuildMillis":7');
+      expect(rebuildLog).toContain('"totalMillis":7');
+
+      const restartMessages: Array<unknown> = [];
+      const previous = snapshot("restart-failure-r0", [["src/run.ts", "old"]]);
+      const restartStatus = yield* activateWithClockAndLog(
+        {
+          snapshot: snapshot("restart-failure-r1", [["src/run.ts", "new"]]),
+          previous,
+          owner: "old",
+          nextOwner: "new",
+          roles: ["ordinary-runner", "browser-runner"],
+        },
+        {
+          restartRole: (role) =>
+            role === "ordinary-runner"
+              ? clock.advance(3)
+              : clock
+                  .advance(7)
+                  .pipe(
+                    Effect.andThen(
+                      Effect.fail(new SnapshotRuntimeError({ reason: "later-restart-failed" })),
+                    ),
+                  ),
+        },
+        clock.clock,
+        restartMessages,
+      );
+      const restartLog = lastLogJson(restartMessages);
+      expect(restartStatus.failure).toBe("later-restart-failed");
+      expect(restartLog).toContain('"restartMillis":10');
+      expect(restartLog).toContain('"totalMillis":10');
+
+      const readinessMessages: Array<unknown> = [];
+      const same = snapshot("readiness-failure-r1", [["src/run.ts", "same"]]);
+      const readinessStatus = yield* activateWithClockAndLog(
+        {
+          snapshot: same,
+          previous: same,
+          owner: "owner",
+          nextOwner: "owner",
+        },
+        { verifyActualReadiness: () => clock.advance(4).pipe(Effect.as(false)) },
+        clock.clock,
+        readinessMessages,
+      );
+      const readinessLog = lastLogJson(readinessMessages);
+      expect(readinessStatus.failure).toBe("readiness-check-failed");
+      expect(readinessLog).toContain('"changeKind":"readiness-only"');
+      expect(readinessLog).toContain('"readinessMillis":4');
+      expect(readinessLog).toContain('"totalMillis":4');
+
+      const validationMessages: Array<unknown> = [];
+      const invalid = snapshot("invalid-r1");
+      const invalidSnapshot = {
+        ...invalid,
+        completion: { ...invalid.completion, filesDigest: "0".repeat(64) },
+      };
+      const validationStatus = yield* activateWithClockAndLog(
+        {
+          snapshot: invalidSnapshot,
+          previous: null,
+          owner: "owner",
+          nextOwner: "owner",
+        },
+        {},
+        clock.clock,
+        validationMessages,
+      );
+      expect(validationStatus.failure).toBe("snapshot-completion-mismatch");
+      expect(lastLogJson(validationMessages)).toContain('"changeKind":"unclassified"');
+
+      const authorityMessages: Array<unknown> = [];
+      const authorityStatus = yield* activateWithClockAndLog(
+        {
+          snapshot: snapshot("authority-failure-r1", [["src/run.ts", "new"]]),
+          previous: null,
+          owner: "owner",
+          nextOwner: "next-owner",
+        },
+        {
+          authorizeActivation: () =>
+            Effect.fail(new SnapshotRuntimeError({ reason: "authority-denied" })),
+        },
+        clock.clock,
+        authorityMessages,
+      );
+      const authorityLog = lastLogJson(authorityMessages);
+      expect(authorityStatus.failure).toBe("snapshot-activation-authority-rejected");
+      expect(authorityLog).toContain('"changeKind":"unclassified"');
+      expect(authorityLog).toContain('"stagingMillis":0');
+    }),
+  );
+
+  it.effect("records timed-out staging, rebuild, sequential restart and readiness attempts", () =>
+    Effect.gen(function* () {
+      const stageClock = makeManualClock(120_000);
+      const stageMessages: Array<unknown> = [];
+      const stageStatus = yield* activateWithClockAndLog(
+        {
+          snapshot: snapshot("stage-timeout-r1", [["src/run.ts", "new"]]),
+          previous: null,
+          owner: "old",
+          nextOwner: "new",
+        },
+        { stageComplete: () => Effect.never },
+        stageClock.clock,
+        stageMessages,
+      );
+      const stageLog = lastLogJson(stageMessages);
+      expect(stageStatus.failure).toBe("runner-preparation-timeout");
+      expect(stageLog).toContain('"stagingMillis":120000');
+      expect(stageLog).toContain('"changeKind":"unclassified"');
+      expect(stageLog).toContain('"totalMillis":120000');
+
+      const rebuildClock = makeManualClock(120_000);
+      const rebuildMessages: Array<unknown> = [];
+      const rebuildStatus = yield* activateWithClockAndLog(
+        {
+          snapshot: snapshot("rebuild-timeout-r1", [["src/run.ts", "new"]]),
+          previous: null,
+          owner: "old",
+          nextOwner: "new",
+        },
+        { rebuildArtifacts: () => Effect.never },
+        rebuildClock.clock,
+        rebuildMessages,
+      );
+      const rebuildLog = lastLogJson(rebuildMessages);
+      expect(rebuildStatus.failure).toBe("runner-preparation-timeout");
+      expect(rebuildLog).toContain('"artifactRebuildMillis":120000');
+      expect(rebuildLog).toContain('"changeKind":"artifact"');
+      expect(rebuildLog).toContain('"totalMillis":120000');
+
+      const restartClock = makeManualClock(30_000);
+      const restartMessages: Array<unknown> = [];
+      const restartStatus = yield* activateWithClockAndLog(
+        {
+          snapshot: snapshot("restart-timeout-r1", [["src/run.ts", "new"]]),
+          previous: null,
+          owner: "old",
+          nextOwner: "new",
+          roles: ["ordinary-runner", "browser-runner"],
+        },
+        {
+          restartRole: (role) =>
+            role === "ordinary-runner" ? restartClock.advance(3) : Effect.never,
+        },
+        restartClock.clock,
+        restartMessages,
+      );
+      const restartLog = lastLogJson(restartMessages);
+      expect(restartStatus.failure).toBe("runner-restart-timeout");
+      expect(restartLog).toContain('"restartMillis":30003');
+      expect(restartLog).toContain('"totalMillis":30003');
+
+      const readinessClock = makeManualClock(30_000);
+      const readinessMessages: Array<unknown> = [];
+      const same = snapshot("readiness-timeout-r1", [["src/run.ts", "same"]]);
+      const readinessStatus = yield* activateWithClockAndLog(
+        {
+          snapshot: same,
+          previous: same,
+          owner: "owner",
+          nextOwner: "owner",
+        },
+        { verifyActualReadiness: () => Effect.never },
+        readinessClock.clock,
+        readinessMessages,
+      );
+      const readinessLog = lastLogJson(readinessMessages);
+      expect(readinessStatus.failure).toBe("runner-readiness-timeout");
+      expect(readinessLog).toContain('"readinessMillis":30000');
+      expect(readinessLog).toContain('"changeKind":"readiness-only"');
+      expect(readinessLog).toContain('"totalMillis":30000');
+    }),
   );
 });

@@ -1,4 +1,5 @@
 export * from "./autoCheckin";
+export * from "./browserRunnerCapability";
 export * from "./clusterReadiness";
 export * from "./postgres";
 export * from "./rolloutGate";
