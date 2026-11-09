@@ -53,12 +53,17 @@ import {
   type VerifiedOAuthResourceToken,
 } from "sheet-auth/oauth-resource-authorization";
 import { Unauthorized } from "typhoon-core/error";
-import { SheetWorkflowContractCatalog, SheetWorkflowPrincipalKind } from "sheet-workflow-contracts";
+import {
+  ScreenshotsCaptureAndDeliver,
+  SheetWorkflowContractCatalog,
+  SheetWorkflowPrincipalKind,
+} from "sheet-workflow-contracts";
 import type { SheetWorkflowZeroContext } from "sheet-zero-server";
 import { config } from "@/config";
 import { sheetWorkflowsHttpEnqueues } from "@/metrics";
 import { ReadOnlyWorkflowAuthorization } from "@/workflows/readOnly/authorization";
 import { makeSelectedWorkflowTransportHandler } from "@/workflows/selected/registry";
+import { isBrowserRunnerFleetReady } from "@/services/clusterReadiness";
 
 const sheetWorkflowHttpContracts = SheetWorkflowContractCatalog;
 
@@ -323,11 +328,13 @@ const routeErrorResponse = (error: unknown) => {
   return isEnqueueError(error) ? enqueueErrorResponse(error) : Effect.fail(error);
 };
 
-const addWorkflowEnqueueRoute = <E, R>(
+const addWorkflowEnqueueRoute = <E, R, BrowserReadiness>(
   path: string,
+  requiresBrowserRunner: boolean,
   authorizer: WorkflowHttpAuthorizer,
   gatewayIdentity: WorkflowHttpGatewayIdentity | undefined,
   enqueue: (context: SheetWorkflowZeroContext, request: unknown) => Effect.Effect<unknown, E, R>,
+  browserRunnerReadiness: Effect.Effect<boolean, never, BrowserReadiness>,
 ) =>
   HttpRouter.add(
     "POST",
@@ -339,6 +346,17 @@ const addWorkflowEnqueueRoute = <E, R>(
         const token = yield* authorizer.requireAuthorizedHeaders(request.headers);
         const context = yield* contextFromToken(token, gatewayIdentity);
         const body = yield* decodeRequestBody(request);
+        if (requiresBrowserRunner) {
+          const ready = yield* browserRunnerReadiness;
+          if (!ready)
+            return yield* Effect.fail(
+              new WorkflowTransportUnavailable({
+                operation: "Enqueue",
+                retryable: true,
+                message: "The browser workflow runner capability is unavailable",
+              }),
+            );
+        }
         const reference = yield* enqueue(context, body);
         return yield* HttpServerResponse.json(reference, { status: 202 });
       }).pipe(Effect.catch(routeErrorResponse));
@@ -485,21 +503,24 @@ const decodeWorkflowInvocationId = HttpRouter.schemaPathParams(
   Effect.mapError(() => invalidObservationRequest()),
 );
 
-export const makeWorkflowHttpRoutesLayer = <Requirements>(
+export const makeWorkflowHttpRoutesLayer = <Requirements, BrowserReadiness = never>(
   enqueueAuthorizer: WorkflowHttpAuthorizer,
   observationAuthorizer: WorkflowHttpAuthorizer,
   executor: WorkflowHttpServerExecutor<SheetWorkflowZeroContext, Requirements>,
   gatewayIdentity?: WorkflowHttpGatewayIdentity,
   serviceEnqueueAuthorizer: WorkflowHttpAuthorizer = enqueueAuthorizer,
   serviceObservationAuthorizer: WorkflowHttpAuthorizer = observationAuthorizer,
+  browserRunnerReadiness?: () => Effect.Effect<boolean, never, BrowserReadiness>,
 ) => {
   const workflowRoutes = makeWorkflowHttpRouteCatalog(sheetWorkflowHttpContracts, executor);
   const routeLayers = workflowRoutes.flatMap(({ contract, routes, enqueue, get, list }) => [
     addWorkflowEnqueueRoute(
       routes.enqueue,
+      contract === ScreenshotsCaptureAndDeliver,
       authorizerForContract(contract, enqueueAuthorizer, serviceEnqueueAuthorizer),
       gatewayIdentity,
       enqueue,
+      browserRunnerReadiness?.() ?? Effect.succeed(true),
     ),
     addWorkflowObservationRoute(
       routes.get,
@@ -542,6 +563,7 @@ export const workflowHttpRoutesLayer = Layer.unwrap(
       gatewayIdentity,
       serviceEnqueueAuthorizer,
       serviceObservationAuthorizer,
+      () => isBrowserRunnerFleetReady,
     );
   }),
 );

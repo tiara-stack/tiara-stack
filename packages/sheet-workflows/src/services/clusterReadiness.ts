@@ -1,6 +1,11 @@
 import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/unstable/sql";
 import { config } from "@/config";
+import {
+  browserRunnerCapabilityGroup,
+  browserRunnerCapabilityShardPattern,
+} from "./browserRunnerCapability";
+import { screenshotShardGroups } from "@/workflows/screenshots/catalog";
 
 type ClusterReadinessRow = {
   readonly ready: boolean;
@@ -11,10 +16,11 @@ const SHARD_LOCK_WINDOW_SECONDS = 35;
 const SHARD_LOCK_COUNT_PER_WORKFLOW_GROUP = 300;
 const ORDINARY_SHARD_LOCK_COUNT = 2 * SHARD_LOCK_COUNT_PER_WORKFLOW_GROUP;
 const BROWSER_SHARD_LOCK_COUNT = SHARD_LOCK_COUNT_PER_WORKFLOW_GROUP;
+const BROWSER_RUNNER_SELF_READINESS_LOCK_COUNT = 2 * BROWSER_SHARD_LOCK_COUNT;
 
 const shardLockCountByRole = {
   api: ORDINARY_SHARD_LOCK_COUNT,
-  "browser-runner": BROWSER_SHARD_LOCK_COUNT,
+  "browser-runner": BROWSER_RUNNER_SELF_READINESS_LOCK_COUNT,
   combined: ORDINARY_SHARD_LOCK_COUNT,
   producer: 0,
   runner: ORDINARY_SHARD_LOCK_COUNT,
@@ -111,6 +117,43 @@ export const isClusterRunnerFleetReady = Effect.gen(function* () {
     ),
   ),
   Effect.withSpan("sheet-workflows.runner.fleetReady"),
+);
+
+/** Browser workflows remain unaccepted until one compatible runner owns both browser groups. */
+export const isBrowserRunnerFleetReady = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  const browserCapabilityGroup = yield* browserRunnerCapabilityGroup;
+  const browserActionShardPattern = `${screenshotShardGroups.browser}:%`;
+  const [row] = yield* sql<ClusterReadinessRow>`
+    SELECT EXISTS (
+      SELECT 1
+      FROM "sheet_workflows_runners" AS runner
+      WHERE runner.healthy = TRUE
+        AND runner.last_heartbeat > NOW() - (${HEARTBEAT_WINDOW_SECONDS} * INTERVAL '1 second')
+        AND (
+          SELECT COUNT(*)
+          FROM "sheet_workflows_locks"
+          WHERE "sheet_workflows_locks".address = runner.address
+            AND "sheet_workflows_locks".shard_id LIKE ${browserActionShardPattern}
+            AND "sheet_workflows_locks".acquired_at > NOW() - (${SHARD_LOCK_WINDOW_SECONDS} * INTERVAL '1 second')
+        ) = ${BROWSER_SHARD_LOCK_COUNT}
+        AND (
+          SELECT COUNT(*)
+          FROM "sheet_workflows_locks"
+          WHERE "sheet_workflows_locks".address = runner.address
+            AND "sheet_workflows_locks".shard_id LIKE ${browserRunnerCapabilityShardPattern(browserCapabilityGroup)}
+            AND "sheet_workflows_locks".acquired_at > NOW() - (${SHARD_LOCK_WINDOW_SECONDS} * INTERVAL '1 second')
+        ) = ${BROWSER_SHARD_LOCK_COUNT}
+    ) AS ready
+  `;
+  return row?.ready === true;
+}).pipe(
+  Effect.catchCause((cause) =>
+    Effect.logWarning("Failed to verify browser workflow runner capability", cause).pipe(
+      Effect.as(false),
+    ),
+  ),
+  Effect.withSpan("sheet-workflows.browserRunner.ready"),
 );
 
 const isWorkflowProducerReady = Effect.gen(function* () {

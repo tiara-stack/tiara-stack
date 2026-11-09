@@ -1,0 +1,17 @@
+{
+  "artifactId": "TIA-250:e30a4abc:inherited-site-cleanup-v1",
+  "schema": "ticket-owned-post-adoption-site-cleanup-v1",
+  "ticketId": "TIA-250",
+  "sourceCommitAtPreparation": "e30a4abcce42b92418cae385d19b47335f61ad8f",
+  "inheritedRepairArtifactId": "TIA-249:b4fdb582:inherited-site-adoption-current-v1",
+  "targetFile": "packages/developer-launcher/src/connected-preview.test.ts",
+  "removedSites": [
+    {
+      "rule": "typescript/no-unsafe-type-assertion",
+      "site": "d37d105dacb4e9e78b5e38597994c4825f4bcb851a209dad7841664a41b2b953",
+      "source": "    const output = JSON.parse(result.stdout) as {",
+      "replacementSource": "Schema.decodeUnknownSync(connectedPreviewPlanOutputSchema)",
+      "reason": "The owned workflow role test now decodes its JSON output with Effect Schema instead of an unsafe assertion; the inherited assertion site no longer exists."
+    }
+  ]
+}

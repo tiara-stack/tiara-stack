@@ -1,0 +1,13 @@
+{
+  "artifactId": "TIA-250:62f489db:browser-shard-site-cleanup-v1",
+  "schema": "ticket-owned-nested-ternary-site-removal-v1",
+  "ticketId": "TIA-250",
+  "sourceCommitAtPreparation": "62f489db00e6c68b00e66487d907a736777fc3d0",
+  "targetFile": "packages/sheet-workflows/src/cluster/runtime.ts",
+  "removedSite": "Program.body/ExportNamedDeclaration.declaration/VariableDeclaration.declarations[0]/VariableDeclarator.init/ArrowFunctionExpression.body::[\"variable:assignedSheetWorkflowShardGroups\"]::role === \"browser-runner\" ? [\"browser\"] : role === \"producer\" ? [] : [\"dispatch\", \"autoCheckin\"]",
+  "removedExpression": "role === \"browser-runner\" ? [\"browser\"] : role === \"producer\" ? [] : [\"dispatch\", \"autoCheckin\"]",
+  "replacement": "assignedSheetWorkflowShardGroupsByRole is a typed role table; its browser entry uses screenshotShardGroups.browser.",
+  "reason": "The authoritative screenshot action group is now shared with runner role assignment. The role table removes the inherited nested conditional, so the obsolete inherited lint allowance is removed instead of rekeyed.",
+  "newAllowances": 0,
+  "policyExpansion": false
+}

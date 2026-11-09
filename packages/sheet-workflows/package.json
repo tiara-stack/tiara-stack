@@ -32,6 +32,7 @@
     "lint": "vp lint src",
     "test": "vp test run",
     "test:watch": "vp test",
+    "test:browser-smoke": "node ./browser-runner-smoke.mjs",
     "build": "vp pack && tar -acf dist.tar.zst ./dist"
   },
   "dependencies": {

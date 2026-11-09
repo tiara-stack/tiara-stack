@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { Cause, Context, Effect, Layer, Match, Option, Schema } from "effect";
+import { parse as parseYaml } from "yaml";
+import { Cause, Clock, Context, Effect, Layer, Match, Option, Predicate, Schema } from "effect";
 import {
   RunnerRevisionStatusSchema,
   RunnerRoleSchema,
@@ -186,6 +187,307 @@ const workspacePackageNames = (manifests: WorkspacePackageManifests) => {
   return names;
 };
 
+const sheetWorkflowsPackageManifestPath = "packages/sheet-workflows/package.json";
+const pnpmLockPath = "pnpm-lock.yaml";
+
+const hasOnlyPlaywrightDependencyChangePaths = (changedPaths: ReadonlyArray<string>) =>
+  changedPaths.includes(sheetWorkflowsPackageManifestPath) &&
+  changedPaths.every((path) => path === sheetWorkflowsPackageManifestPath || path === pnpmLockPath);
+
+type JsonValue = typeof Schema.Json.Type;
+const JsonRecordSchema = Schema.Record(Schema.String, Schema.Json);
+type JsonRecord = typeof JsonRecordSchema.Type;
+
+const isJsonRecord = (value: JsonValue | undefined): value is JsonRecord =>
+  Predicate.isObject(value);
+
+const jsonRecordProperty = (record: JsonRecord, key: string): JsonRecord | undefined => {
+  const value = record[key];
+  return isJsonRecord(value) ? value : undefined;
+};
+
+const canonicalJson = (value: JsonValue): JsonValue => {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (isJsonRecord(value))
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => {
+          if (left < right) return -1;
+          if (left > right) return 1;
+          return 0;
+        })
+        .map(([key, entry]) => [key, canonicalJson(entry)]),
+    );
+  return value;
+};
+
+const jsonEqual = (left: JsonValue, right: JsonValue) =>
+  JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+
+const decodeJsonRecord = (text: string): JsonRecord | undefined => {
+  try {
+    return Schema.decodeUnknownSync(Schema.fromJsonString(JsonRecordSchema))(text);
+  } catch {
+    return undefined;
+  }
+};
+
+const decodePnpmLockfile = (snapshot: StagedSourceSnapshot): JsonRecord | undefined => {
+  const lockfile = snapshot.files.find(({ path }) => path === pnpmLockPath);
+  if (lockfile === undefined || lockfile.contentEncoding !== "utf8") return undefined;
+  try {
+    return Schema.decodeUnknownSync(JsonRecordSchema)(parseYaml(lockfile.content));
+  } catch {
+    return undefined;
+  }
+};
+
+const withoutPlaywrightManifestDependency = (manifest: JsonRecord): JsonRecord | undefined => {
+  const dependencies = jsonRecordProperty(manifest, "dependencies");
+  if (dependencies === undefined) return undefined;
+  const remainingDependencies = Object.fromEntries(
+    Object.entries(dependencies).filter(([name]) => name !== "playwright"),
+  );
+  return { ...manifest, dependencies: remainingDependencies };
+};
+
+const readPnpmImporterPlaywright = (lockfile: JsonRecord) => {
+  const importers = jsonRecordProperty(lockfile, "importers");
+  const importer = importers && jsonRecordProperty(importers, "packages/sheet-workflows");
+  const dependencies = importer && jsonRecordProperty(importer, "dependencies");
+  const playwright = dependencies && jsonRecordProperty(dependencies, "playwright");
+  if (playwright === undefined) return undefined;
+  const specifier = playwright.specifier;
+  const version = playwright.version;
+  return Predicate.isString(specifier) && Predicate.isString(version)
+    ? { specifier, version }
+    : undefined;
+};
+
+const lockPackageKey = (name: string, version: string, packages: JsonRecord) => {
+  const exact = `${name}@${version}`;
+  if (Object.hasOwn(packages, exact)) return exact;
+  const peerQualified = Object.keys(packages).filter(
+    (key) => key.startsWith(`${exact}(`) || key.startsWith(`${exact}_`),
+  );
+  return peerQualified.length === 1 ? peerQualified[0] : undefined;
+};
+
+const lockDependencyEntries = (
+  packageRecord: JsonRecord,
+): ReadonlyArray<readonly [string, string]> | undefined => {
+  const dependencySections = ["dependencies", "optionalDependencies"] as const;
+  const entries: Array<readonly [string, string]> = [];
+  for (const section of dependencySections) {
+    const dependencies = packageRecord[section];
+    if (dependencies === undefined) continue;
+    if (!isJsonRecord(dependencies)) return undefined;
+    for (const [name, version] of Object.entries(dependencies)) {
+      if (!Predicate.isString(version)) return undefined;
+      entries.push([name, version]);
+    }
+  }
+  return entries;
+};
+
+const lockPackageDependencyKeys = (
+  packageKey: string,
+  packages: JsonRecord,
+  snapshots: JsonRecord,
+): ReadonlyArray<string> | undefined => {
+  const packageRecord = jsonRecordProperty(packages, packageKey);
+  const snapshotRecord = jsonRecordProperty(snapshots, packageKey);
+  if (packageRecord === undefined || snapshotRecord === undefined) return undefined;
+  const packageDependencies = lockDependencyEntries(packageRecord);
+  const snapshotDependencies = lockDependencyEntries(snapshotRecord);
+  if (packageDependencies === undefined || snapshotDependencies === undefined) return undefined;
+
+  const keys: string[] = [];
+  for (const [name, version] of [...packageDependencies, ...snapshotDependencies]) {
+    const dependencyKey = lockPackageKey(name, version, packages);
+    if (dependencyKey === undefined) return undefined;
+    keys.push(dependencyKey);
+  }
+  return keys;
+};
+
+const playwrightLockClosure = (lockfile: JsonRecord): ReadonlySet<string> | undefined => {
+  const packages = jsonRecordProperty(lockfile, "packages");
+  const snapshots = jsonRecordProperty(lockfile, "snapshots");
+  const importer = readPnpmImporterPlaywright(lockfile);
+  if (packages === undefined || snapshots === undefined || importer === undefined) return undefined;
+  const root = lockPackageKey("playwright", importer.version, packages);
+  if (root === undefined) return undefined;
+
+  const pending = [root];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const packageKey = pending.pop();
+    if (packageKey === undefined || visited.has(packageKey)) continue;
+    visited.add(packageKey);
+    const dependencies = lockPackageDependencyKeys(packageKey, packages, snapshots);
+    if (dependencies === undefined) return undefined;
+    pending.push(...dependencies);
+  }
+  return visited;
+};
+
+const playwrightLockChangesAreIsolated = (
+  beforeLockfile: JsonRecord,
+  afterLockfile: JsonRecord,
+) => {
+  const beforeClosure = playwrightLockClosure(beforeLockfile);
+  const afterClosure = playwrightLockClosure(afterLockfile);
+  if (beforeClosure === undefined || afterClosure === undefined) return false;
+  const closure = new Set([...beforeClosure, ...afterClosure]);
+  const beforeWithoutPlaywright = withoutPlaywrightLockChanges(beforeLockfile, closure);
+  const afterWithoutPlaywright = withoutPlaywrightLockChanges(afterLockfile, closure);
+  return (
+    beforeWithoutPlaywright !== undefined &&
+    afterWithoutPlaywright !== undefined &&
+    jsonEqual(beforeWithoutPlaywright, afterWithoutPlaywright)
+  );
+};
+
+const withoutPlaywrightLockChanges = (
+  lockfile: JsonRecord,
+  closure: ReadonlySet<string>,
+): JsonRecord | undefined => {
+  const importers = jsonRecordProperty(lockfile, "importers");
+  const sheetWorkflowsImporter =
+    importers && jsonRecordProperty(importers, "packages/sheet-workflows");
+  const dependencies =
+    sheetWorkflowsImporter && jsonRecordProperty(sheetWorkflowsImporter, "dependencies");
+  const packages = jsonRecordProperty(lockfile, "packages");
+  const snapshots = jsonRecordProperty(lockfile, "snapshots");
+  if (
+    importers === undefined ||
+    sheetWorkflowsImporter === undefined ||
+    dependencies === undefined ||
+    packages === undefined ||
+    snapshots === undefined
+  )
+    return undefined;
+
+  const remainingDependencies = Object.fromEntries(
+    Object.entries(dependencies).filter(([name]) => name !== "playwright"),
+  );
+  const remainingPackages = Object.fromEntries(
+    Object.entries(packages).filter(([key]) => !closure.has(key)),
+  );
+  const remainingSnapshots = Object.fromEntries(
+    Object.entries(snapshots).filter(([key]) => !closure.has(key)),
+  );
+  return {
+    ...lockfile,
+    importers: {
+      ...importers,
+      "packages/sheet-workflows": {
+        ...sheetWorkflowsImporter,
+        dependencies: remainingDependencies,
+      },
+    },
+    packages: remainingPackages,
+    snapshots: remainingSnapshots,
+  };
+};
+
+type PlaywrightManifestVersionChange = {
+  readonly previous: string;
+  readonly next: string;
+};
+
+const readSheetWorkflowsManifest = (snapshot: StagedSourceSnapshot) => {
+  const file = snapshot.files.find(({ path }) => path === sheetWorkflowsPackageManifestPath);
+  if (file === undefined || file.contentEncoding !== "utf8") return undefined;
+  return decodeJsonRecord(file.content);
+};
+
+const playwrightManifestDependency = (manifest: JsonRecord): string | undefined => {
+  const dependencies = jsonRecordProperty(manifest, "dependencies");
+  const version = dependencies?.playwright;
+  return Predicate.isString(version) ? version : undefined;
+};
+
+const manifestsDifferOnlyByPlaywright = (before: JsonRecord, after: JsonRecord) => {
+  const beforeWithoutPlaywright = withoutPlaywrightManifestDependency(before);
+  const afterWithoutPlaywright = withoutPlaywrightManifestDependency(after);
+  return (
+    beforeWithoutPlaywright !== undefined &&
+    afterWithoutPlaywright !== undefined &&
+    jsonEqual(beforeWithoutPlaywright, afterWithoutPlaywright)
+  );
+};
+
+const playwrightManifestVersionChange = (
+  previous: StagedSourceSnapshot,
+  next: StagedSourceSnapshot,
+): PlaywrightManifestVersionChange | undefined => {
+  const beforeManifest = readSheetWorkflowsManifest(previous);
+  const afterManifest = readSheetWorkflowsManifest(next);
+  if (beforeManifest === undefined || afterManifest === undefined) return undefined;
+  const beforePlaywright = playwrightManifestDependency(beforeManifest);
+  const afterPlaywright = playwrightManifestDependency(afterManifest);
+  if (
+    beforePlaywright === undefined ||
+    afterPlaywright === undefined ||
+    beforePlaywright === afterPlaywright
+  )
+    return undefined;
+  if (!manifestsDifferOnlyByPlaywright(beforeManifest, afterManifest)) return undefined;
+
+  return { previous: beforePlaywright, next: afterPlaywright };
+};
+
+const playwrightLockChangeMatchesManifest = (
+  previous: StagedSourceSnapshot,
+  next: StagedSourceSnapshot,
+  manifestChange: PlaywrightManifestVersionChange,
+) => {
+  const beforeLockfile = decodePnpmLockfile(previous);
+  const afterLockfile = decodePnpmLockfile(next);
+  if (beforeLockfile === undefined || afterLockfile === undefined) return false;
+  const beforeResolution = readPnpmImporterPlaywright(beforeLockfile);
+  const afterResolution = readPnpmImporterPlaywright(afterLockfile);
+  if (
+    beforeResolution === undefined ||
+    afterResolution === undefined ||
+    beforeResolution.specifier !== manifestChange.previous ||
+    afterResolution.specifier !== manifestChange.next ||
+    beforeResolution.version === afterResolution.version
+  )
+    return false;
+
+  return playwrightLockChangesAreIsolated(beforeLockfile, afterLockfile);
+};
+
+const isPlaywrightOnlyManifestAndLockChange = (
+  previous: StagedSourceSnapshot,
+  next: StagedSourceSnapshot,
+) => {
+  const manifestChange = playwrightManifestVersionChange(previous, next);
+  return (
+    manifestChange !== undefined &&
+    playwrightLockChangeMatchesManifest(previous, next, manifestChange)
+  );
+};
+
+const playwrightOnlyDependencyChange = (
+  previous: StagedSourceSnapshot,
+  next: StagedSourceSnapshot,
+  changedPaths: ReadonlyArray<string>,
+) => {
+  if (!hasOnlyPlaywrightDependencyChangePaths(changedPaths)) return false;
+  const before = workspacePackageManifests(previous).get("sheet-workflows")?.manifest;
+  const after = workspacePackageManifests(next).get("sheet-workflows")?.manifest;
+  return (
+    before !== undefined &&
+    after !== undefined &&
+    before.dependencies?.playwright !== after.dependencies?.playwright &&
+    isPlaywrightOnlyManifestAndLockChange(previous, next)
+  );
+};
+
 /** Propagate changed workspace packages to selected workflow consumers through workspace dependencies. */
 export const affectedRunnerRoles = (
   previous: StagedSourceSnapshot,
@@ -194,6 +496,13 @@ export const affectedRunnerRoles = (
 ): ReadonlyArray<RunnerRole> => {
   const changedPaths = changedSnapshotPaths(previous, next);
   if (changedPaths.length === 0) return selectedRoles;
+  if (playwrightOnlyDependencyChange(previous, next, changedPaths)) return selectedRoles;
+  if (
+    changedPaths.every(
+      (path) => path === "packages/sheet-workflows/src/workflows/screenshots/browser.ts",
+    )
+  )
+    return selectedRoles.filter((role) => role === "browser-runner");
   const changedDirectories = changedPackageDirectories(changedPaths);
   if (changedDirectories === undefined) return selectedRoles;
   const previousManifests = workspacePackageManifests(previous);
@@ -314,7 +623,10 @@ export interface StagedRunnerRuntimeApi {
   ) => Effect.Effect<void, SnapshotRuntimeError>;
   readonly activateComplete: (revision: string) => Effect.Effect<void, SnapshotRuntimeError>;
   readonly retainImmutableRevision: (revision: string) => Effect.Effect<void, SnapshotRuntimeError>;
-  readonly rebuildArtifacts: (revision: string) => Effect.Effect<void, SnapshotRuntimeError>;
+  readonly rebuildArtifacts: (
+    revision: string,
+    roles: ReadonlyArray<RunnerRole>,
+  ) => Effect.Effect<void, SnapshotRuntimeError>;
   readonly restartRole: (
     role: RunnerRole,
     revision: string,
@@ -369,7 +681,31 @@ type RunnerActivationState = {
   workflowRecreation: WorkflowRecreationDiagnostic | undefined;
   workflowRecreationAuthorityAuthorized: boolean;
   workflowTransitionPhases: WorkflowTransitionPhaseFacts | undefined;
+  startedAt: number;
+  change: SnapshotChange | null;
+  readinessOnly: boolean;
+  stagingMillis: number;
+  artifactRebuildMillis: number;
+  restartMillis: number;
+  readinessMillis: number;
 };
+
+const measureAttempt = <A, E, R>(
+  operation: Effect.Effect<A, E, R>,
+  recordElapsed: (elapsedMillis: number) => void,
+): Effect.Effect<A, E, R> =>
+  Effect.gen(function* () {
+    const startedAt = yield* Clock.currentTimeMillis;
+    return yield* operation.pipe(
+      Effect.ensuring(
+        Clock.currentTimeMillis.pipe(
+          Effect.flatMap((completedAt) =>
+            Effect.sync(() => recordElapsed(Math.max(0, completedAt - startedAt))),
+          ),
+        ),
+      ),
+    );
+  });
 
 const statusForRevision = (
   revision: string,
@@ -425,14 +761,34 @@ const prepareRunnerRevision = (
   input: RunnerActivationInput,
   snapshot: StagedSourceSnapshot,
   runtime: StagedRunnerRuntimeApi,
+  roles: ReadonlyArray<RunnerRole>,
+  state: RunnerActivationState,
 ): Effect.Effect<SnapshotChange, SnapshotRuntimeError> =>
   Effect.timeoutOrElse(
     Effect.gen(function* () {
-      yield* runtime.stageComplete(snapshot);
-      yield* runtime.fenceOldOwner(input.owner, input.nextOwner);
-      if (input.previous) yield* runtime.retainImmutableRevision(input.previous.revision);
-      const change = input.previous ? classifySnapshotChange(input.previous, snapshot) : "artifact";
-      if (change === "artifact") yield* runtime.rebuildArtifacts(snapshot.revision);
+      const change = yield* measureAttempt(
+        Effect.gen(function* () {
+          yield* runtime.stageComplete(snapshot);
+          yield* runtime.fenceOldOwner(input.owner, input.nextOwner);
+          if (input.previous) yield* runtime.retainImmutableRevision(input.previous.revision);
+          const classified = input.previous
+            ? classifySnapshotChange(input.previous, snapshot)
+            : "artifact";
+          state.change = classified;
+          return classified;
+        }),
+        (elapsedMillis) => {
+          state.stagingMillis += elapsedMillis;
+        },
+      );
+      if (change === "artifact" && roles.length > 0) {
+        yield* measureAttempt(
+          runtime.rebuildArtifacts(snapshot.revision, roles),
+          (elapsedMillis) => {
+            state.artifactRebuildMillis += elapsedMillis;
+          },
+        );
+      }
       return change;
     }),
     {
@@ -491,27 +847,28 @@ const authorizeRunnerActivation = (
     }),
   );
 };
-
 const requireRunnerReadiness = (
   runtime: StagedRunnerRuntimeApi,
   revision: string,
   roles: ReadonlyArray<RunnerRole>,
+  state: RunnerActivationState,
 ): Effect.Effect<void, SnapshotError | SnapshotRuntimeError> =>
-  runtime
-    .verifyActualReadiness(revision, roles)
-    .pipe(
-      Effect.timeout(stagedSourceActivationTimeouts.readiness),
-      Effect.mapError((error) =>
-        Cause.isTimeoutError(error)
-          ? new SnapshotRuntimeError({ reason: "runner-readiness-timeout" })
-          : error,
+  Effect.gen(function* () {
+    const ready = yield* measureAttempt(
+      runtime.verifyActualReadiness(revision, roles).pipe(
+        Effect.timeout(stagedSourceActivationTimeouts.readiness),
+        Effect.mapError((error) =>
+          Cause.isTimeoutError(error)
+            ? new SnapshotRuntimeError({ reason: "runner-readiness-timeout" })
+            : error,
+        ),
       ),
-    )
-    .pipe(
-      Effect.flatMap((ready) =>
-        ready ? Effect.void : Effect.fail(new SnapshotError({ reason: "readiness-check-failed" })),
-      ),
+      (elapsedMillis) => {
+        state.readinessMillis += elapsedMillis;
+      },
     );
+    if (!ready) return yield* Effect.fail(new SnapshotError({ reason: "readiness-check-failed" }));
+  });
 
 const sameRevisionSnapshot = (
   previous: StagedSourceSnapshot | null,
@@ -818,17 +1175,24 @@ const restartRunnerRoles = (
   revision: string,
   change: SnapshotChange,
   roles: ReadonlyArray<RunnerRole>,
+  state: RunnerActivationState,
 ): Effect.Effect<void, SnapshotRuntimeError> =>
   Effect.gen(function* () {
-    for (const role of roles)
-      yield* runtime.restartRole(role, revision, change).pipe(
-        Effect.timeout(stagedSourceActivationTimeouts.restart),
-        Effect.mapError((error) =>
-          Cause.isTimeoutError(error)
-            ? new SnapshotRuntimeError({ reason: "runner-restart-timeout" })
-            : error,
+    for (const role of roles) {
+      yield* measureAttempt(
+        runtime.restartRole(role, revision, change).pipe(
+          Effect.timeout(stagedSourceActivationTimeouts.restart),
+          Effect.mapError((error) =>
+            Cause.isTimeoutError(error)
+              ? new SnapshotRuntimeError({ reason: "runner-restart-timeout" })
+              : error,
+          ),
         ),
+        (elapsedMillis) => {
+          state.restartMillis += elapsedMillis;
+        },
       );
+    }
   });
 
 const prepareWorkflowActivation = (
@@ -862,6 +1226,7 @@ const executeRunnerActivation = (
 ): Effect.Effect<RunnerRevisionStatus, RunnerActivationError, StagedRunnerRuntime> =>
   Effect.gen(function* () {
     const runtime = yield* StagedRunnerRuntime;
+    state.startedAt = yield* Clock.currentTimeMillis;
     const { snapshot, isSameRevision, workflowRecreation, workflowRecreationAuthorityAuthorized } =
       yield* prepareWorkflowActivation(input, runtime);
     state.workflowRecreation = workflowRecreation;
@@ -873,12 +1238,13 @@ const executeRunnerActivation = (
       roles = affectedRunnerRoles(input.previous, snapshot, selectedRoles);
     state.roles = roles;
     if (isSameRevision && state.workflowRecreation === undefined) {
-      yield* requireRunnerReadiness(runtime, snapshot.revision, roles);
+      state.readinessOnly = true;
+      yield* requireRunnerReadiness(runtime, snapshot.revision, roles, state);
       return statusForRevision(snapshot.revision, state.workflowRecreation);
     }
     if (!state.workflowRecreationAuthorityAuthorized)
       yield* authorizeRunnerActivation(input, snapshot, roles, runtime);
-    const change = yield* prepareRunnerRevision(input, snapshot, runtime);
+    const change = yield* prepareRunnerRevision(input, snapshot, runtime, roles, state);
     if (state.workflowRecreation !== undefined)
       yield* withWorkflowRecreationTimeout(
         runtime.persistWorkflowRecreationDiagnostic(state.workflowRecreation),
@@ -925,8 +1291,8 @@ const executeRunnerActivation = (
       ),
     );
     state.activated = true;
-    yield* restartRunnerRoles(runtime, snapshot.revision, change, roles);
-    yield* requireRunnerReadiness(runtime, snapshot.revision, roles);
+    yield* restartRunnerRoles(runtime, snapshot.revision, change, roles, state);
+    yield* requireRunnerReadiness(runtime, snapshot.revision, roles, state);
     return statusForRevision(snapshot.revision, state.workflowRecreation);
   });
 
@@ -940,9 +1306,36 @@ export const activateRunnerSnapshot = (
     workflowRecreation: undefined,
     workflowRecreationAuthorityAuthorized: false,
     workflowTransitionPhases: undefined,
+    startedAt: 0,
+    change: null,
+    readinessOnly: false,
+    stagingMillis: 0,
+    artifactRebuildMillis: 0,
+    restartMillis: 0,
+    readinessMillis: 0,
   };
   return executeRunnerActivation(input, state).pipe(
     Effect.catch((reason) => Effect.succeed(failureStatus(input, state, reason))),
+    Effect.tap((status) =>
+      Clock.currentTimeMillis.pipe(
+        Effect.flatMap((completedAt) =>
+          Effect.logInfo("Workflow runner source activation completed").pipe(
+            Effect.annotateLogs({
+              requestedRevision: status.requestedRevision,
+              activeRevision: status.activeRevision,
+              roles: state.roles.join(","),
+              outcome: status.failure === null ? "ready" : "unavailable",
+              changeKind: state.change ?? (state.readinessOnly ? "readiness-only" : "unclassified"),
+              stagingMillis: state.stagingMillis,
+              artifactRebuildMillis: state.artifactRebuildMillis,
+              restartMillis: state.restartMillis,
+              readinessMillis: state.readinessMillis,
+              totalMillis: Math.max(0, completedAt - state.startedAt),
+            }),
+          ),
+        ),
+      ),
+    ),
   );
 };
 

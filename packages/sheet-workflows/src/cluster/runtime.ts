@@ -1,5 +1,5 @@
 import { NodeHttpServer } from "@effect/platform-node";
-import { Duration, Effect, FileSystem, Layer, Option, Ref } from "effect";
+import { Duration, Effect, FileSystem, Layer, Match, Option, Ref } from "effect";
 import type { ConfigError } from "effect/Config";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 import {
@@ -31,6 +31,7 @@ import { config } from "@/config";
 import { sheetWorkflowsRuntimePolicy } from "@/config/runtimePolicy";
 import {
   AutonomousTriggerService,
+  browserRunnerCapabilityGroup,
   sheetBotCacheClientLayer,
   sheetBotDeliveryClientLayer,
   sheetDataProviderLayer,
@@ -47,6 +48,7 @@ import type { CalculationProviderError } from "@/workflows/calculations/provider
 import { getClusterRunnerReadinessSnapshot, postgresSqlLayer } from "@/services";
 import { smokeWorkflowLayer } from "@/workflows/smoke";
 import { selectAutonomousTriggerSelection } from "@/workflows/autonomousTriggerLayer";
+import { screenshotShardGroups } from "@/workflows/screenshots/catalog";
 import {
   readOnlyWorkflowAuthorizationLayer,
   readOnlyWorkflowDataSourceLayer,
@@ -143,12 +145,25 @@ import {
   sheetWorkflowRuntimeDefinitions,
 } from "@/workflows/runtimeDefinitions";
 
-const availableSheetWorkflowShardGroups = ["dispatch", "autoCheckin", "browser"] as const;
+type SheetWorkflowRole = "combined" | "api" | "producer" | "runner" | "browser-runner";
 
-export const assignedSheetWorkflowShardGroups = (
-  role: "combined" | "api" | "producer" | "runner" | "browser-runner",
-): ReadonlyArray<(typeof availableSheetWorkflowShardGroups)[number]> =>
-  role === "browser-runner" ? ["browser"] : role === "producer" ? [] : ["dispatch", "autoCheckin"]; // oxlint-disable-line no-nested-ternary -- inherited master site
+const browserGroups = [screenshotShardGroups.browser] as const;
+const ordinaryShardGroups = ["dispatch", "autoCheckin"] as const;
+const availableSheetWorkflowShardGroups = [...ordinaryShardGroups, ...browserGroups] as const;
+
+const assignedSheetWorkflowShardGroupsByRole = {
+  combined: ordinaryShardGroups,
+  api: ordinaryShardGroups,
+  producer: [],
+  runner: ordinaryShardGroups,
+  "browser-runner": browserGroups,
+} satisfies Record<
+  SheetWorkflowRole,
+  ReadonlyArray<(typeof availableSheetWorkflowShardGroups)[number]>
+>;
+
+export const assignedSheetWorkflowShardGroups = (role: SheetWorkflowRole) =>
+  assignedSheetWorkflowShardGroupsByRole[role];
 
 const configuredRunnerAddress = Effect.gen(function* () {
   const runnerHost = yield* config.workflowsRunnerHost;
@@ -162,12 +177,20 @@ export const shardingConfigLayer = Layer.unwrap(
     const runnerListenHost = yield* config.workflowsRunnerListenHost;
     const runnerListenPort = yield* config.workflowsRunnerListenPort;
     const role = yield* config.sheetWorkflowsRole;
+    const browserCapabilityGroup = yield* browserRunnerCapabilityGroup;
+    const assignedShardGroups = Match.value(role).pipe(
+      Match.when("browser-runner", () => [
+        ...assignedSheetWorkflowShardGroups(role),
+        browserCapabilityGroup,
+      ]),
+      Match.orElse(() => assignedSheetWorkflowShardGroups(role)),
+    );
 
     return ShardingConfig.layer({
       runnerAddress: Option.some(runnerAddress),
       runnerListenAddress: Option.some(RunnerAddress.make(runnerListenHost, runnerListenPort)),
-      assignedShardGroups: assignedSheetWorkflowShardGroups(role),
-      availableShardGroups: availableSheetWorkflowShardGroups,
+      assignedShardGroups,
+      availableShardGroups: [...availableSheetWorkflowShardGroups, browserCapabilityGroup],
       shardsPerGroup: 300,
       // Production PostgreSQL can sit behind a managed connection pool. Session-level
       // advisory locks can then outlive a runner connection and strand its shards.
