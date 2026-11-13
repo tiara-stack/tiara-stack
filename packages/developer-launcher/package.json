@@ -26,6 +26,7 @@
     "format:apply": "vp fmt",
     "lint": "vp lint src",
     "test": "vp test run",
+    "test:review-prep": "vp test run --config vite.review-prep.config.ts",
     "test:watch": "vp test",
     "build": "vp pack"
   },

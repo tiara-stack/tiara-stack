@@ -19,7 +19,8 @@
         "packages/tooling-config/test/builtin-adoption-integration.test.mjs",
         "packages/tooling-config/test/effect-policy.test.mjs",
         "packages/tooling-config/test/generated-route-adoption.test.mjs",
-        "packages/tooling-config/test/nested-ternary-integration.test.mjs"
+      "packages/tooling-config/test/nested-ternary-integration.test.mjs",
+      "packages/developer-launcher/integration-tests/review-prep.integration.test.ts"
       ],
       "entryPointRole": "test"
     },

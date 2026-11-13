@@ -44,3 +44,4 @@ Read only the guidance relevant to the task:
 - [Domain documentation](docs/agents/domain.md): context maps, glossaries, and ADRs.
 - [Issue tracking](docs/agents/issue-tracker.md): Linear workflow and ticket operations.
 - [Triage labels](docs/agents/triage-labels.md): canonical issue-label mappings.
+- [Review preparation](docs/agents/review-preparation.md): run the installed agentic-review core through the TiaraStack CLI adapter.
