@@ -3,6 +3,9 @@ import { library } from "tooling-config/vite";
 export default library({
   test: {
     environment: "node",
-    include: ["integration-tests/review-prep.integration.test.ts"],
+    include: [
+      "integration-tests/review-prep.integration.test.ts",
+      "integration-tests/review-producer.integration.test.ts",
+    ],
   },
 });
