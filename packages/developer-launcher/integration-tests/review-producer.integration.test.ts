@@ -335,6 +335,22 @@ describe("TiaraStack canonical review input producer", () => {
         expect(specPlan.reviewers.spec_conformance.configuration.label).toBe(
           "contracts/spec-config.json",
         );
+        const capturedSource = specPlan.reviewers.spec_conformance.source_files.find(
+          (item: { label: string }) => item.label === fixture.sourcePath,
+        );
+        expect(capturedSource.capture_receipt.path).toMatch(/^receipts\/.+\.json$/u);
+        const capturedReceiptBytes = readFileSync(
+          path.join(specOutput, capturedSource.capture_receipt.path),
+        );
+        expect(sha256(capturedReceiptBytes)).toBe(capturedSource.capture_receipt.sha256);
+        const capturedReceipt = JSON.parse(capturedReceiptBytes.toString("utf8"));
+        expect(capturedReceipt).toMatchObject({
+          schema: "tiara-evidence-receipt/v1",
+          sha256: fixture.source.sha256,
+          media_type: "text/plain",
+          run_id: "run-fixture",
+          source_identity_sha256: fixture.sourceIdentitySha256,
+        });
         const specBundleName = readdirSync(specOutput).find((name) => name.startsWith("bundle-"));
         expect(specBundleName).toBeDefined();
         const specBundle = path.join(specOutput, specBundleName!);
@@ -372,6 +388,7 @@ describe("TiaraStack canonical review input producer", () => {
         expect(specPrompt).not.toContain(standardsOnlyPath);
         expect(specPrompt).not.toContain("rules/effect.md");
         expect(specPrompt).toContain("SP-41");
+        const specFindingPlanRef = specPlan.reviewers.spec_conformance.prior_findings[0].evidence;
         const specFindingRef = specManifest.reviewer_visible_artifacts.prior_findings[0].evidence;
         const specFindingEvidence = readFileSync(
           path.resolve(specOutput, specFindingRef.path),
@@ -379,6 +396,28 @@ describe("TiaraStack canonical review input producer", () => {
         );
         expect(specFindingEvidence).toContain("Raw severity: Major");
         expect(specFindingEvidence).toContain("Spec finding evidence body.");
+        const specFindingReceipt = readJson(
+          path.join(specOutput, specFindingPlanRef.capture_receipt.path),
+        );
+        const specFindingSource = fixture.input.findings.find(
+          (item) => item.path === "findings/spec-finding.json",
+        );
+        expect(specFindingSource).toBeDefined();
+        const specFindingRecord = readJson(
+          path.resolve(path.dirname(fixture.inputPath), specFindingSource!.path),
+        );
+        const parentHashes = specFindingReceipt.derived_from_inputs.map(
+          (source: { sha256: string }) => source.sha256,
+        );
+        expect(parentHashes).toHaveLength(2);
+        expect(parentHashes).toContain(specFindingSource!.sha256);
+        expect(parentHashes).toContain(specFindingRecord.evidence.sha256);
+        for (const source of specFindingReceipt.derived_from_inputs) {
+          const sourceReceipt = readJson(
+            path.join(specOutput, "receipts", `${source.capture_id}.json`),
+          );
+          expect(sourceReceipt.sha256).toBe(source.sha256);
+        }
 
         const standardsOutput = path.join(root, "out-standards");
         const standardsRun = runProduce(
@@ -553,7 +592,9 @@ describe("TiaraStack canonical review input producer", () => {
         const detail = `${run.stdout}\n${run.stderr}`;
         expect(run.status).not.toBe(0);
         expect(detail).toContain("Verified input artifacts:");
-        expect(detail).toMatch(/Bundle manifest exceeds|Reviewer input exceeds/u);
+        expect(detail).toMatch(
+          /(?:Bundle manifest|Reviewer input) (?:exceeds \d+ bytes|is \d+ bytes \(limit \d+;)/u,
+        );
         expect(readdirSync(path.join(output, "artifacts")).length).toBeGreaterThanOrEqual(120);
         const bundleName = readdirSync(output).find((name) => name.startsWith("bundle-"));
         expect(bundleName).toBeUndefined();
@@ -581,7 +622,9 @@ describe("TiaraStack canonical review input producer", () => {
         const run = runProduce(fixture.repoRoot, fixture.inputPath, "spec_conformance", output);
         const detail = `${run.stdout}\n${run.stderr}`;
         expect(run.status).not.toBe(0);
-        expect(detail).toContain("Reviewer input exceeds 32768 bytes");
+        expect(detail).toMatch(
+          /Reviewer input (?:exceeds 32768 bytes|is \d+ bytes \(limit 32768;)/u,
+        );
         const planName = readdirSync(output).find((name) => name.startsWith("review-plan-"));
         expect(planName).toBeDefined();
         const plan = readJson(path.join(output, planName!));

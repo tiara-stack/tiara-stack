@@ -3,9 +3,19 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import { createHash } from "node:crypto";
+import {
+  publishEvidence,
+  verifyEvidenceReceiptReference,
+  type EvidenceReceiptReference,
+} from "../packages/developer-launcher/src/immutable-evidence.ts";
 
 type Json = Record<string, unknown>;
-type ArtifactInput = { label: string; path: string; sha256: string };
+type ArtifactInput = {
+  label: string;
+  path: string;
+  sha256: string;
+  capture_receipt?: EvidenceReceiptReference;
+};
 type Axis = "spec_conformance" | "correctness_reliability";
 type CanonicalAxis = "spec" | "standards";
 type Reviewer = { id: string; model: string; reasoning_effort: string };
@@ -124,6 +134,34 @@ const artifactInput = (value: unknown, label: string): ArtifactInput => {
 
 const same = (left: unknown, right: unknown) => compactJson(left) === compactJson(right);
 const slug = (value: string) => value.replace(/[^a-zA-Z0-9._-]+/gu, "-").replace(/^-+|-+$/gu, "").slice(0, 80) || "artifact";
+const mediaTypes: Readonly<Record<string, string>> = {
+  ".json": "application/json",
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+  ".md": "text/markdown",
+  ".txt": "text/plain",
+  ".diff": "text/plain",
+  ".patch": "text/plain",
+  ".ts": "text/plain",
+  ".tsx": "text/plain",
+  ".js": "text/plain",
+  ".jsx": "text/plain",
+  ".yaml": "text/plain",
+  ".yml": "text/plain",
+};
+const mediaType = (filePath: string) =>
+  mediaTypes[filePath.slice(filePath.lastIndexOf(".")).toLowerCase()] ??
+  "application/octet-stream";
+const captureLineage = (artifact: ArtifactInput, label: string) => {
+  const receipt = artifact.capture_receipt;
+  if (receipt === undefined) throw new Error(`${label} is missing its capture receipt`);
+  return {
+    receipt,
+    source: { captureId: receipt.capture_id, sha256: artifact.sha256 },
+  };
+};
 
 /**
  * Produces the shared helper's versioned plan from TiaraStack's canonical
@@ -266,8 +304,10 @@ export const produceReviewPlan = (args: { inputPath: string; outputDirectory: st
       }).map((item, index) => {
         const ref = safe(`source_files[${index}]`, () => artifactInput(item.artifact, `source_files[${index}].artifact`));
         const filePath = safe(`source_files[${index}].path`, () => string(item.path, `source_files[${index}].path`));
-        if (ref && filePath) refsToSnapshot.push({ ref, where: `source file ${filePath}` });
-        return ref && filePath ? { label: filePath, ref } : undefined;
+        if (!ref) return undefined;
+        if (!filePath) return undefined;
+        refsToSnapshot.push({ ref, where: `source file ${filePath}` });
+        return { label: filePath, ref };
       }).filter((item): item is { label: string; ref: ArtifactInput } => item !== undefined);
       if (scope) {
         const expectedFiles = scope.paths.filter((item: string) => !scope.deleted_paths.includes(item)).sort();
@@ -477,15 +517,22 @@ export const produceReviewPlan = (args: { inputPath: string; outputDirectory: st
         const found = digest(bytes);
         if (found !== inputRef.sha256) throw new Error(`${where}: SHA-256 mismatch for ${inputRef.path}, expected ${inputRef.sha256}, found ${found}`);
         const relative = `artifacts/${found}-${slug(inputRef.label)}`;
-        const target = path.join(outputDirectory, relative);
-        if (yield* fs.exists(target)) {
-          const existing = yield* fs.readFile(target);
-          if (digest(existing) !== found) throw new Error(`Immutable artifact path collision at ${target}`);
-        } else {
-          yield* fs.writeFile(target, bytes, { flag: "wx" });
-        }
-        artifactStats.set(relative, bytes.byteLength);
-        return { label: inputRef.label, path: relative, sha256: found };
+        const published = yield* publishEvidence({
+          storeDirectory: outputDirectory,
+          bytes,
+          mediaType: mediaType(inputRef.path),
+          runId: phase.run_id,
+          sourceIdentitySha256: sourceRef?.sha256,
+          convenienceArtifactPath: relative,
+        });
+        const artifactPath = published.compatibilityArtifactPath ?? published.artifactPath;
+        artifactStats.set(artifactPath, bytes.byteLength);
+        return {
+          label: inputRef.label,
+          path: artifactPath,
+          sha256: found,
+          capture_receipt: published.receiptReference,
+        };
       });
 
     const imported = new Map<string, ArtifactInput>();
@@ -505,8 +552,26 @@ export const produceReviewPlan = (args: { inputPath: string; outputDirectory: st
       Effect.gen(function* () {
         const sourceRecord = toPlanRef(finding.source_record);
         const sourceEvidence = toPlanRef(finding.source_evidence);
-        const recordBytes = yield* fs.readFile(path.join(outputDirectory, sourceRecord.path));
-        const evidenceBytes = yield* fs.readFile(path.join(outputDirectory, sourceEvidence.path));
+        const sourceRecordLineage = captureLineage(sourceRecord, `Finding ${finding.id} record`);
+        const sourceEvidenceLineage = captureLineage(
+          sourceEvidence,
+          `Finding ${finding.id} evidence`,
+        );
+        const [verifiedRecord, verifiedEvidence] = yield* Effect.all(
+          [
+            verifyEvidenceReceiptReference({
+              storeDirectory: outputDirectory,
+              reference: sourceRecordLineage.receipt,
+            }),
+            verifyEvidenceReceiptReference({
+              storeDirectory: outputDirectory,
+              reference: sourceEvidenceLineage.receipt,
+            }),
+          ],
+          { concurrency: 2 },
+        );
+        const recordBytes = verifiedRecord.bytes;
+        const evidenceBytes = verifiedEvidence.bytes;
         const recordText = new TextDecoder("utf-8", { fatal: true }).decode(recordBytes);
         const evidenceText = new TextDecoder("utf-8", { fatal: true }).decode(evidenceBytes);
         const content = [
@@ -531,9 +596,18 @@ export const produceReviewPlan = (args: { inputPath: string; outputDirectory: st
         const sha256 = digest(bytes);
         const label = `${finding.id} finding evidence`;
         const relative = `artifacts/${sha256}-${slug(label)}`;
-        yield* fs.writeFile(path.join(outputDirectory, relative), bytes, { flag: "wx" });
-        artifactStats.set(relative, bytes.byteLength);
-        return { label, path: relative, sha256 };
+        const published = yield* publishEvidence({
+          storeDirectory: outputDirectory,
+          bytes,
+          mediaType: "text/markdown",
+          runId: phase.run_id,
+          sourceIdentitySha256: sourceRef?.sha256,
+          derivedFromInputs: [sourceRecordLineage.source, sourceEvidenceLineage.source],
+          convenienceArtifactPath: relative,
+        });
+        const artifactPath = published.compatibilityArtifactPath ?? published.artifactPath;
+        artifactStats.set(artifactPath, bytes.byteLength);
+        return { label, path: artifactPath, sha256, capture_receipt: published.receiptReference };
       });
 
     const reviewers: Record<string, unknown> = {};

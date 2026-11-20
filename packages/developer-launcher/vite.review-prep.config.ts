@@ -6,6 +6,7 @@ export default library({
     include: [
       "integration-tests/review-prep.integration.test.ts",
       "integration-tests/review-producer.integration.test.ts",
+      "integration-tests/immutable-evidence.integration.test.ts",
     ],
   },
 });
