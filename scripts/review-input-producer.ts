@@ -163,6 +163,18 @@ const captureLineage = (artifact: ArtifactInput, label: string) => {
   };
 };
 
+const readJsonInput = (inputPath: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const path = yield* Path.Path;
+    const absoluteInputPath = path.resolve(inputPath);
+    const inputDirectory = path.dirname(absoluteInputPath);
+    const inputBytes = yield* fs.readFile(absoluteInputPath);
+    const inputText = new TextDecoder().decode(inputBytes);
+    const value: unknown = JSON.parse(inputText);
+    return { fs, path, inputDirectory, value };
+  });
+
 /**
  * Produces the shared helper's versioned plan from TiaraStack's canonical
  * phase, source, contract, finding, rule, coverage, and receipt records.
@@ -171,13 +183,7 @@ const captureLineage = (artifact: ArtifactInput, label: string) => {
 export const produceReviewPlan = (args: { inputPath: string; outputDirectory: string }) =>
   // fallow-ignore-next-line complexity
   Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const path = yield* Path.Path;
-    const inputPath = path.resolve(args.inputPath);
-    const inputDirectory = path.dirname(inputPath);
-    const inputBytes = yield* fs.readFile(inputPath);
-    const inputText = new TextDecoder().decode(inputBytes);
-    const decoded: unknown = JSON.parse(inputText);
+    const { fs, path, inputDirectory, value: decoded } = yield* readJsonInput(args.inputPath);
     Schema.decodeUnknownSync(InputHeader)(decoded);
     const input = record(decoded, "input");
     const errors: Array<string> = [];
@@ -754,4 +760,427 @@ export const checkCurrentPhaseCompletion = (args: { inputPath: string; outputPat
     return { outputPath, result };
   }).pipe(
     Effect.catchDefect((defect) => Effect.fail(defect instanceof Error ? defect : new Error(String(defect)))),
+  );
+type WorkerHandoffCheck = {
+  schema: "tiara-worker-phase-handoff-check/v1";
+  status: "complete" | "reconcile";
+  expected: Record<string, unknown>;
+  native_readback: Record<string, unknown>;
+  checks: Array<{ id: string; passed: boolean }>;
+  reconciliation: Array<string>;
+  evidence_limitations: Array<string>;
+  updates_coordinator_state: false;
+  sends_native_messages: false;
+};
+
+const HANDOFF_CHECK_SCHEMA = "tiara-worker-handoff-check/v1";
+const HANDOFF_CHECK_RESULT_SCHEMA = "tiara-worker-phase-handoff-check/v1";
+const stringValue = (value: unknown): string | undefined =>
+  typeof value === "string" && value.trim() !== "" ? value : undefined;
+const arrayOfRecords = (value: unknown): Array<Json> =>
+  Array.isArray(value) ? value.filter(isRecord) : [];
+
+/**
+ * Validates an inbound T3 worker handoff against the coordinator's current
+ * phase, its registered dispatch, and native readbacks of both threads.
+ */
+export const checkCurrentWorkerHandoff = (args: { inputPath: string; outputPath: string }) =>
+  // fallow-ignore-next-line complexity
+  Effect.gen(function* () {
+    const { fs, path, inputDirectory, value: parsedInput } = yield* readJsonInput(args.inputPath);
+    const input = isRecord(parsedInput) ? parsedInput : undefined;
+    if (input === undefined || input.schema !== HANDOFF_CHECK_SCHEMA) {
+      return yield* Effect.fail(new Error(`Expected ${HANDOFF_CHECK_SCHEMA}`));
+    }
+
+    const reconciliation: Array<string> = [];
+    const checks: Array<{ id: string; passed: boolean }> = [];
+    const limitations: Array<string> = [];
+    const check = (id: string, passed: boolean) => {
+      checks.push({ id, passed });
+      if (!passed) reconciliation.push(id);
+    };
+    const readArtifact = (ref: unknown, label: string) =>
+      // fallow-ignore-next-line complexity
+      Effect.gen(function* () {
+        const item = isRecord(ref) ? ref : undefined;
+        const artifactPath = stringValue(item?.path);
+        const artifactHash = stringValue(item?.sha256);
+        if (
+          item === undefined ||
+          artifactPath === undefined ||
+          artifactHash === undefined ||
+          !/^[a-f0-9]{64}$/u.test(artifactHash)
+        ) {
+          reconciliation.push(`${label} reference missing or invalid`);
+          return undefined;
+        }
+        if (path.isAbsolute(artifactPath) || artifactPath.split(/[\\/]/u).includes("..")) {
+          reconciliation.push(`${label} path must remain inside the input directory`);
+          return undefined;
+        }
+        const bytes = yield* fs.readFile(path.resolve(inputDirectory, artifactPath)).pipe(
+          Effect.catch(() => {
+            reconciliation.push(`${label} artifact is unreadable`);
+            return Effect.succeed(undefined);
+          }),
+        );
+        if (bytes === undefined) {
+          return undefined;
+        }
+        const found = digest(bytes);
+        if (found !== artifactHash) {
+          reconciliation.push(`${label} SHA-256 mismatch`);
+          return undefined;
+        }
+        try {
+          const decoded: unknown = JSON.parse(new TextDecoder().decode(bytes));
+          return {
+            value: isRecord(decoded) ? decoded : undefined,
+            sha256: found,
+          };
+        } catch {
+          reconciliation.push(`${label} is not valid JSON`);
+          return undefined;
+        }
+      });
+
+    const [phaseRef, dispatchRef, coordinatorReadbackRef, workerReadbackRef] = yield* Effect.all(
+      [
+        readArtifact(input.phase, "current phase"),
+        readArtifact(input.dispatch, "registered dispatch"),
+        readArtifact(input.coordinator_readback, "coordinator native readback"),
+        readArtifact(input.worker_readback, "worker native readback"),
+      ],
+      { concurrency: 4 },
+    );
+    const phase = phaseRef?.value;
+    const dispatch = dispatchRef?.value;
+    const coordinatorReadback = coordinatorReadbackRef?.value;
+    const workerReadback = workerReadbackRef?.value;
+
+    const phaseFields = [
+      "run_id",
+      "phase_id",
+      "grant_id",
+      "handoff_id",
+      "base",
+      "head",
+      "capture_id",
+      "source_identity_sha256",
+    ] as const;
+    const coordinatorThreadId = stringValue(dispatch?.coordinator_thread_id);
+    const coordinatorInstanceId = stringValue(dispatch?.coordinator_instance_id);
+    const workerThreadId = stringValue(dispatch?.worker_thread_id);
+    const workerStartRunId = stringValue(dispatch?.phase_start_native_run_id);
+    const workerContinuationRunIds = Array.isArray(dispatch?.authorized_continuation_native_run_ids)
+      ? dispatch.authorized_continuation_native_run_ids.filter(
+          (value): value is string => typeof value === "string",
+        )
+      : [];
+    const authorizedWorkerRunIds = [workerStartRunId, ...workerContinuationRunIds].filter(
+      (value): value is string => value !== undefined,
+    );
+    const clientRequestId = stringValue(dispatch?.client_request_id);
+
+    check("current phase schema", phase?.schema === PHASE_SCHEMA);
+    check("registered dispatch schema", dispatch?.schema === "tiara-worker-dispatch/v1");
+    for (const key of phaseFields) {
+      const value = stringValue(phase?.[key]);
+      check(`phase ${key} present`, value !== undefined);
+      check(
+        `dispatch ${key} matches current phase`,
+        value !== undefined && dispatch?.[key] === value,
+      );
+    }
+    check("dispatch ticket_id present", stringValue(dispatch?.ticket_id) !== undefined);
+    check(
+      "dispatch worker_thread_id matches phase",
+      workerThreadId !== undefined && workerThreadId === phase?.worker_thread_id,
+    );
+    check(
+      "dispatch coordinator target complete",
+      coordinatorThreadId !== undefined && coordinatorInstanceId !== undefined,
+    );
+    check("dispatch phase-start worker run registered", workerStartRunId !== undefined);
+    check("dispatch request ID present", clientRequestId !== undefined);
+    check(
+      "dispatch worker run IDs unique",
+      new Set(authorizedWorkerRunIds).size === authorizedWorkerRunIds.length,
+    );
+
+    const coordinatorThread = isRecord(coordinatorReadback?.thread)
+      ? coordinatorReadback.thread
+      : undefined;
+    const coordinatorItems = arrayOfRecords(coordinatorReadback?.items);
+    const coordinatorReadbackInstanceId =
+      stringValue(coordinatorThread?.instanceId) ?? stringValue(coordinatorReadback?.instanceId);
+    check(
+      "coordinator readback target thread",
+      coordinatorThreadId !== undefined && coordinatorThread?.threadId === coordinatorThreadId,
+    );
+    if (coordinatorReadbackInstanceId !== undefined) {
+      check(
+        "coordinator readback target instance",
+        coordinatorReadbackInstanceId === coordinatorInstanceId,
+      );
+    } else {
+      limitations.push(
+        "T3 thread readback exposes the exact coordinator thread ID but not its instance ID; the instance ID is retained from the registered dispatch without independent native readback confirmation.",
+      );
+    }
+    const inboundCandidates = coordinatorItems.filter((item) => {
+      const messageId = stringValue(item.messageId);
+      return (
+        messageId !== undefined &&
+        clientRequestId !== undefined &&
+        messageId.endsWith(`:thread-send:${clientRequestId}`)
+      );
+    });
+    check("native inbound message unique for expected request ID", inboundCandidates.length === 1);
+    const inbound = inboundCandidates.length === 1 ? inboundCandidates[0] : undefined;
+    check(
+      "native inbound message targets coordinator thread",
+      inbound?.sourceThreadId === coordinatorThreadId,
+    );
+    check("native inbound sender is registered worker", inbound?.senderThreadId === workerThreadId);
+    check(
+      "native inbound message type",
+      inbound?.type === "user_message" && inbound?.createdBy === "agent",
+    );
+    const payload = stringValue(inbound?.text);
+    check("native inbound payload present", payload !== undefined);
+
+    const workerThread = isRecord(workerReadback?.thread) ? workerReadback.thread : undefined;
+    const workerItems = arrayOfRecords(workerReadback?.items);
+    check(
+      "worker readback target thread",
+      workerThreadId !== undefined && workerThread?.threadId === workerThreadId,
+    );
+    const matchingWorkerMessages = workerItems.filter(
+      (item) => item.text === payload && item.sourceThreadId === workerThreadId,
+    );
+    check(
+      "worker native message uniquely binds inbound payload",
+      payload !== undefined && matchingWorkerMessages.length === 1,
+    );
+    const workerMessage =
+      matchingWorkerMessages.length === 1 ? matchingWorkerMessages[0] : undefined;
+    const workerMessageRunId = stringValue(workerMessage?.runId);
+    check(
+      "worker native message is an assistant message",
+      workerMessage?.type === "assistant_message" && workerMessage?.createdBy === "agent",
+    );
+    check(
+      "worker native message run is registered for this phase",
+      workerMessageRunId !== undefined && authorizedWorkerRunIds.includes(workerMessageRunId),
+    );
+    check(
+      "worker readback latest run matches handoff message",
+      workerMessageRunId !== undefined && workerThread?.latestRunId === workerMessageRunId,
+    );
+
+    const envelopeText = payload?.split(/\r?\n\r?\n/u, 1)[0] ?? "";
+    const envelopeLines = envelopeText.split(/\r?\n/u);
+    const envelope = new Map<string, string>();
+    let duplicateEnvelopeKeys = false;
+    for (const line of envelopeLines.slice(1)) {
+      const match = /^([a-z][a-z0-9_]*):\s*(.*?)\s*$/u.exec(line);
+      if (match === null) continue;
+      if (envelope.has(match[1]!)) duplicateEnvelopeKeys = true;
+      envelope.set(match[1]!, match[2]!);
+    }
+    check("handoff envelope header", envelopeLines[0] === "TICKET_COORDINATOR v1");
+    check("handoff envelope keys unique", !duplicateEnvelopeKeys);
+    const envelopeExpected: Array<[string, string | undefined]> = [
+      ["kind", "HANDOFF"],
+      ["run_id", stringValue(phase?.run_id)],
+      ["ticket_id", stringValue(dispatch?.ticket_id)],
+      ["worker_id", workerThreadId],
+      ["phase", stringValue(phase?.phase_id)],
+      ["grant_id", stringValue(phase?.grant_id)],
+      ["handoff_id", stringValue(phase?.handoff_id)],
+      ["message_id", clientRequestId],
+    ];
+    for (const [key, value] of envelopeExpected) {
+      check(`handoff ${key}`, value !== undefined && envelope.get(key) === value);
+    }
+    const phaseStartClaim = envelope.get("actual_phase_start_native_run_id");
+    check(
+      "handoff phase-start claim matches dispatch when present",
+      phaseStartClaim === undefined || phaseStartClaim === workerStartRunId,
+    );
+    const continuationClaims = envelope.get("actual_continuations_observed");
+    // fallow-ignore-next-line complexity
+    const parsedContinuationClaims = (() => {
+      if (continuationClaims === undefined) return undefined;
+      try {
+        const decoded: unknown = JSON.parse(continuationClaims);
+        return Array.isArray(decoded) && decoded.every((value) => typeof value === "string")
+          ? decoded
+          : undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+    check(
+      "handoff continuation claims are a JSON array when present",
+      continuationClaims === undefined || parsedContinuationClaims !== undefined,
+    );
+    check(
+      "handoff continuation claims authorized when present",
+      parsedContinuationClaims === undefined ||
+        new Set(parsedContinuationClaims).size === parsedContinuationClaims.length &&
+        parsedContinuationClaims.every((id) => workerContinuationRunIds.includes(id)),
+    );
+    const outcomes = stringValue(envelope.get("outcome"));
+    const inboundMessageId = stringValue(inbound?.messageId);
+    check("handoff outcome present", outcomes !== undefined);
+    check(
+      "native payload binds expected request ID",
+      inboundMessageId !== undefined &&
+        clientRequestId !== undefined &&
+        inboundMessageId.endsWith(`:thread-send:${clientRequestId}`),
+    );
+
+    const sourceCaptureRef = yield* readArtifact(input.source_capture, "phase source capture");
+    const sourceCapture = sourceCaptureRef?.value;
+    const sourceCaptureHash = sourceCaptureRef?.sha256;
+    const sourceCaptureMatches =
+      sourceCapture?.schema === SOURCE_SCHEMA &&
+      sourceCapture.run_id === phase?.run_id &&
+      sourceCapture.base === phase?.base &&
+      sourceCapture.head === phase?.head &&
+      sourceCapture.capture_id === phase?.capture_id &&
+      sourceCaptureHash === phase?.source_identity_sha256;
+    check("phase source capture identity", sourceCaptureMatches);
+    check(
+      "phase base is a full commit ID",
+      typeof phase?.base === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(phase.base),
+    );
+    check(
+      "phase head is a full commit ID",
+      typeof phase?.head === "string" && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(phase.head),
+    );
+    check(
+      "phase source identity is a SHA-256 digest",
+      typeof phase?.source_identity_sha256 === "string" &&
+        /^[a-f0-9]{64}$/u.test(phase.source_identity_sha256),
+    );
+    for (const [field, expectedKey] of [
+      ["source_base", "base"],
+      ["source_head", "head"],
+      ["source_capture_id", "capture_id"],
+      ["source_identity_sha256", "source_identity_sha256"],
+    ] as const) {
+      check(`handoff ${field}`, envelope.get(field) === stringValue(phase?.[expectedKey]));
+    }
+
+    const resultHead = stringValue(envelope.get("result_head"));
+    const resultCaptureId = stringValue(envelope.get("result_capture_id"));
+    const resultSourceHash = stringValue(envelope.get("result_source_identity_sha256"));
+    let resultSourceRef = sourceCaptureRef;
+    if (resultHead !== phase?.head) {
+      resultSourceRef = yield* readArtifact(
+        input.result_source_capture,
+        "phase result source capture",
+      );
+    }
+    const resultCapture = resultSourceRef?.value;
+    check("result head present", resultHead !== undefined);
+    check(
+      "result head is a full commit ID",
+      resultHead !== undefined && /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u.test(resultHead),
+    );
+    check("result capture ID present", resultCaptureId !== undefined);
+    check("result source identity present", resultSourceHash !== undefined);
+    check(
+      "result head change authorized by phase",
+      resultHead === phase?.head || dispatch?.result_head_policy === "may_advance",
+    );
+    check(
+      "result source capture identity",
+      resultCapture?.schema === SOURCE_SCHEMA &&
+        resultCapture.run_id === phase?.run_id &&
+        resultCapture.base === phase?.base &&
+        resultCapture.head === resultHead &&
+        resultCapture.capture_id === resultCaptureId &&
+        resultSourceRef?.sha256 === resultSourceHash,
+    );
+
+    const workerRecentRunIds = Array.isArray(workerReadback?.recentRuns)
+      ? workerReadback.recentRuns
+          .filter(isRecord)
+          .map((run) => stringValue(run.runId))
+          .filter((runId): runId is string => runId !== undefined)
+      : undefined;
+    if (workerRecentRunIds === undefined) {
+      limitations.push(
+        "The worker readback omitted recentRuns; the matched assistant message run ID is still checked against the registered dispatch, but older phase-start lineage cannot be observed here.",
+      );
+    } else {
+      check(
+        "worker message run appears in native recentRuns",
+        workerMessageRunId !== undefined && workerRecentRunIds.includes(workerMessageRunId),
+      );
+      if (workerStartRunId !== undefined && !workerRecentRunIds.includes(workerStartRunId)) {
+        limitations.push(
+          "The bounded worker recentRuns list does not include the registered phase-start run; the handoff's phase-start claim is matched to dispatch but is not independently visible in this readback window.",
+        );
+      }
+      for (const continuationRunId of parsedContinuationClaims ?? []) {
+        if (!workerRecentRunIds.includes(continuationRunId)) {
+          limitations.push(
+            `The bounded worker recentRuns list does not include claimed continuation ${continuationRunId}; its authorization is checked against dispatch but the run is not independently visible in this readback window.`,
+          );
+        }
+      }
+    }
+
+    const result: WorkerHandoffCheck = {
+      schema: HANDOFF_CHECK_RESULT_SCHEMA,
+      status: reconciliation.length === 0 ? "complete" : "reconcile",
+      expected: {
+        run_id: stringValue(phase?.run_id) ?? null,
+        ticket_id: stringValue(dispatch?.ticket_id) ?? null,
+        phase_id: stringValue(phase?.phase_id) ?? null,
+        grant_id: stringValue(phase?.grant_id) ?? null,
+        handoff_id: stringValue(phase?.handoff_id) ?? null,
+        client_request_id: clientRequestId ?? null,
+        coordinator_instance_id: coordinatorInstanceId ?? null,
+        coordinator_thread_id: coordinatorThreadId ?? null,
+        worker_thread_id: workerThreadId ?? null,
+        phase_start_native_run_id: workerStartRunId ?? null,
+        authorized_continuation_native_run_ids: workerContinuationRunIds,
+        source_base: stringValue(phase?.base) ?? null,
+        source_head: stringValue(phase?.head) ?? null,
+        source_capture_id: stringValue(phase?.capture_id) ?? null,
+        source_identity_sha256: stringValue(phase?.source_identity_sha256) ?? null,
+        result_head: resultHead ?? null,
+        result_capture_id: resultCaptureId ?? null,
+        result_source_identity_sha256: resultSourceHash ?? null,
+      },
+      native_readback: {
+        coordinator_thread_id: coordinatorThread?.threadId ?? null,
+        coordinator_readback_exposes_instance_id: coordinatorReadbackInstanceId !== undefined,
+        worker_thread_id: workerThread?.threadId ?? null,
+        native_message_id: inbound?.messageId ?? null,
+        native_sender_thread_id: inbound?.senderThreadId ?? null,
+        recipient_run_id: inbound?.runId ?? null,
+        worker_message_run_id: workerMessageRunId ?? null,
+        payload_sha256: payload === undefined ? null : digest(payload),
+      },
+      checks,
+      reconciliation,
+      evidence_limitations: limitations,
+      updates_coordinator_state: false,
+      sends_native_messages: false,
+    };
+    const outputPath = path.resolve(args.outputPath);
+    yield* fs.writeFile(outputPath, new TextEncoder().encode(stableJson(result)), { flag: "wx" });
+    return { outputPath, result };
+  }).pipe(
+    Effect.catchDefect((defect) =>
+      Effect.fail(defect instanceof Error ? defect : new Error(String(defect))),
+    ),
   );

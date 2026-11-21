@@ -13,7 +13,11 @@ import { execFileSync } from "node:child_process";
 import { pathToFileURL } from "node:url";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
-import { checkCurrentPhaseCompletion, produceReviewPlan } from "./review-input-producer.ts";
+import {
+  checkCurrentPhaseCompletion,
+  checkCurrentWorkerHandoff,
+  produceReviewPlan,
+} from "./review-input-producer.ts";
 
 // The installed generic core has no CLI dependency. Resolve its Effect imports
 // from this repository's runtime, and only for that exact module URL.
@@ -198,11 +202,41 @@ const completePhase = Command.make(
     }),
 ).pipe(Command.withDescription("Bind completion and native delivery receipts to the current phase grant"));
 
+const checkWorkerHandoff = Command.make(
+  "check-handoff",
+  { input: Flag.string("input"), output: Flag.string("output") },
+  ({ input, output }) =>
+    Effect.gen(function* () {
+      const result = yield* checkCurrentWorkerHandoff({ inputPath: input, outputPath: output });
+      yield* Console.log(
+        `Current worker phase handoff: ${result.result.status} (${result.outputPath})`,
+      );
+      if (result.result.status === "reconcile")
+        return yield* Effect.fail(
+          new Error(
+            `Worker handoff requires reconciliation: ${result.result.reconciliation.join(", ")}`,
+          ),
+        );
+    }),
+).pipe(
+  Command.withDescription(
+    "Verify an inbound native worker handoff against the current coordinator phase and registered worker run",
+  ),
+);
+
 const command = Command.make("review-prep").pipe(
   Command.withDescription(
     `TiaraStack adapter for installed agentic-review core (${projectRequire.resolve("effect/package.json")})`,
   ),
-  Command.withSubcommands([bundle, produce, completePhase, grant, starts, timing]),
+  Command.withSubcommands([
+    bundle,
+    produce,
+    completePhase,
+    checkWorkerHandoff,
+    grant,
+    starts,
+    timing,
+  ]),
 );
 
 export const main = Command.run(command, { version: "tiara-review-prep/v1" }).pipe(

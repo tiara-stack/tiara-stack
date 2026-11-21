@@ -182,6 +182,9 @@ pnpm review:prep timing --input /path/to/phase-times.json \
 pnpm review:prep check-completion \
   --input /path/to/current-phase-completion-check.json \
   --output /path/to/new-completion-check.json
+pnpm review:prep check-handoff \
+  --input /path/to/current-worker-handoff-check.json \
+  --output /path/to/new-worker-handoff-check.json
 ```
 
 `check-completion` binds completion and native delivery records to the current
@@ -201,6 +204,11 @@ base, head, capture ID, and source hash. Delivery also names its worker and
 native delivery ID. The output uses `tiara-review-phase-completion-check/v1`
 with `status: "complete"` or `status: "reconcile"`, per-field predicates, and
 the exact completion and delivery hashes.
+
+`check-handoff` validates an inbound native worker message against the
+current coordinator phase and registered worker dispatch. Coordinators run it
+before accepting a supported T3 worker handoff. Follow the acceptance sequence
+and native-readback limits in [Coordinator handoffs](coordinator-handoffs.md).
 
 Before a native review starts, recheck the captured head and referenced files.
 The wrapper and shared core do not decide semantic carry acceptance, reserve

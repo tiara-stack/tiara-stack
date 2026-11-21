@@ -282,6 +282,7 @@ const runProduce = (repoRoot: string, inputPath: string, axis: string, output: s
     },
   );
 
+// fallow-ignore-next-line complexity
 describe("TiaraStack canonical review input producer", () => {
   it.live(
     "maps both configured axes and creates bounded bundles through pnpm review:prep",
@@ -639,6 +640,320 @@ describe("TiaraStack canonical review input producer", () => {
           "A user can open an owned preview.\n",
         );
         expect(readdirSync(output).some((name) => name.startsWith("bundle-"))).toBe(false);
+      }),
+    30_000,
+  );
+
+  it.live(
+    "checks inbound worker handoffs against the current phase and native T3 readbacks",
+    () =>
+      Effect.sync(() => {
+        const root = mkdtempSync(path.join(tmpdir(), "tiara-worker-handoff-"));
+        const repoRoot = path.resolve(process.cwd(), "../..");
+        // fallow-ignore-next-line complexity
+        const runCheck = (
+          name: string,
+          options: {
+            resultHead?: string;
+            resultHeadPolicy?: "same" | "may_advance";
+            phaseOverrides?: Record<string, unknown>;
+            dispatchOverrides?: Record<string, unknown>;
+            handoffOverrides?: Record<string, string>;
+            inputSchema?: string;
+            requestIdInReadback?: string;
+            senderThreadId?: string;
+            coordinatorThreadId?: string;
+            inboundSourceThreadId?: string;
+            workerMessageRunId?: string;
+            continuationRunIds?: Array<string>;
+            inboundPayloadSuffix?: string;
+            sourceCaptureHash?: string;
+            missingSourceCapture?: boolean;
+          } = {},
+        ) => {
+          const sourceHead = "b".repeat(40);
+          const base = "a".repeat(40);
+          const resultHead = options.resultHead ?? sourceHead;
+          const runId = "TIA-230";
+          const ticketId = "TIA-230";
+          const workerThreadId = "worker-thread-redacted";
+          const coordinatorThreadId = "coordinator-thread-redacted";
+          const phase = {
+            schema: "tiara-review-phase/v1",
+            run_id: runId,
+            phase_id: "repair-17",
+            grant_id: "grant-17",
+            handoff_id: "handoff-17",
+            base,
+            head: sourceHead,
+            capture_id: "capture-source-17",
+            source_identity_sha256: "",
+            worker_thread_id: workerThreadId,
+            ...options.phaseOverrides,
+          };
+          const sourceRef = writeJson(root, `${name}/source.json`, {
+            schema: "review-source-capture/v1",
+            run_id: runId,
+            base,
+            head: sourceHead,
+            capture_id: "capture-source-17",
+            deltas: {},
+          });
+          phase.source_identity_sha256 = options.sourceCaptureHash ?? sourceRef.sha256;
+          const dispatch = {
+            schema: "tiara-worker-dispatch/v1",
+            run_id: runId,
+            ticket_id: ticketId,
+            phase_id: phase.phase_id,
+            grant_id: phase.grant_id,
+            handoff_id: phase.handoff_id,
+            base: phase.base,
+            head: phase.head,
+            capture_id: phase.capture_id,
+            source_identity_sha256: phase.source_identity_sha256,
+            coordinator_instance_id: "instance-redacted",
+            coordinator_thread_id: coordinatorThreadId,
+            worker_thread_id: workerThreadId,
+            client_request_id: "request-17-v1",
+            phase_start_native_run_id: `run:thread:${workerThreadId}:ordinal:7`,
+            authorized_continuation_native_run_ids: [`run:thread:${workerThreadId}:ordinal:8`],
+            result_head_policy: options.resultHeadPolicy ?? "same",
+            ...options.dispatchOverrides,
+          };
+          const workerRunId = options.workerMessageRunId ?? dispatch.phase_start_native_run_id;
+          const resultSourceRef =
+            resultHead === sourceHead
+              ? sourceRef
+              : writeJson(root, `${name}/result-source.json`, {
+                  schema: "review-source-capture/v1",
+                  run_id: runId,
+                  base,
+                  head: resultHead,
+                  capture_id: "capture-result-18",
+                  deltas: {},
+                });
+          const payloadFields: Record<string, string> = {
+            kind: "HANDOFF",
+            run_id: runId,
+            ticket_id: ticketId,
+            worker_id: workerThreadId,
+            phase: String(options.handoffOverrides?.phase ?? phase.phase_id),
+            grant_id: String(options.handoffOverrides?.grant_id ?? phase.grant_id),
+            handoff_id: String(options.handoffOverrides?.handoff_id ?? phase.handoff_id),
+            message_id: String(options.handoffOverrides?.message_id ?? dispatch.client_request_id),
+            actual_phase_start_native_run_id: dispatch.phase_start_native_run_id,
+            actual_continuations_observed: JSON.stringify(options.continuationRunIds ?? []),
+            outcome: "REPAIR_READY",
+            source_base: base,
+            source_head: String(options.handoffOverrides?.source_head ?? sourceHead),
+            source_capture_id: "capture-source-17",
+            source_identity_sha256: sourceRef.sha256,
+            result_head: resultHead,
+            result_capture_id:
+              resultHead === sourceHead ? "capture-source-17" : "capture-result-18",
+            result_source_identity_sha256: resultSourceRef.sha256,
+          };
+          const payload = [
+            "TICKET_COORDINATOR v1",
+            ...Object.entries(payloadFields).map(([key, value]) => `${key}: ${value}`),
+            "",
+            "RESULT: bounded redacted phase result",
+          ].join("\n");
+          const localReference = (reference: FixtureArtifact) => ({
+            ...reference,
+            path: reference.path.slice(`${name}/`.length),
+          });
+          const sourceCaptureReference = localReference(sourceRef);
+          if (options.missingSourceCapture) {
+            sourceCaptureReference.path = "missing-source.json";
+          } else if (options.sourceCaptureHash !== undefined) {
+            sourceCaptureReference.sha256 = options.sourceCaptureHash;
+          }
+          const input = writeJson(root, `${name}/check.json`, {
+            schema: options.inputSchema ?? "tiara-worker-handoff-check/v1",
+            phase: localReference(writeJson(root, `${name}/phase.json`, phase)),
+            dispatch: localReference(writeJson(root, `${name}/dispatch.json`, dispatch)),
+            coordinator_readback: localReference(
+              writeJson(root, `${name}/coordinator-readback.json`, {
+                thread: { threadId: options.coordinatorThreadId ?? coordinatorThreadId },
+                items: [
+                  {
+                    type: "user_message",
+                    createdBy: "agent",
+                    sourceThreadId: options.inboundSourceThreadId ?? coordinatorThreadId,
+                    senderThreadId: options.senderThreadId ?? workerThreadId,
+                    messageId: `message:mcp:redacted:thread-send:${options.requestIdInReadback ?? dispatch.client_request_id}`,
+                    runId: "run:thread:coordinator-thread-redacted:ordinal:99",
+                    text: `${payload}${options.inboundPayloadSuffix ?? ""}`,
+                  },
+                ],
+              }),
+            ),
+            worker_readback: localReference(
+              writeJson(root, `${name}/worker-readback.json`, {
+                thread: { threadId: workerThreadId, latestRunId: workerRunId },
+                recentRuns: [...new Set([dispatch.phase_start_native_run_id, workerRunId])].map(
+                  (runId) => ({ runId, status: "completed" }),
+                ),
+                items: [
+                  {
+                    type: "assistant_message",
+                    createdBy: "agent",
+                    sourceThreadId: workerThreadId,
+                    runId: workerRunId,
+                    text: payload,
+                  },
+                ],
+              }),
+            ),
+            source_capture: sourceCaptureReference,
+            ...(resultHead === sourceHead
+              ? {}
+              : { result_source_capture: localReference(resultSourceRef) }),
+          });
+          const outputPath = path.join(root, `${name}/result.json`);
+          const run = spawnSync(
+            "pnpm",
+            [
+              "review:prep",
+              "check-handoff",
+              "--input",
+              path.join(root, input.path),
+              "--output",
+              outputPath,
+            ],
+            { cwd: repoRoot, encoding: "utf8" },
+          );
+          return {
+            run,
+            outputWritten: existsSync(outputPath),
+            result: existsSync(outputPath) ? readJson(outputPath) : undefined,
+          };
+        };
+
+        const accepted = runCheck("accepted");
+        expect(accepted.run.status).toBe(0);
+        expect(accepted.result).toMatchObject({
+          status: "complete",
+          reconciliation: [],
+          native_readback: {
+            recipient_run_id: "run:thread:coordinator-thread-redacted:ordinal:99",
+            worker_message_run_id: "run:thread:worker-thread-redacted:ordinal:7",
+            native_sender_thread_id: "worker-thread-redacted",
+          },
+        });
+        expect(accepted.result.native_readback.recipient_run_id).not.toBe(
+          accepted.result.native_readback.worker_message_run_id,
+        );
+
+        const continuedWorker = runCheck("continued-worker-run", {
+          workerMessageRunId: "run:thread:worker-thread-redacted:ordinal:8",
+          continuationRunIds: ["run:thread:worker-thread-redacted:ordinal:8"],
+        });
+        expect(continuedWorker.run.status).toBe(0);
+        expect(continuedWorker.result.native_readback.worker_message_run_id).toBe(
+          "run:thread:worker-thread-redacted:ordinal:8",
+        );
+
+        const advancedRepair = runCheck("advanced-repair", {
+          resultHead: "c".repeat(40),
+          resultHeadPolicy: "may_advance",
+        });
+        expect(advancedRepair.run.status).toBe(0);
+        expect(advancedRepair.result.expected).toMatchObject({
+          source_head: "b".repeat(40),
+          result_head: "c".repeat(40),
+        });
+
+        const missingSourceCapture = runCheck("missing-source-capture", {
+          missingSourceCapture: true,
+        });
+        expect(missingSourceCapture.run.status).not.toBe(0);
+        expect(missingSourceCapture.outputWritten).toBe(true);
+        expect(missingSourceCapture.result?.reconciliation).toContain(
+          "phase source capture artifact is unreadable",
+        );
+
+        const invalidResultHead = runCheck("invalid-result-head", {
+          resultHead: "not-a-commit",
+          resultHeadPolicy: "may_advance",
+        });
+        expect(invalidResultHead.run.status).not.toBe(0);
+        expect(invalidResultHead.result?.reconciliation).toContain(
+          "result head is a full commit ID",
+        );
+
+        const invalidSchema = runCheck("invalid-schema", {
+          inputSchema: "tiara-worker-handoff-check/v999",
+        });
+        expect(invalidSchema.run.status).not.toBe(0);
+        expect(invalidSchema.outputWritten).toBe(false);
+
+        const oldRepairForResync = runCheck("old-repair-for-resync", {
+          phaseOverrides: {
+            phase_id: "resync-18",
+            grant_id: "grant-resync-18",
+            handoff_id: "handoff-resync-18",
+          },
+          dispatchOverrides: { client_request_id: "request-current-resync-v1" },
+          handoffOverrides: {
+            phase: "repair-17",
+            grant_id: "grant-17",
+            handoff_id: "handoff-17",
+            message_id: "request-old-repair-v1",
+          },
+          requestIdInReadback: "request-old-repair-v1",
+        });
+        expect(oldRepairForResync.run.status).not.toBe(0);
+        expect(oldRepairForResync.result.reconciliation).toContain("handoff phase");
+        expect(oldRepairForResync.result.reconciliation).toContain(
+          "native inbound message unique for expected request ID",
+        );
+        expect(oldRepairForResync.result.expected.source_head).toBe("b".repeat(40));
+
+        const wrongSender = runCheck("wrong-sender", { senderThreadId: "unregistered-worker" });
+        expect(wrongSender.run.status).not.toBe(0);
+        expect(wrongSender.result.reconciliation).toContain(
+          "native inbound sender is registered worker",
+        );
+
+        const wrongRecipient = runCheck("wrong-recipient", {
+          coordinatorThreadId: "different-recipient-thread",
+        });
+        expect(wrongRecipient.run.status).not.toBe(0);
+        expect(wrongRecipient.result.reconciliation).toContain(
+          "coordinator readback target thread",
+        );
+
+        const unregisteredRun = runCheck("unregistered-run", {
+          workerMessageRunId: "run:thread:worker-thread-redacted:ordinal:6",
+        });
+        expect(unregisteredRun.run.status).not.toBe(0);
+        expect(unregisteredRun.result.reconciliation).toContain(
+          "worker native message run is registered for this phase",
+        );
+
+        const mismatchedPayload = runCheck("mismatched-payload", {
+          inboundPayloadSuffix: "\nUnbound native payload alteration",
+        });
+        expect(mismatchedPayload.run.status).not.toBe(0);
+        expect(mismatchedPayload.result.reconciliation).toContain(
+          "worker native message uniquely binds inbound payload",
+        );
+
+        const mismatchedSource = runCheck("mismatched-source", {
+          handoffOverrides: { source_head: "d".repeat(40) },
+        });
+        expect(mismatchedSource.run.status).not.toBe(0);
+        expect(mismatchedSource.result.reconciliation).toContain("handoff source_head");
+
+        const invalidCaptureReference = runCheck("invalid-capture-reference", {
+          sourceCaptureHash: "e".repeat(64),
+        });
+        expect(invalidCaptureReference.run.status).not.toBe(0);
+        expect(invalidCaptureReference.result.reconciliation).toContain(
+          "phase source capture SHA-256 mismatch",
+        );
       }),
     30_000,
   );
